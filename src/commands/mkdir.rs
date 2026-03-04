@@ -1,6 +1,6 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
-use crate::models::{PersonalUploadResp, FamilyCreateFolderRequest};
+use crate::models::PersonalUploadResp;
 
 #[derive(Parser, Debug)]
 pub struct MkdirArgs {
@@ -49,11 +49,10 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
         "fileRenameMode": "force_rename"
     });
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
         println!("目录创建成功: {}", resp.data.file_name);
-        let _ = config.save();
     } else {
         println!("创建失败: {}", resp.base.message);
     }
@@ -70,13 +69,19 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
         parent.to_string()
     };
 
-    let body = FamilyCreateFolderRequest {
-        catalog_name: name.to_string(),
-        parent_catalog_id: catalog_id,
-    };
+    let body = serde_json::json!({
+        "catalogName": name,
+        "parentCatalogID": catalog_id,
+        "cloudID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        },
+        "path": ""
+    });
 
     let client = Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, serde_json::to_value(body)?).await?;
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
     println!("创建目录响应: {:?}", resp);
     Ok(())

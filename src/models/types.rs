@@ -375,6 +375,8 @@ pub struct UploadRequest {
     pub name: String,
     #[serde(rename = "fileRenameMode")]
     pub file_rename_mode: Option<String>,
+    #[serde(rename = "type")]
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

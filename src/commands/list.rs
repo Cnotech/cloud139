@@ -15,13 +15,20 @@ pub struct ListArgs {
 }
 
 pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
+    let mut config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
     let storage_type = config.storage_type();
 
     match storage_type {
         StorageType::PersonalNew => {
-            let mut config = config;
-            let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
+            let host = match &config.personal_cloud_host {
+                Some(cached_host) => cached_host.clone(),
+                None => {
+                    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
+                    config.personal_cloud_host = Some(host.clone());
+                    let _ = config.save();
+                    host
+                }
+            };
             let url = format!("{}/file/list", host);
             
             let parent_file_id = if args.path == "/" || args.path.is_empty() {
@@ -44,7 +51,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                     "parentFileId": parent_file_id
                 });
 
-                let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+                let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body, storage_type).await?;
 
                 if !resp.base.success {
                     println!("获取文件列表失败: {}", resp.base.message);

@@ -85,7 +85,6 @@ pub fn aes_cbc_decrypt(
 
 pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     use aes::cipher::{BlockDecryptMut, KeyInit};
-    use aes::Aes128;
 
     let mut cipher = aes::Aes128::new(key.into());
     let block_size = 16;
@@ -159,12 +158,12 @@ pub fn encode_uri_component(s: &str) -> String {
 }
 
 pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
-    let encoded = encode_uri_component(body);
-    let mut chars: Vec<char> = encoded.chars().collect();
+    let mut chars: Vec<char> = body.chars().collect();
     chars.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
     let sorted: String = chars.into_iter().collect();
+    let encoded = encode_uri_component(&sorted);
 
-    let body_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &sorted);
+    let body_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &encoded);
 
     let hash1 = md5_hash(&body_base64);
     let hash2 = md5_hash(&format!("{}:{}", ts, rand_str));

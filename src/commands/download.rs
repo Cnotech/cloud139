@@ -44,7 +44,7 @@ async fn download_personal(
         "fileId": file_id,
     });
 
-    let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+    let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
         println!("获取下载链接失败: {}", resp.base.message);

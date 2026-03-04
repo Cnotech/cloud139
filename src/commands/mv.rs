@@ -37,11 +37,10 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
 
     let body = serde_json::json!({
         "fileIds": [source],
-        "toParentFileId": target,
-        "fileRenameMode": "auto_rename"
+        "toParentFileId": target
     });
 
-    let resp: BatchMoveResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+    let resp: BatchMoveResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
         println!("移动成功");
@@ -53,12 +52,16 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
 }
 
 async fn mv_family(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/contentCatalog/v1.0/moveContentCatalog";
 
     let body = serde_json::json!({
-        "oprType": 2,
-        "contentIDList": [source],
+        "contentID": source,
         "targetCatalogID": target,
+        "cloudID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
     });
 
     let client = Client::new(config.clone());

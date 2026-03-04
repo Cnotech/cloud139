@@ -74,9 +74,10 @@ async fn upload_personal(
         parent_file_id: parent_file_id.clone(),
         name: file_name.to_string(),
         file_rename_mode: Some("auto_rename".to_string()),
+        file_type: Some("file".to_string()),
     };
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, serde_json::to_value(body)?).await?;
+    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, serde_json::to_value(body)?, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
         println!("创建上传任务失败: {}", resp.base.message);
@@ -121,11 +122,46 @@ async fn upload_parts(
     let part_size: i64 = 100 * 1024 * 1024;
     let part_count = (file_size + part_size - 1) / part_size;
 
-    for i in 0..part_count {
+    let mut all_urls: Vec<String> = Vec::new();
+    let mut current_url_index: i64 = 0;
+
+    loop {
+        let get_url = format!("{}/file/getUploadUrl", host);
+        let client = reqwest::Client::new();
+        
+        let body = serde_json::json!({
+            "uploadId": upload_id,
+            "fileId": file_id,
+            "partNumber": current_url_index + 1,
+            "uploadedSize": (current_url_index * part_size) as i64
+        });
+
+        let resp = client
+            .post(&get_url)
+            .json(&body)
+            .send()
+            .await?;
+
+        let resp_json: serde_json::Value = resp.json().await?;
+        
+        if let Some(url) = resp_json.get("data").and_then(|d| d.get("uploadUrl")).and_then(|u| u.as_str()) {
+            all_urls.push(url.to_string());
+            current_url_index += 1;
+            if current_url_index >= part_count {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    file.seek(SeekFrom::Start(0))?;
+
+    for (i, upload_url) in all_urls.iter().enumerate() {
         file.seek(SeekFrom::Start(i as u64 * part_size as u64))?;
         
-        let read_size = if (i + 1) * part_size > file_size {
-            file_size - i * part_size
+        let read_size = if (i as i64 + 1) * part_size > file_size {
+            file_size - i as i64 * part_size
         } else {
             part_size
         };
@@ -139,6 +175,17 @@ async fn upload_parts(
 
         let part_number = i + 1;
         println!("上传分片 {}/{}", part_number, part_count);
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .put(upload_url)
+            .body(buffer)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            println!("分片 {} 上传失败: {}", part_number, resp.status());
+        }
     }
 
     println!("\n所有分片上传完成");

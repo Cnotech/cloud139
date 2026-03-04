@@ -45,7 +45,7 @@ async fn delete_personal(config: &crate::config::Config, file_id: &str) -> Resul
         "fileIds": [file_id]
     });
 
-    let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body).await?;
+    let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
         println!("文件已移动到回收站");
@@ -61,9 +61,16 @@ async fn delete_family(config: &crate::config::Config, content_id: &str) -> Resu
 
     let body = serde_json::json!({
         "taskType": 2,
-        "contentList": [content_id],
+        "contentList": [{
+            "contentID": content_id,
+            "path": ""
+        }],
         "sourceCloudID": config.cloud_id,
         "sourceCatalogType": 1002,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
     });
 
     let client = Client::new(config.clone());
