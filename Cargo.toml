@@ -1,0 +1,44 @@
+[package]
+name = "mobile-cloud-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.11", features = ["json", "multipart", "stream", "cookies"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.21"
+aes = "0.8"
+aes-gcm = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+md-5 = "0.10"
+tokio = { version = "1", features = ["full"] }
+directories = "5"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.10"
+thiserror = "1"
+tokio-stream = "0.1"
+futures-util = "0.3"
+hex = "0.4"
+regex = "1"
+url = "2"
+block-modes = "0.9"
+cipher = "0.4"
+cbc = "0.1"
+digest = "0.10"
+generic-array = "0.14"
+typenum = "1.17"
+urlencoding = "2"
+rand = "0.8"
+quick-xml = { version = "0.31", features = ["serialize"] }
+serde-xml-rs = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "139yun"
+path = "src/main.rs"
