@@ -63,8 +63,8 @@ async fn upload_personal(
     let existing_id = crate::client::api::get_file_id_by_path(config, &full_remote_path).await;
     if let Ok(id) = existing_id {
         if !id.is_empty() {
-            println!("错误: 目标文件已存在: {}", full_remote_path);
-            return Ok(());
+            println!("目标路径已存在文件: {}", full_remote_path);
+            println!("冲突处理: 将使用自动重命名模式上传");
         }
     }
 
@@ -81,6 +81,29 @@ async fn upload_personal(
         crate::client::api::get_file_id_by_path(&config, remote_path).await?
     };
 
+    let content_type = match local_path.extension().and_then(|e| e.to_str()) {
+        Some("txt") => "text/plain",
+        Some("html") | Some("htm") => "text/html",
+        Some("css") => "text/css",
+        Some("js") => "application/javascript",
+        Some("json") => "application/json",
+        Some("xml") => "application/xml",
+        Some("pdf") => "application/pdf",
+        Some("zip") => "application/zip",
+        Some("tar") => "application/x-tar",
+        Some("gz") => "application/gzip",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        Some("mp3") => "audio/mpeg",
+        Some("mp4") => "video/mp4",
+        Some("avi") => "video/x-msvideo",
+        Some("mov") => "video/quicktime",
+        _ => "application/octet-stream",
+    }.to_string();
+
     let body = UploadRequest {
         content_hash: content_hash.clone(),
         content_hash_algorithm: "SHA256".to_string(),
@@ -89,6 +112,11 @@ async fn upload_personal(
         name: file_name.to_string(),
         file_rename_mode: Some("auto_rename".to_string()),
         file_type: Some("file".to_string()),
+        content_type: Some(content_type),
+        common_account_info: Some(crate::models::CommonAccountInfo {
+            account: config.username.clone(),
+            account_type: 1,
+        }),
     };
 
     let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, serde_json::to_value(body)?, StorageType::PersonalNew).await?;
@@ -114,7 +142,7 @@ async fn upload_personal(
             println!("服务器未返回分片信息，执行普通上传...");
         } else {
             println!("开始分片上传...");
-            upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, file_size, &content_hash).await?;
+            upload_parts(&config, &host, local_path, &data.upload_id.unwrap(), &data.file_id, file_size, &content_hash).await?;
             println!("上传完成: {}", data.file_name);
             return Ok(());
         }
@@ -126,6 +154,7 @@ async fn upload_personal(
 }
 
 async fn upload_parts(
+    config: &crate::config::Config,
     host: &str,
     local_path: &Path,
     upload_id: &str,
@@ -140,51 +169,46 @@ async fn upload_parts(
     let part_size: i64 = 100 * 1024 * 1024;
     let part_count = (file_size + part_size - 1) / part_size;
 
-    let mut all_urls: Vec<String> = Vec::new();
-    let mut current_url_index: i64 = 0;
-
-    loop {
+    for i in 0..part_count {
         let get_url = format!("{}/file/getUploadUrl", host);
+        
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
+        headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
+
         let client = reqwest::Client::new();
         
         let body = serde_json::json!({
             "uploadId": upload_id,
             "fileId": file_id,
-            "partNumber": current_url_index + 1,
-            "uploadedSize": (current_url_index * part_size) as i64
+            "partNumber": i + 1,
+            "uploadedSize": (i * part_size) as i64,
+            "commonAccountInfo": {
+                "account": config.username,
+                "accountType": 1
+            }
         });
 
         let resp = client
             .post(&get_url)
+            .headers(headers)
             .json(&body)
             .send()
             .await?;
 
         let resp_json: serde_json::Value = resp.json().await?;
         
-        if let Some(url) = resp_json.get("data").and_then(|d| d.get("uploadUrl")).and_then(|u| u.as_str()) {
-            all_urls.push(url.to_string());
-            current_url_index += 1;
-            if current_url_index >= part_count {
-                break;
-            }
-        } else {
-            let error_msg = resp_json.get("message").or(resp_json.get("base").and_then(|b| b.get("message"))).and_then(|m| m.as_str()).unwrap_or("获取上传URL失败");
-            return Err(ClientError::Api(format!("获取分片上传URL失败: {}", error_msg)));
-        }
-    }
+        let upload_url = resp_json.get("data").and_then(|d| d.get("uploadUrl")).and_then(|u| u.as_str())
+            .ok_or_else(|| {
+                let error_msg = resp_json.get("message").or(resp_json.get("base").and_then(|b| b.get("message"))).and_then(|m| m.as_str()).unwrap_or("获取上传URL失败");
+                ClientError::Api(format!("获取分片上传URL失败: {}", error_msg))
+            })?
+            .to_string();
 
-    if all_urls.is_empty() {
-        return Err(ClientError::Api("未能获取任何分片上传URL".to_string()));
-    }
-
-    file.seek(SeekFrom::Start(0))?;
-
-    for (i, upload_url) in all_urls.iter().enumerate() {
         file.seek(SeekFrom::Start(i as u64 * part_size as u64))?;
         
-        let read_size = if (i as i64 + 1) * part_size > file_size {
-            file_size - i as i64 * part_size
+        let read_size = if (i + 1) * part_size > file_size {
+            file_size - i * part_size
         } else {
             part_size
         };
@@ -199,9 +223,16 @@ async fn upload_parts(
         let part_number = i + 1;
         println!("上传分片 {}/{}", part_number, part_count);
 
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
+        headers.insert("Content-Length", read_size.to_string().parse().unwrap());
+        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
+        headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
+
         let client = reqwest::Client::new();
         let resp = client
-            .put(upload_url)
+            .put(&upload_url)
+            .headers(headers)
             .body(buffer)
             .send()
             .await?;

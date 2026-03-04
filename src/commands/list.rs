@@ -67,7 +67,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 for item in &resp.data.items {
                     let file_type = if item.file_type == "folder" { "d" } else { "-" };
                     let size = format_size(item.size);
-                    let time = item.updated_at.clone().or(item.last_modified.clone()).unwrap_or_default();
+                    let time = item.update_date.clone().or(item.last_modified.clone()).unwrap_or_default();
                     println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name, size, time);
                 }
 

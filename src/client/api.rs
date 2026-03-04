@@ -1,6 +1,6 @@
 use crate::client::ClientError;
 use crate::config::Config;
-use crate::models::{QueryRoutePolicyResp, QueryFileResp};
+use crate::models::QueryRoutePolicyResp;
 
 pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
@@ -71,19 +71,50 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
 
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
-    let url = format!("{}/file/getFileByPath", host);
 
-    let body = serde_json::json!({
-        "path": path
-    });
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect();
+    
+    let mut current_parent_id = String::new();
+    
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        let parent_id = if current_parent_id.is_empty() {
+            "".to_string()
+        } else {
+            current_parent_id.clone()
+        };
+        
+        let url = format!("{}/file/list", host);
+        
+        let body = serde_json::json!({
+            "parentFileId": parent_id,
+            "pageNum": 1,
+            "pageSize": 100,
+            "orderBy": "updated_at",
+            "orderDirection": "DESC"
+        });
 
-    let resp: QueryFileResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+        let list_resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
 
-    if !resp.base.success {
-        return Err(ClientError::Api(format!("获取文件ID失败: {}", resp.base.message)));
+        let target_id = list_resp.data.items
+            .into_iter()
+            .find(|item| item.name == *part)
+            .map(|item| item.file_id);
+
+        match target_id {
+            Some(id) => {
+                if is_last {
+                    return Ok(id);
+                }
+                current_parent_id = id;
+            }
+            None => {
+                return Err(ClientError::Api(format!("文件或目录不存在: {}", part)));
+            }
+        }
     }
 
-    Ok(resp.data.file_id)
+    Ok(current_parent_id)
 }
 
 pub async fn get_personal_disk_info(config: &Config) -> Result<crate::models::PersonalDiskInfoResp, ClientError> {

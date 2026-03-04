@@ -39,6 +39,8 @@ pub struct Config {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub token_expire_time: Option<i64>,
+    #[serde(default)]
+    pub root_folder_id: Option<String>,
 }
 
 fn default_type() -> String {

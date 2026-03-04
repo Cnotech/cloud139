@@ -52,7 +52,7 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
     let parent_file_id = if parent == "/" || parent.is_empty() {
         "".to_string()
     } else {
-        parent.to_string()
+        crate::client::api::get_file_id_by_path(&config, parent).await?
     };
 
     let body = serde_json::json!({

@@ -84,11 +84,23 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
 }
 
 async fn mv_family(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+    let source_id = if source.starts_with('/') || source.contains('/') {
+        crate::client::api::get_file_id_by_path(config, source).await?
+    } else {
+        source.to_string()
+    };
+
+    let target_id = if target.starts_with('/') || target.contains('/') {
+        crate::client::api::get_file_id_by_path(config, target).await?
+    } else {
+        target.to_string()
+    };
+
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/contentCatalog/v1.0/moveContentCatalog";
 
     let body = serde_json::json!({
-        "contentID": source,
-        "targetCatalogID": target,
+        "contentID": source_id,
+        "targetCatalogID": target_id,
         "cloudID": config.cloud_id,
         "commonAccountInfo": {
             "account": config.username,

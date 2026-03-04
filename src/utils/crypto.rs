@@ -158,12 +158,12 @@ pub fn encode_uri_component(s: &str) -> String {
 }
 
 pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
-    let mut chars: Vec<char> = body.chars().collect();
-    chars.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+    let encoded = encode_uri_component(body);
+    let mut chars: Vec<char> = encoded.chars().collect();
+    chars.sort();
     let sorted: String = chars.into_iter().collect();
-    let encoded = encode_uri_component(&sorted);
 
-    let body_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &encoded);
+    let body_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &sorted);
 
     let hash1 = md5_hash(&body_base64);
     let hash2 = md5_hash(&format!("{}:{}", ts, rand_str));

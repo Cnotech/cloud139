@@ -100,24 +100,24 @@ pub struct PersonalListData {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PersonalFileItem {
+    #[serde(rename = "fileId")]
     pub file_id: String,
     pub name: String,
     pub size: i64,
     #[serde(rename = "type")]
     pub file_type: String,
-    #[serde(rename = "createDate")]
-    pub created_at: Option<String>,
-    #[serde(rename = "updateDate")]
-    pub updated_at: Option<String>,
-    #[serde(rename = "lastModified")]
+    #[serde(rename = "createDate", default)]
+    pub create_date: Option<String>,
+    #[serde(rename = "updateDate", default)]
+    pub update_date: Option<String>,
+    #[serde(rename = "lastModified", default)]
     pub last_modified: Option<String>,
-    #[serde(rename = "createdTime")]
+    #[serde(rename = "createdTime", default)]
     pub created_time: Option<String>,
-    #[serde(rename = "updatedTime")]
+    #[serde(rename = "updatedTime", default)]
     pub updated_time: Option<String>,
-    #[serde(rename = "thumbnailUrls")]
+    #[serde(rename = "thumbnailUrls", default)]
     pub thumbnail_urls: Option<Vec<PersonalThumbnail>>,
 }
 
@@ -377,6 +377,10 @@ pub struct UploadRequest {
     pub file_rename_mode: Option<String>,
     #[serde(rename = "type")]
     pub file_type: Option<String>,
+    #[serde(rename = "contentType")]
+    pub content_type: Option<String>,
+    #[serde(rename = "commonAccountInfo")]
+    pub common_account_info: Option<CommonAccountInfo>,
 }
 
 #[derive(Debug, Serialize)]

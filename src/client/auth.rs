@@ -42,6 +42,7 @@ pub async fn login(
         personal_cloud_host: None,
         refresh_token: Some(step3_result.auth_token),
         token_expire_time: Some(chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000),
+        root_folder_id: None,
     };
 
     Ok(config)
@@ -231,10 +232,45 @@ async fn step3_third_login(
 
     let resp_body = resp.bytes().await?;
 
-    let decrypted = crypto::aes_cbc_decrypt(&resp_body, &key1, &iv)
-        .map_err(|e| ClientError::Other(e.to_string()))?;
-    let layer1_str = String::from_utf8(decrypted.clone())
-        .map_err(|e| ClientError::Other(e.to_string()))?;
+    let resp_str = String::from_utf8_lossy(&resp_body);
+    
+    let layer1_str = if resp_str.trim_start().starts_with('{') {
+        #[derive(Deserialize)]
+        struct DirectResp {
+            #[serde(rename = "authToken")]
+            auth_token: Option<String>,
+            account: Option<String>,
+            #[serde(rename = "userDomainId")]
+            user_domain_id: Option<String>,
+            #[serde(rename = "cloudID")]
+            cloud_id: Option<String>,
+            #[serde(rename = "return")]
+            return_code: Option<String>,
+        }
+
+        if let Ok(direct_resp) = serde_json::from_str::<DirectResp>(&resp_str) {
+            if let (Some(auth_token), Some(account), Some(user_domain_id), Some(cloud_id)) = 
+                (direct_resp.auth_token, direct_resp.account, direct_resp.user_domain_id, direct_resp.cloud_id) {
+                return Ok(Step3Result {
+                    auth_token,
+                    account,
+                    cloud_id,
+                    user_domain_id,
+                });
+            }
+            if let Some(return_code) = direct_resp.return_code {
+                if return_code != "0" {
+                    return Err(ClientError::Other(format!("Login failed with code: {}", return_code)));
+                }
+            }
+        }
+        return Err(ClientError::Other(format!("Failed to parse response: {}", resp_str)));
+    } else {
+        let decrypted = crypto::aes_cbc_decrypt(&resp_body, &key1, &iv)
+            .map_err(|e| ClientError::Other(e.to_string()))?;
+        String::from_utf8(decrypted.clone())
+            .map_err(|e| ClientError::Other(e.to_string()))?
+    };
 
     #[derive(Deserialize)]
     struct Layer1Resp {
