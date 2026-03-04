@@ -1,4 +1,5 @@
 use digest::Digest;
+use generic_array::GenericArray;
 use std::error::Error;
 
 pub fn sha1_hash(data: &str) -> String {
@@ -19,7 +20,6 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
         cipher::{BlockEncryptMut, KeyIvInit},
         Encryptor,
     };
-    use generic_array::GenericArray;
 
     type Aes128Cbc = Encryptor<Aes128>;
 
@@ -56,7 +56,6 @@ pub fn aes_cbc_decrypt(
         cipher::{BlockDecryptMut, KeyIvInit},
         Decryptor,
     };
-    use generic_array::GenericArray;
 
     type Aes128Cbc = Decryptor<Aes128>;
 
@@ -84,6 +83,34 @@ pub fn aes_cbc_decrypt(
     Ok(plaintext)
 }
 
+pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    use aes::cipher::{BlockDecryptMut, KeyInit};
+    use aes::Aes128;
+
+    let mut cipher = aes::Aes128::new(key.into());
+    let block_size = 16;
+
+    if ciphertext.len() % block_size != 0 {
+        return Err("ciphertext is not a multiple of the block size".into());
+    }
+
+    let mut result = ciphertext.to_vec();
+    let blocks = result.chunks_mut(block_size);
+
+    for block in blocks {
+        let mut arr = GenericArray::<u8, typenum::U16>::from_slice(block).clone();
+        cipher.decrypt_block_mut(&mut arr);
+        block.copy_from_slice(&arr);
+    }
+
+    let padding = result[result.len() - 1] as usize;
+    if padding > 0 && padding <= 16 {
+        result.truncate(result.len() - padding);
+    }
+
+    Ok(result)
+}
+
 pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     let padding = block_size - (data.len() % block_size);
     let mut result = data.to_vec();
@@ -107,8 +134,32 @@ pub fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(data[..data.len() - padding].to_vec())
 }
 
+pub fn encode_uri_component(s: &str) -> String {
+    let mut result = String::new();
+    for c in s.chars() {
+        match c {
+            '!' => result.push_str("%21"),
+            '\'' => result.push_str("%27"),
+            '(' => result.push_str("%28"),
+            ')' => result.push_str("%29"),
+            '*' => result.push_str("%2A"),
+            ' ' => result.push_str("%20"),
+            _ => {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' {
+                    result.push(c);
+                } else {
+                    for b in c.to_string().as_bytes() {
+                        result.push_str(&format!("%{:02X}", b));
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
 pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
-    let encoded = urlencoding::encode(body);
+    let encoded = encode_uri_component(body);
     let mut chars: Vec<char> = encoded.chars().collect();
     chars.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
     let sorted: String = chars.into_iter().collect();
@@ -118,7 +169,8 @@ pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
     let hash1 = md5_hash(&body_base64);
     let hash2 = md5_hash(&format!("{}:{}", ts, rand_str));
 
-    format!("{}{}", hash1, hash2).to_uppercase()
+    let combined = format!("{}{}", hash1, hash2);
+    md5_hash(&combined).to_uppercase()
 }
 
 pub fn calc_file_hash(path: &str) -> Result<String, std::io::Error> {

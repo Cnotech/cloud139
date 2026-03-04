@@ -1,6 +1,6 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
-use crate::models::{ListRequest, PersonalListResp, FamilyListRequest, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
+use crate::models::{PersonalListResp, FamilyListRequest, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -29,16 +29,19 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 args.path.clone()
             };
 
-            let body = ListRequest {
-                parent_file_id,
-                page_num: args.page,
-                page_size: args.page_size,
-                order_by: Some("updateDate".to_string()),
-                descending: Some(true),
-            };
+            let body = serde_json::json!({
+                "imageThumbnailStyleList": ["Small", "Large"],
+                "orderBy": "updated_at",
+                "orderDirection": "DESC",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": args.page_size
+                },
+                "parentFileId": parent_file_id
+            });
 
             let client = Client::new(config);
-            let resp: PersonalListResp = client.api_request_post(&url, serde_json::to_value(body)?).await?;
+            let resp: PersonalListResp = client.api_request_post(&url, body).await?;
 
             if !resp.base.success {
                 println!("获取文件列表失败: {}", resp.base.message);

@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use crate::client::ClientError;
 use crate::config::Config;
+use crate::utils::crypto;
 
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
 const KEY_HEX_2: &str = "7150714477323633586746674c337538";
@@ -14,17 +15,17 @@ pub async fn login(
     log::info!("Starting login for user: {}", username);
 
     let step1_result = step1_login(username, password, mail_cookies).await?;
-    log::info!("Step 1 completed: got sid={}, cguid={}", step1_result.sid, step1_result.cguid);
+    log::info!("Step 1 completed: got sid={}", step1_result.sid);
 
-    let step2_result = step2_get_artifact(&step1_result.sid, mail_cookies).await?;
+    let step2_result = step2_get_artifact(&step1_result.sid).await?;
     log::info!("Step 2 completed: got dycpwd");
 
-    let step3_result = step3_third_login(username, &step1_result.sid, &step2_result.dycpwd).await?;
+    let step3_result = step3_third_login(username, &step2_result.dycpwd).await?;
     log::info!("Step 3 completed: got authToken");
 
     let authorization = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        format!("pc:{}:{}", username, step3_result.auth_token),
+        format!("pc:{}:{}", step3_result.account, step3_result.auth_token),
     );
 
     let config = Config {
@@ -51,21 +52,37 @@ async fn step1_login(
     password: &str,
     mail_cookies: &str,
 ) -> Result<Step1Result, ClientError> {
-    let hashed_password = crate::utils::crypto::sha1_hash(&format!("fetion.com.cn:{}", password));
+    let hashed_password = crypto::sha1_hash(&format!("fetion.com.cn:{}", password));
     
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0")
+        .redirect(reqwest::redirect::Policy::none())
         .build()?;
+
+    let cguid = chrono::Utc::now().timestamp_millis().to_string();
 
     let params = [
         ("UserName", username),
-        ("Password", &hashed_password),
+        ("passOld", ""),
         ("auto", "on"),
+        ("Password", &hashed_password),
+        ("webIndexPagePwdLogin", "1"),
+        ("pwdType", "1"),
+        ("clientId", "1003"),
+        ("authType", "2"),
     ];
 
+    let referer = format!(
+        "https://mail.10086.cn/default.html?&s=1&v=0&u={}&m=1&ec=S001&resource=indexLogin&clientid=1003&auto=on&cguid={}&mtime=45",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, username),
+        cguid
+    );
+
     let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7".parse().unwrap());
+    headers.insert("Content-Type", "application/x-www-form-urlencoded".parse().unwrap());
     headers.insert("Cookie", mail_cookies.parse().unwrap());
-    headers.insert("Referer", "https://mail.10086.cn/".parse().unwrap());
+    headers.insert(reqwest::header::REFERER, reqwest::header::HeaderValue::from_str(&referer).unwrap());
 
     let resp = client
         .post("https://mail.10086.cn/Login/Login.ashx")
@@ -74,38 +91,52 @@ async fn step1_login(
         .send()
         .await?;
 
+    let status = resp.status();
+    if !(status.is_redirection()) {
+        return Err(ClientError::Other(format!("Login failed with status: {}", status)));
+    }
+
     let location = resp.headers()
         .get("Location")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    let url = url::Url::parse(&format!("https://mail.10086.cn{}", location))
+    let full_url = format!("https://mail.10086.cn{}", location);
+    let url = url::Url::parse(&full_url)
         .map_err(|e| ClientError::Other(e.to_string()))?;
 
     let sid = url.query_pairs().find(|(k, _)| k == "sid")
         .map(|(_, v)| v.to_string())
         .unwrap_or_default();
 
-    let cguid = url.query_pairs().find(|(k, _)| k == "cguid")
+    let extracted_cguid = url.query_pairs().find(|(k, _)| k == "cguid")
         .map(|(_, v)| v.to_string())
-        .unwrap_or_default();
+        .unwrap_or(cguid);
 
-    Ok(Step1Result { sid, cguid })
+    if sid.is_empty() {
+        return Err(ClientError::Other("Failed to extract sid from login response".to_string()));
+    }
+
+    log::debug!("Extracted sid: {}, cguid: {}", sid, extracted_cguid);
+
+    Ok(Step1Result { sid, cguid: extracted_cguid })
 }
 
-async fn step2_get_artifact(sid: &str, mail_cookies: &str) -> Result<Step2Result, ClientError> {
+async fn step2_get_artifact(sid: &str) -> Result<Step2Result, ClientError> {
+    let cguid = chrono::Utc::now().timestamp_millis().to_string();
     let url = format!(
-        "https://smsrebuild1.mail.10086.cn/setting/s?func=umc:getArtifact&sid={}",
-        sid
+        "https://smsrebuild1.mail.10086.cn/setting/s?func=umc:getArtifact&sid={}&cguid={}",
+        sid, cguid
     );
 
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .user_agent("okhttp/4.12.0")
         .build()?;
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Cookie", mail_cookies.parse().unwrap());
-    headers.insert("Referer", "https://mail.10086.cn/".parse().unwrap());
+    headers.insert("Host", "smsrebuild1.mail.10086.cn".parse().unwrap());
+    headers.insert("Content-Type", "text/xml; charset=utf-8".parse().unwrap());
+    headers.insert("Accept-Encoding", "gzip".parse().unwrap());
 
     let resp = client
         .get(&url)
@@ -113,6 +144,8 @@ async fn step2_get_artifact(sid: &str, mail_cookies: &str) -> Result<Step2Result
         .send()
         .await?;
 
+    let body = resp.text().await?;
+    
     #[derive(Deserialize)]
     struct ArtifactResp {
         #[serde(rename = "var")]
@@ -124,7 +157,8 @@ async fn step2_get_artifact(sid: &str, mail_cookies: &str) -> Result<Step2Result
         artifact: String,
     }
 
-    let artifact_resp: ArtifactResp = resp.json().await?;
+    let artifact_resp: ArtifactResp = serde_json::from_str(&body)
+        .map_err(|e| ClientError::Other(format!("Failed to parse artifact response: {}", e)))?;
 
     Ok(Step2Result {
         dycpwd: artifact_resp.var.artifact,
@@ -133,62 +167,84 @@ async fn step2_get_artifact(sid: &str, mail_cookies: &str) -> Result<Step2Result
 
 async fn step3_third_login(
     username: &str,
-    sid: &str,
     dycpwd: &str,
 ) -> Result<Step3Result, ClientError> {
-    let key1 = hex::decode(KEY_HEX_1).unwrap();
-    let key2 = hex::decode(KEY_HEX_2).unwrap();
+    let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
+    let key2 = hex::decode(KEY_HEX_2).map_err(|e| ClientError::Other(e.to_string()))?;
 
-    let iv = vec![0u8; 16];
+    let secinfo = crypto::sha1_hash(&format!("fetion.com.cn:{}", dycpwd)).to_uppercase();
 
     let request_body = serde_json::json!({
-        "msisdn": username,
-        "dycpwd": dycpwd,
-        "sid": sid,
+        "clientkey_decrypt": "l3TryM&Q+X7@dzwk)qP",
         "clienttype": "886",
         "cpid": "507",
-        "version": "7.14.0",
-        "deviceid": "",
-        "equipmenttype": "1",
+        "dycpwd": dycpwd,
+        "extInfo": {"ifOpenAccount": "0"},
+        "loginMode": "0",
+        "msisdn": username,
+        "pintype": "13",
+        "secinfo": secinfo,
+        "version": "20250901",
     });
 
-    let body_str = request_body.to_string();
-    let encrypted = crate::utils::crypto::aes_cbc_encrypt(body_str.as_bytes(), &key1, &iv)
+    let body_str = serde_json::to_string(&request_body)
         .map_err(|e| ClientError::Other(e.to_string()))?;
+
+    let iv = vec![0u8; 16];
+    let encrypted = crypto::aes_cbc_encrypt(body_str.as_bytes(), &key1, &iv)
+        .map_err(|e| ClientError::Other(e.to_string()))?;
+
+    let mut payload = iv.clone();
+    payload.extend(encrypted);
+    
+    let payload_base64 = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &payload,
+    );
 
     let url = "https://user-njs.yun.139.com/user/thirdlogin";
 
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        .user_agent("okhttp/3.12.2")
         .build()?;
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Content-Type", "application/json;charset=UTF-8".parse().unwrap());
-    headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-    headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
-
-    let encrypted_base64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &encrypted,
-    );
+    headers.insert("hcy-cool-flag", "1".parse().unwrap());
+    headers.insert("x-huawei-channelSrc", "10246600".parse().unwrap());
+    headers.insert("Content-Type", "text/plain;charset=UTF-8".parse().unwrap());
+    headers.insert("Host", "user-njs.yun.139.com".parse().unwrap());
+    headers.insert("Connection", "Keep-Alive".parse().unwrap());
 
     let resp = client
         .post(url)
         .headers(headers)
-        .body(encrypted_base64)
+        .body(payload_base64)
         .send()
         .await?;
 
-    let encrypted_resp = resp.bytes().await?;
+    let resp_body = resp.bytes().await?;
 
-    let inner_hex = crate::utils::crypto::aes_cbc_decrypt(&encrypted_resp, &key1, &iv)
+    let decrypted = crypto::aes_cbc_decrypt(&resp_body, &key1, &iv)
         .map_err(|e| ClientError::Other(e.to_string()))?;
-    let inner_str = String::from_utf8(inner_hex.clone()).unwrap();
-    let inner_hex_str = hex::encode(inner_hex);
-    
-    let decrypted = crate::utils::crypto::aes_cbc_decrypt(inner_hex_str.as_bytes(), &key2, &iv)
+    let layer1_str = String::from_utf8(decrypted.clone())
         .map_err(|e| ClientError::Other(e.to_string()))?;
-    let final_str = String::from_utf8(decrypted).unwrap();
+
+    #[derive(Deserialize)]
+    struct Layer1Resp {
+        data: String,
+    }
+
+    let layer1: Layer1Resp = serde_json::from_str(&layer1_str)
+        .map_err(|e| ClientError::Other(format!("Failed to parse layer1: {} - {}", e, layer1_str)))?;
+
+    let hex_inner = layer1.data;
+    let hex_inner_bytes = hex::decode(&hex_inner)
+        .map_err(|e| ClientError::Other(format!("Failed to decode hex_inner: {}", e)))?;
+
+    let decrypted_final = crypto::aes_ecb_decrypt(&hex_inner_bytes, &key2)
+        .map_err(|e| ClientError::Other(e.to_string()))?;
+    let final_str = String::from_utf8(decrypted_final)
+        .map_err(|e| ClientError::Other(e.to_string()))?;
 
     #[derive(Deserialize)]
     struct ThirdLoginResp {
@@ -206,6 +262,7 @@ async fn step3_third_login(
 
     Ok(Step3Result {
         auth_token: login_resp.auth_token,
+        account: login_resp.account,
         cloud_id: login_resp.cloud_id,
         user_domain_id: login_resp.user_domain_id,
     })
@@ -282,6 +339,7 @@ struct Step2Result {
 
 struct Step3Result {
     auth_token: String,
+    account: String,
     cloud_id: String,
     user_domain_id: String,
 }

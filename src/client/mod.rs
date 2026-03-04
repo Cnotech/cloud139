@@ -108,9 +108,7 @@ impl Client {
         
         match storage_type {
             StorageType::PersonalNew => {
-                let host = api::get_personal_cloud_host(&self.config).await?;
-                let url = format!("{}/user/getDiskInfo", host);
-                let resp: crate::models::PersonalDiskInfoResp = self.api_request_post(&url, serde_json::json!({})).await?;
+                let resp = api::get_personal_disk_info(&self.config).await?;
                 if resp.base.success {
                     let data = resp.data;
                     println!("存储空间信息:");
@@ -119,8 +117,7 @@ impl Client {
                 }
             }
             StorageType::Family => {
-                let url = "https://yun.139.com/orchestration/familyCloud-rebuild/manager/v1.0/getFamilyDiskInfo";
-                let resp: crate::models::FamilyDiskInfoResp = self.api_request_post(url, serde_json::json!({})).await?;
+                let resp = api::get_family_disk_info(&self.config).await?;
                 if resp.base.success {
                     let data = resp.data;
                     println!("家庭云存储空间信息:");
