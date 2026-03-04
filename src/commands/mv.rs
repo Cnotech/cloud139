@@ -31,6 +31,26 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
 }
 
 async fn mv_personal(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+    let source_path = std::path::Path::new(source);
+    let source_parent = source_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let target_normalized = if target == "/" || target.is_empty() {
+        "/".to_string()
+    } else {
+        target.to_string()
+    };
+    
+    let source_parent_normalized = if source_parent.is_empty() {
+        "/".to_string()
+    } else {
+        source_parent
+    };
+    
+    if source_parent_normalized == target_normalized {
+        println!("错误: 源目录和目标目录相同，无法移动");
+        return Ok(());
+    }
+
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
         println!("错误: 无效的源文件路径");

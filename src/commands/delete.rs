@@ -44,6 +44,11 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
 }
 
 async fn delete_personal(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
+    if path == "/" || path.is_empty() {
+        println!("错误: 不能删除根目录");
+        return Ok(());
+    }
+
     let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
     if file_id.is_empty() {
         println!("错误: 无效的文件路径");

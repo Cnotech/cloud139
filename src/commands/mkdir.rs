@@ -31,6 +31,20 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
 }
 
 async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
+    let full_path = if parent == "/" || parent.is_empty() {
+        format!("/{}", name)
+    } else {
+        format!("{}/{}", parent, name)
+    };
+
+    let existing_id = crate::client::api::get_file_id_by_path(config, &full_path).await;
+    if let Ok(id) = existing_id {
+        if !id.is_empty() {
+            println!("错误: 目录已存在: {}", full_path);
+            return Ok(());
+        }
+    }
+
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);

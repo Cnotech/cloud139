@@ -54,6 +54,20 @@ async fn upload_personal(
     file_name: &str,
     file_size: i64,
 ) -> Result<(), ClientError> {
+    let full_remote_path = if remote_path == "/" || remote_path.is_empty() {
+        format!("/{}", file_name)
+    } else {
+        format!("{}/{}", remote_path, file_name)
+    };
+
+    let existing_id = crate::client::api::get_file_id_by_path(config, &full_remote_path).await;
+    if let Ok(id) = existing_id {
+        if !id.is_empty() {
+            println!("错误: 目标文件已存在: {}", full_remote_path);
+            return Ok(());
+        }
+    }
+
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
