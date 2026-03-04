@@ -37,10 +37,10 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
             upload_personal(&config, local_path, &args.remote_path, file_name, file_size).await?;
         }
         StorageType::Family => {
-            println!("家庭云上传暂未实现");
+            return Err(ClientError::Api("家庭云上传功能暂未实现，请使用个人云上传".to_string()));
         }
         StorageType::Group => {
-            println!("群组云上传暂未实现");
+            return Err(ClientError::Api("群组云上传功能暂未实现，请使用个人云上传".to_string()));
         }
     }
 
@@ -61,10 +61,15 @@ async fn upload_personal(
     };
 
     let existing_id = crate::client::api::get_file_id_by_path(config, &full_remote_path).await;
-    if let Ok(id) = existing_id {
-        if !id.is_empty() {
-            println!("目标路径已存在文件: {}", full_remote_path);
-            println!("冲突处理: 将使用自动重命名模式上传");
+    match existing_id {
+        Ok(id) => {
+            if !id.is_empty() {
+                println!("目标路径已存在文件: {}", full_remote_path);
+                println!("冲突处理: 将使用自动重命名模式上传");
+            }
+        }
+        Err(e) => {
+            println!("警告: 无法检查目标路径是否存在: {:?}", e);
         }
     }
 

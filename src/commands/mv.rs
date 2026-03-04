@@ -4,14 +4,19 @@ use crate::models::BatchMoveResp;
 
 #[derive(Parser, Debug)]
 pub struct MvArgs {
-    #[arg(help = "源文件路径")]
-    pub source: String,
+    #[arg(help = "源文件路径（支持多个，用空格分隔）")]
+    pub source: Vec<String>,
 
     #[arg(help = "目标路径")]
     pub target: String,
 }
 
 pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
+    if args.source.is_empty() {
+        println!("错误: 请指定至少一个源文件");
+        return Ok(());
+    }
+
     let config = crate::config::Config::load().map_err(|e| ClientError::Config(e))?;
     let storage_type = config.storage_type();
 
@@ -30,30 +35,40 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn mv_personal(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
-    let source_path = std::path::Path::new(source);
-    let source_parent = source_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    
+async fn mv_personal(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
     let target_normalized = if target == "/" || target.is_empty() {
         "/".to_string()
     } else {
         target.to_string()
     };
+
+    let mut source_ids: Vec<String> = Vec::new();
     
-    let source_parent_normalized = if source_parent.is_empty() {
-        "/".to_string()
-    } else {
-        source_parent
-    };
-    
-    if source_parent_normalized == target_normalized {
-        println!("错误: 源目录和目标目录相同，无法移动");
-        return Ok(());
+    for source in sources {
+        let source_path = std::path::Path::new(source);
+        let source_parent = source_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+        
+        let source_parent_normalized = if source_parent.is_empty() {
+            "/".to_string()
+        } else {
+            source_parent
+        };
+        
+        if source_parent_normalized == target_normalized {
+            println!("警告: 源目录和目标目录相同，跳过: {}", source);
+            continue;
+        }
+
+        let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
+        if source_id.is_empty() {
+            println!("警告: 无效的源文件路径: {}", source);
+            continue;
+        }
+        source_ids.push(source_id);
     }
 
-    let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
-    if source_id.is_empty() {
-        println!("错误: 无效的源文件路径");
+    if source_ids.is_empty() {
+        println!("错误: 没有有效的源文件需要移动");
         return Ok(());
     }
 
@@ -68,7 +83,7 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
     let url = format!("{}/file/batchMove", host);
 
     let body = serde_json::json!({
-        "fileIds": [source_id],
+        "fileIds": source_ids,
         "toParentFileId": target_id
     });
 
@@ -83,7 +98,13 @@ async fn mv_personal(config: &crate::config::Config, source: &str, target: &str)
     Ok(())
 }
 
-async fn mv_family(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+async fn mv_family(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
+    if sources.len() > 1 {
+        println!("家庭云暂不支持批量移动");
+        return Ok(());
+    }
+
+    let source = &sources[0];
     let source_id = if source.starts_with('/') || source.contains('/') {
         crate::client::api::get_file_id_by_path(config, source).await?
     } else {
