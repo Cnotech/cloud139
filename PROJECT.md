@@ -1,7 +1,7 @@
 # 移动云盘 CLI (139 Yun) 项目规划
 
 > 本项目是对 OpenList 的 139 网盘驱动（drivers/139）的 Rust 重构，实现 CLI 工具。
-> **重构过程中可参考 OpenList-main 中的 Go 实现。**
+> **重构过程中可参考当前目录下 OpenList-main 中的 Go 实现。**
 
 ## 2. 项目结构
 
