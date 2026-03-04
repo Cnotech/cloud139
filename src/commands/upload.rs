@@ -64,7 +64,7 @@ async fn upload_personal(
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
         "".to_string()
     } else {
-        remote_path.to_string()
+        crate::client::api::get_file_id_by_path(&config, remote_path).await?
     };
 
     let body = UploadRequest {
@@ -80,8 +80,7 @@ async fn upload_personal(
     let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, serde_json::to_value(body)?, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
-        println!("创建上传任务失败: {}", resp.base.message);
-        return Ok(());
+        return Err(ClientError::Api(format!("创建上传任务失败: {}", resp.base.message)));
     }
 
     let data = resp.data;
@@ -97,13 +96,18 @@ async fn upload_personal(
     }
 
     if let Some(part_infos) = data.part_infos {
-        if !part_infos.is_empty() {
+        if part_infos.is_empty() {
+            println!("服务器未返回分片信息，执行普通上传...");
+        } else {
             println!("开始分片上传...");
             upload_parts(&host, local_path, &data.upload_id.unwrap(), &data.file_id, file_size, &content_hash).await?;
+            println!("上传完成: {}", data.file_name);
+            return Ok(());
         }
+    } else {
+        println!("服务器未返回分片信息，执行普通上传...");
     }
 
-    println!("上传完成: {}", data.file_name);
     Ok(())
 }
 
@@ -151,8 +155,13 @@ async fn upload_parts(
                 break;
             }
         } else {
-            break;
+            let error_msg = resp_json.get("message").or(resp_json.get("base").and_then(|b| b.get("message"))).and_then(|m| m.as_str()).unwrap_or("获取上传URL失败");
+            return Err(ClientError::Api(format!("获取分片上传URL失败: {}", error_msg)));
         }
+    }
+
+    if all_urls.is_empty() {
+        return Err(ClientError::Api("未能获取任何分片上传URL".to_string()));
     }
 
     file.seek(SeekFrom::Start(0))?;
@@ -184,7 +193,7 @@ async fn upload_parts(
             .await?;
 
         if !resp.status().is_success() {
-            println!("分片 {} 上传失败: {}", part_number, resp.status());
+            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp.status())));
         }
     }
 
@@ -206,7 +215,19 @@ async fn upload_parts(
         .send()
         .await?;
 
-    println!("完成响应: {:?}", resp.status());
+    let status = resp.status();
+    let resp_json: serde_json::Value = resp.json().await?;
+    
+    if let Some(success) = resp_json.get("base").and_then(|b| b.get("success")).and_then(|s| s.as_bool()) {
+        if success {
+            println!("完成响应: {:?}", status);
+        } else {
+            let message = resp_json.get("base").and_then(|b| b.get("message")).and_then(|m| m.as_str()).unwrap_or("完成上传失败");
+            return Err(ClientError::Api(format!("完成上传失败: {}", message)));
+        }
+    } else {
+        println!("完成响应: {:?}", status);
+    }
 
     Ok(())
 }

@@ -9,11 +9,18 @@ pub struct DeleteArgs {
 
     #[arg(short, long, help = "确认删除")]
     pub force: bool,
+
+    #[arg(short, long, help = "永久删除（不移动到回收站）")]
+    pub permanent: bool,
 }
 
 pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
     if !args.force {
-        println!("警告: 此操作会将文件移动到回收站");
+        if args.permanent {
+            println!("警告: 此操作将永久删除文件，无法恢复！");
+        } else {
+            println!("警告: 此操作会将文件移动到回收站");
+        }
         println!("使用 --force 参数确认删除");
         return Ok(());
     }
@@ -23,7 +30,7 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            delete_personal(&config, &args.path).await?;
+            delete_personal(&config, &args.path, args.permanent).await?;
         }
         StorageType::Family => {
             delete_family(&config, &args.path).await?;
@@ -36,10 +43,21 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn delete_personal(config: &crate::config::Config, file_id: &str) -> Result<(), ClientError> {
+async fn delete_personal(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
+    let file_id = crate::client::api::get_file_id_by_path(config, path).await?;
+    if file_id.is_empty() {
+        println!("错误: 无效的文件路径");
+        return Ok(());
+    }
+
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
-    let url = format!("{}/recyclebin/batchTrash", host);
+    
+    let url = if permanent {
+        format!("{}/file/batchDelete", host)
+    } else {
+        format!("{}/recyclebin/batchTrash", host)
+    };
 
     let body = serde_json::json!({
         "fileIds": [file_id]
@@ -48,7 +66,11 @@ async fn delete_personal(config: &crate::config::Config, file_id: &str) -> Resul
     let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("文件已移动到回收站");
+        if permanent {
+            println!("文件已永久删除");
+        } else {
+            println!("文件已移动到回收站");
+        }
     } else {
         println!("删除失败: {}", resp.base.message);
     }

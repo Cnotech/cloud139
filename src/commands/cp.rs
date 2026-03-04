@@ -31,13 +31,25 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
 }
 
 async fn cp_personal(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+    let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
+    if source_id.is_empty() {
+        println!("错误: 无效的源文件路径");
+        return Ok(());
+    }
+
+    let target_id = if target == "/" || target.is_empty() {
+        "".to_string()
+    } else {
+        crate::client::api::get_file_id_by_path(config, target).await?
+    };
+    
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/batchCopy", host);
 
     let body = serde_json::json!({
-        "fileIds": [source],
-        "toParentFileId": target
+        "fileIds": [source_id],
+        "toParentFileId": target_id
     });
 
     let resp: BatchCopyResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;

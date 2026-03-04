@@ -1,6 +1,6 @@
 use crate::client::ClientError;
 use crate::config::Config;
-use crate::models::QueryRoutePolicyResp;
+use crate::models::{QueryRoutePolicyResp, QueryFileResp};
 
 pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
@@ -62,6 +62,28 @@ pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, Clie
     let _ = config.save();
 
     Ok(host)
+}
+
+pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
+    if path.is_empty() || path == "/" {
+        return Ok(String::new());
+    }
+
+    let mut config = config.clone();
+    let host = get_personal_cloud_host(&mut config).await?;
+    let url = format!("{}/file/getFileByPath", host);
+
+    let body = serde_json::json!({
+        "path": path
+    });
+
+    let resp: QueryFileResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+
+    if !resp.base.success {
+        return Err(ClientError::Api(format!("获取文件ID失败: {}", resp.base.message)));
+    }
+
+    Ok(resp.data.file_id)
 }
 
 pub async fn get_personal_disk_info(config: &Config) -> Result<crate::models::PersonalDiskInfoResp, ClientError> {
@@ -180,21 +202,21 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     let client = reqwest::Client::new();
 
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("accept", "application/json, text/plain, */*".parse().unwrap());
-    headers.insert("authorization", format!("Basic {}", config.authorization).parse().unwrap());
-    headers.insert("caller", "web".parse().unwrap());
-    headers.insert("cms-device", "default".parse().unwrap());
+    headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
+    headers.insert("Authorization", format!("Basic {}", config.authorization).parse().unwrap());
+    headers.insert("Caller", "web".parse().unwrap());
+    headers.insert("CMS-DEVICE", "default".parse().unwrap());
     headers.insert("mcloud-channel", "1000101".parse().unwrap());
     headers.insert("mcloud-client", "10701".parse().unwrap());
     headers.insert("mcloud-route", "001".parse().unwrap());
     headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
     headers.insert("mcloud-version", "7.14.0".parse().unwrap());
-    headers.insert("x-deviceinfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
-    headers.insert("x-huawei-channelsrc", "10000034".parse().unwrap());
+    headers.insert("x-DeviceInfo", "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||".parse().unwrap());
+    headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
     headers.insert("x-inner-ntwk", "2".parse().unwrap());
     headers.insert("x-m4c-caller", "PC".parse().unwrap());
     headers.insert("x-m4c-src", "10002".parse().unwrap());
-    headers.insert("x-svctype", svctype.parse().unwrap());
+    headers.insert("x-SvcType", svctype.parse().unwrap());
     headers.insert("x-yun-api-version", "v1".parse().unwrap());
     headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
     headers.insert("x-yun-channel-source", "10000034".parse().unwrap());

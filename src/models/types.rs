@@ -413,3 +413,26 @@ pub struct GroupListRequest {
     #[serde(rename = "pageSize")]
     pub page_size: i32,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct QueryFileResp {
+    #[serde(flatten)]
+    pub base: BaseResp,
+    pub data: QueryFileData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryFileData {
+    #[serde(rename = "fileId")]
+    pub file_id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub file_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchDeleteResp {
+    #[serde(flatten)]
+    pub base: BaseResp,
+}

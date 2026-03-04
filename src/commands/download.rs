@@ -18,7 +18,12 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            download_personal(&config, &args.remote_path, &args.local_path).await?;
+            let file_id = crate::client::api::get_file_id_by_path(&config, &args.remote_path).await?;
+            if file_id.is_empty() {
+                println!("错误: 无效的文件路径");
+                return Ok(());
+            }
+            download_personal(&config, &file_id, &args.local_path).await?;
         }
         StorageType::Family => {
             println!("家庭云下载暂未实现");
@@ -47,11 +52,14 @@ async fn download_personal(
     let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
-        println!("获取下载链接失败: {}", resp.base.message);
-        return Ok(());
+        return Err(ClientError::Api(format!("获取下载链接失败: {}", resp.base.message)));
     }
 
     let download_url = resp.data.cdn_url.unwrap_or(resp.data.url);
+    if download_url.is_empty() {
+        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
+    }
+
     println!("下载链接: {}", download_url);
 
     let local_path_obj = Path::new(local_path);

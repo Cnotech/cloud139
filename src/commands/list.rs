@@ -34,7 +34,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let parent_file_id = if args.path == "/" || args.path.is_empty() {
                 "".to_string()
             } else {
-                args.path.clone()
+                crate::client::api::get_file_id_by_path(&config, &args.path).await?
             };
 
             let mut next_cursor = String::new();
