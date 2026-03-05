@@ -16,6 +16,13 @@ pub struct ListArgs {
 }
 
 pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
+    let path = if args.path.is_empty() || args.path == "/" {
+        "/".to_string()
+    } else if args.path.contains("Program Files") || args.path.contains(":") || args.path.starts_with("C:") || args.path.starts_with("c:") {
+        "/".to_string()
+    } else {
+        args.path.trim().to_string()
+    };
     let mut config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
@@ -32,10 +39,10 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             };
             let url = format!("{}/file/list", host);
             
-            let parent_file_id = if args.path == "/" || args.path.is_empty() {
-                "0".to_string()
+            let parent_file_id = if path == "/" || path.is_empty() {
+                "/".to_string()
             } else {
-                crate::client::api::get_file_id_by_path(&config, &args.path).await?
+                crate::client::api::get_file_id_by_path(&config, &path).await?
             };
 
             let mut next_cursor = String::new();
@@ -74,7 +81,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 };
 
                 if next_cursor.is_empty() {
-                    println!("\n文件列表 ({}):", args.path);
+                    println!("\n文件列表 ({}):", path);
                     println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
                     println!("{}", "-".repeat(80));
                 }
@@ -100,10 +107,10 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
         StorageType::Family => {
             let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
             
-            let catalog_id = if args.path == "/" || args.path.is_empty() {
+            let catalog_id = if path == "/" || path.is_empty() {
                 "0".to_string()
             } else {
-                args.path.trim_start_matches('/').to_string()
+                path.trim_start_matches('/').to_string()
             };
 
             let body = FamilyListRequest {
