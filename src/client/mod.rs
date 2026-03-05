@@ -37,7 +37,7 @@ pub enum StorageType {
 }
 
 
-impl StorageType {
+impl StorageType { 
     pub fn as_str(&self) -> &'static str {
         match self {
             StorageType::PersonalNew => "personal_new",
@@ -46,7 +46,7 @@ impl StorageType {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_str_raw(s: &str) -> Self {
         match s {
             "family" => StorageType::Family,
             "group" => StorageType::Group,

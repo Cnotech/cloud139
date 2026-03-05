@@ -146,7 +146,16 @@ async fn upload_personal(
             println!("服务器未返回分片信息");
         } else {
             println!("开始分片上传...");
-            upload_parts(&config, &host, local_path, &data.upload_id.unwrap_or_default(), &data.file_id, file_size, &content_hash, part_size).await?;
+            upload_parts(UploadPartsParams {
+                config: &config,
+                host: &host,
+                local_path,
+                upload_id: &data.upload_id.unwrap_or_default(),
+                file_id: &data.file_id,
+                file_size,
+                content_hash: &content_hash,
+                part_size,
+            }).await?;
             
             if data.file_name != file_name {
                 println!("检测到文件名冲突: {} != {}", data.file_name, file_name);
@@ -198,16 +207,26 @@ async fn upload_personal(
     Ok(())
 }
 
-async fn upload_parts(
-    config: &crate::config::Config,
-    host: &str,
-    local_path: &Path,
-    upload_id: &str,
-    file_id: &str,
+struct UploadPartsParams<'a> {
+    config: &'a crate::config::Config,
+    host: &'a str,
+    local_path: &'a Path,
+    upload_id: &'a str,
+    file_id: &'a str,
     file_size: i64,
-    content_hash: &str,
+    content_hash: &'a str,
     part_size: i64,
-) -> Result<(), ClientError> {
+}
+
+async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
+    let config = params.config;
+    let host = params.host;
+    let local_path = params.local_path;
+    let upload_id = params.upload_id;
+    let file_id = params.file_id;
+    let file_size = params.file_size;
+    let content_hash = params.content_hash;
+    let part_size = params.part_size;
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
     use std::collections::HashMap;
