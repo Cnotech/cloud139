@@ -92,7 +92,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     if resp.base.success {
         println!("移动成功");
     } else {
-        println!("移动失败: {}", resp.base.message);
+        println!("移动失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())

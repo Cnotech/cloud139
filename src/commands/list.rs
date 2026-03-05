@@ -11,7 +11,7 @@ pub struct ListArgs {
     #[arg(short, long, default_value = "1", help = "页码")]
     pub page: i32,
     
-    #[arg(short, long, default_value = "100", help = "每页数量")]
+    #[arg(short = 's', long, default_value = "100", help = "每页数量")]
     pub page_size: i32,
 }
 
@@ -33,7 +33,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let url = format!("{}/file/list", host);
             
             let parent_file_id = if args.path == "/" || args.path.is_empty() {
-                "".to_string()
+                "0".to_string()
             } else {
                 crate::client::api::get_file_id_by_path(&config, &args.path).await?
             };
@@ -61,9 +61,17 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 let resp: PersonalListResp = crate::client::api::personal_api_request(&config, &url, body, storage_type).await?;
 
                 if !resp.base.success {
-                    println!("获取文件列表失败: {}", resp.base.message);
+                    println!("获取文件列表失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
                     return Ok(());
                 }
+
+                let data = match resp.data {
+                    Some(d) => d,
+                    None => {
+                        println!("获取文件列表失败: 无数据");
+                        return Ok(());
+                    }
+                };
 
                 if next_cursor.is_empty() {
                     println!("\n文件列表 ({}):", args.path);
@@ -71,19 +79,19 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                     println!("{}", "-".repeat(80));
                 }
 
-                for item in &resp.data.items {
-                    let file_type = if item.file_type == "folder" { "d" } else { "-" };
-                    let size = format_size(item.size);
+                for item in &data.items {
+                    let file_type = if item.file_type.as_deref() == Some("folder") { "d" } else { "-" };
+                    let size = format_size(item.size.unwrap_or(0));
                     let time = parse_personal_time(
                         item.updated_at.as_deref()
                             .or(item.update_date.as_deref())
                             .or(item.last_modified.as_deref())
                             .unwrap_or_default()
                     );
-                    println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name, size, time);
+                    println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name.as_deref().unwrap_or(""), size, time);
                 }
 
-                next_cursor = resp.data.next_page_cursor.clone();
+                next_cursor = data.next_page_cursor.clone().unwrap_or_default();
                 if next_cursor.is_empty() {
                     break;
                 }

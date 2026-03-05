@@ -60,7 +60,7 @@ async fn cp_personal(config: &crate::config::Config, source: &str, target: &str,
     if resp.base.success {
         println!("复制成功");
     } else {
-        println!("复制失败: {}", resp.base.message);
+        println!("复制失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())

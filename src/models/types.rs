@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 pub struct BaseResp {
     pub success: bool,
-    pub code: String,
-    pub message: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,52 +63,58 @@ pub struct RoutePolicyData {
 
 #[derive(Debug, Deserialize)]
 pub struct RoutePolicy {
-    #[serde(rename = "siteID")]
-    pub site_id: String,
-    #[serde(rename = "siteCode")]
-    pub site_code: String,
-    #[serde(rename = "modName")]
-    pub mod_name: String,
-    #[serde(rename = "httpUrl")]
-    pub http_url: String,
-    #[serde(rename = "httpsUrl")]
-    pub https_url: String,
+    #[serde(rename = "siteID", default)]
+    pub site_id: Option<String>,
+    #[serde(rename = "siteCode", default)]
+    pub site_code: Option<String>,
+    #[serde(rename = "modName", default)]
+    pub mod_name: Option<String>,
+    #[serde(rename = "httpUrl", default)]
+    pub http_url: Option<String>,
+    #[serde(rename = "httpsUrl", default)]
+    pub https_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "root")]
 pub struct RefreshTokenResp {
-    #[serde(rename = "return")]
-    pub return_code: String,
-    pub token: String,
-    pub expiretime: i32,
-    #[serde(rename = "accessToken")]
-    pub access_token: String,
-    pub desc: String,
+    #[serde(rename = "return", default)]
+    pub return_code: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub expiretime: Option<i32>,
+    #[serde(rename = "accessToken", default)]
+    pub access_token: Option<String>,
+    #[serde(default)]
+    pub desc: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalListResp {
     #[serde(flatten)]
     pub base: BaseResp,
-    pub data: PersonalListData,
+    #[serde(default)]
+    pub data: Option<PersonalListData>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalListData {
     pub items: Vec<PersonalFileItem>,
-    #[serde(rename = "nextPageCursor")]
-    pub next_page_cursor: String,
+    #[serde(rename = "nextPageCursor", default)]
+    pub next_page_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalFileItem {
-    #[serde(rename = "fileId")]
-    pub file_id: String,
-    pub name: String,
-    pub size: i64,
-    #[serde(rename = "type")]
-    pub file_type: String,
+    #[serde(rename = "fileId", default)]
+    pub file_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub size: Option<i64>,
+    #[serde(rename = "type", default)]
+    pub file_type: Option<String>,
     #[serde(rename = "createdAt", default)]
     pub created_at: Option<String>,
     #[serde(rename = "updatedAt", default)]
@@ -123,8 +131,8 @@ pub struct PersonalFileItem {
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalThumbnail {
-    pub style: String,
-    pub url: String,
+    pub style: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,16 +144,17 @@ pub struct PersonalUploadResp {
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalUploadData {
-    #[serde(rename = "fileId")]
-    pub file_id: String,
-    #[serde(rename = "fileName")]
-    pub file_name: String,
-    #[serde(rename = "partInfos")]
+    #[serde(rename = "fileId", default)]
+    pub file_id: Option<String>,
+    #[serde(rename = "fileName", default)]
+    pub file_name: Option<String>,
+    #[serde(rename = "partInfos", default)]
     pub part_infos: Option<Vec<PersonalPartInfo>>,
-    pub exist: bool,
-    #[serde(rename = "rapidUpload")]
-    pub rapid_upload: bool,
-    #[serde(rename = "uploadId")]
+    #[serde(default)]
+    pub exist: Option<bool>,
+    #[serde(rename = "rapidUpload", default)]
+    pub rapid_upload: Option<bool>,
+    #[serde(rename = "uploadId", default)]
     pub upload_id: Option<String>,
 }
 
@@ -166,10 +175,11 @@ pub struct DownloadUrlResp {
 
 #[derive(Debug, Deserialize)]
 pub struct DownloadUrlData {
-    pub url: String,
-    #[serde(rename = "cdnUrl")]
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(rename = "cdnUrl", default)]
     pub cdn_url: Option<String>,
-    #[serde(rename = "fileName")]
+    #[serde(rename = "fileName", default)]
     pub file_name: Option<String>,
 }
 

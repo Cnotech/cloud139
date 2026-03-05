@@ -131,13 +131,13 @@ async fn upload_personal(
     let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
-        return Err(ClientError::Api(format!("创建上传任务失败: {}", resp.base.message)));
+        return Err(ClientError::Api(format!("创建上传任务失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"))));
     }
 
     let data = resp.data;
 
-    if data.exist {
-        println!("文件已存在: {}", data.file_name);
+    if data.exist.unwrap_or(false) {
+        println!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));
         return Ok(());
     }
 
@@ -145,30 +145,32 @@ async fn upload_personal(
         if part_infos_response.is_empty() {
             println!("服务器未返回分片信息");
         } else {
+            let file_id_val = data.file_id.clone().unwrap_or_default();
+            let file_name_val = data.file_name.clone();
             println!("开始分片上传...");
             upload_parts(UploadPartsParams {
                 config: &config,
                 host: &host,
                 local_path,
                 upload_id: &data.upload_id.unwrap_or_default(),
-                file_id: &data.file_id,
+                file_id: &file_id_val,
                 file_size,
                 content_hash: &content_hash,
                 part_size,
             }).await?;
             
-            if data.file_name != file_name {
-                println!("检测到文件名冲突: {} != {}", data.file_name, file_name);
+            if file_name_val.as_deref() != Some(&file_name) {
+                println!("检测到文件名冲突: {} != {}", file_name_val.as_deref().unwrap_or(""), file_name);
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 
                 let files = crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
-                    if file.name == file_name {
+                    if file.name.as_deref() == Some(&file_name) {
                         println!("冲突处理: 先重命名旧文件避免冲突");
                         let old_name = format!("{}_{}", file_name, crate::utils::crypto::generate_random_string(4));
                         let rename_old_url = format!("{}/file/update", host);
                         let rename_old_body = serde_json::json!({
-                            "fileId": file.file_id,
+                            "fileId": file.file_id.as_ref().unwrap_or(&String::new()),
                             "name": old_name,
                             "description": ""
                         });
@@ -176,7 +178,7 @@ async fn upload_personal(
                         println!("冲突处理: 删除旧文件");
                         let del_url = format!("{}/recyclebin/batchTrash", host);
                         let del_body = serde_json::json!({
-                            "fileIds": [file.file_id]
+                            "fileIds": [file.file_id.as_ref().unwrap_or(&String::new())]
                         });
                         let _: serde_json::Value = crate::client::api::personal_api_request(&config, &del_url, del_body, StorageType::PersonalNew).await?;
                         break;
@@ -184,11 +186,11 @@ async fn upload_personal(
                 }
                 
                 for file in &files {
-                    if file.file_id == data.file_id {
+                    if file.file_id.as_ref() == Some(&file_id_val) {
                         println!("冲突处理: 重命名新文件");
                         let rename_url = format!("{}/file/update", host);
                         let rename_body = serde_json::json!({
-                            "fileId": data.file_id,
+                            "fileId": file_id_val,
                             "name": file_name,
                             "description": ""
                         });
@@ -198,7 +200,7 @@ async fn upload_personal(
                 }
             }
             
-            println!("上传完成: {}", data.file_name);
+            println!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
         }
     } else {
         println!("服务器未返回分片信息");

@@ -56,7 +56,7 @@ async fn rename_personal(config: &crate::config::Config, source: &str, new_name:
     if resp.base.success {
         println!("重命名成功: {}", new_name);
     } else {
-        println!("重命名失败: {}", resp.base.message);
+        println!("重命名失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())

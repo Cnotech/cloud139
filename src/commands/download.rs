@@ -52,10 +52,10 @@ async fn download_personal(
     let resp: DownloadUrlResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
-        return Err(ClientError::Api(format!("获取下载链接失败: {}", resp.base.message)));
+        return Err(ClientError::Api(format!("获取下载链接失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"))));
     }
 
-    let download_url = resp.data.cdn_url.unwrap_or(resp.data.url);
+    let download_url = resp.data.cdn_url.or(resp.data.url).unwrap_or_default();
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
@@ -72,7 +72,7 @@ async fn download_personal(
                     .unwrap_or("download")
                     .to_string()
             });
-        let file_path = local_path_obj.join(file_name);
+        let file_path = local_path_obj.join(&file_name);
         download_file(&download_url, &file_path).await?;
     } else {
         download_file(&download_url, local_path_obj).await?;

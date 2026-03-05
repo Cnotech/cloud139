@@ -58,9 +58,9 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
     let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        println!("目录创建成功: {}", resp.data.file_name);
+        println!("目录创建成功: {}", resp.data.file_name.as_deref().unwrap_or(""));
     } else {
-        println!("创建失败: {}", resp.base.message);
+        println!("创建失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())

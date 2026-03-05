@@ -101,7 +101,7 @@ async fn video_preview_personal(config: &crate::config::Config, path: &str) -> R
             println!("  播放地址: {}", data.url);
         }
     } else {
-        println!("获取视频预览失败: {}", resp.base.message);
+        println!("获取视频预览失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())

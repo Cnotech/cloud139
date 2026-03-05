@@ -54,8 +54,8 @@ pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, Clie
 
     let host = route_resp.data.route_policy_list
         .into_iter()
-        .find(|p| p.mod_name == "personal")
-        .map(|p| p.https_url)
+        .find(|p| p.mod_name.as_deref() == Some("personal"))
+        .map(|p| p.https_url.unwrap_or_default())
         .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
 
     config.personal_cloud_host = Some(host.clone());
@@ -98,10 +98,12 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
 
         let list_resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
 
-        let target_id = list_resp.data.items
+        let items = list_resp.data.map(|d| d.items).unwrap_or_default();
+        
+        let target_id = items
             .into_iter()
-            .find(|item| item.name == *part)
-            .map(|item| item.file_id);
+            .find(|item| item.name.as_deref() == Some(part))
+            .map(|item| item.file_id.unwrap_or_default());
 
         match target_id {
             Some(id) => {
@@ -331,7 +333,7 @@ pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Resul
 
     let resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
 
-    Ok(resp.data.items)
+    Ok(resp.data.map(|d| d.items).unwrap_or_default())
 }
 
 pub async fn get_family_download_link(config: &Config, content_id: &str, path: &str) -> Result<String, ClientError> {

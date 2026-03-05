@@ -69,7 +69,7 @@ async fn delete_personal(config: &crate::config::Config, path: &str, _permanent:
     if resp.base.success {
         println!("文件已移动到回收站");
     } else {
-        println!("删除失败: {}", resp.base.message);
+        println!("删除失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
     }
 
     Ok(())
