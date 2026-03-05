@@ -105,6 +105,12 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
 async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
     let url = "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/createGroupCatalog";
 
+    let parent_file_id = if parent == "/" || parent.is_empty() {
+        "0".to_string()
+    } else {
+        parent.to_string()
+    };
+
     let parent_path = if parent == "/" || parent.is_empty() {
         "root:".to_string()
     } else {
@@ -113,7 +119,7 @@ async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -
 
     let body = serde_json::json!({
         "catalogName": name,
-        "parentFileId": if parent == "/" || parent.is_empty() { "0".to_string() } else { parent.to_string() },
+        "parentFileId": parent_file_id,
         "groupID": config.cloud_id,
         "commonAccountInfo": {
             "account": config.username,

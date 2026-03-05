@@ -155,6 +155,15 @@ async fn upload_personal(
                 let files = crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
                     if file.name == file_name {
+                        println!("冲突处理: 先重命名旧文件避免冲突");
+                        let old_name = format!("{}_{}", file_name, crate::utils::crypto::generate_random_string(4));
+                        let rename_old_url = format!("{}/file/update", host);
+                        let rename_old_body = serde_json::json!({
+                            "fileId": file.file_id,
+                            "name": old_name,
+                            "description": ""
+                        });
+                        let _: PersonalUploadResp = crate::client::api::personal_api_request(&config, &rename_old_url, rename_old_body, StorageType::PersonalNew).await?;
                         println!("冲突处理: 删除旧文件");
                         let del_url = format!("{}/recyclebin/batchTrash", host);
                         let del_body = serde_json::json!({
@@ -357,6 +366,9 @@ async fn upload_family(
     let report_size = if config.report_real_size { file_size } else { 0 };
 
     let body = serde_json::json!({
+        "catalogType": 3,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
         "fileCount": 1,
         "manualRename": 2,
         "operation": 0,
@@ -366,7 +378,11 @@ async fn upload_family(
         "uploadContentList": [{
             "contentName": file_name,
             "contentSize": report_size
-        }]
+        }],
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
     });
 
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
