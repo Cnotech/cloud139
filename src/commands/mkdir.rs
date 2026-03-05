@@ -69,8 +69,18 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
 async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/cloudCatalog/v1.0/createCloudDoc";
 
-    let parent_id = if parent == "/" || parent.is_empty() {
+    let _parent_id = if parent == "/" || parent.is_empty() {
         "0".to_string()
+    } else {
+        parent.to_string()
+    };
+
+    let path_value = if parent == "/" || parent.is_empty() {
+        if let Some(ref root_path) = config.root_folder_id {
+            root_path.clone()
+        } else {
+            "0".to_string()
+        }
     } else {
         parent.to_string()
     };
@@ -82,7 +92,7 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
             "accountType": 1
         },
         "docLibName": name,
-        "path": parent_id
+        "path": path_value
     });
 
     let client = Client::new(config.clone());
@@ -95,21 +105,21 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
 async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
     let url = "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/createGroupCatalog";
 
-    let catalog_id = if parent == "/" || parent.is_empty() {
-        "0".to_string()
+    let parent_path = if parent == "/" || parent.is_empty() {
+        "root:".to_string()
     } else {
-        parent.to_string()
+        format!("root:/{}", parent.trim_start_matches('/'))
     };
 
     let body = serde_json::json!({
         "catalogName": name,
-        "parentFileId": catalog_id,
+        "parentFileId": if parent == "/" || parent.is_empty() { "0".to_string() } else { parent.to_string() },
         "groupID": config.cloud_id,
         "commonAccountInfo": {
             "account": config.username,
             "accountType": 1
         },
-        "path": format!("root:/{}", catalog_id)
+        "path": parent_path
     });
 
     let client = Client::new(config.clone());

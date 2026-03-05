@@ -99,18 +99,24 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             };
 
             let body = FamilyListRequest {
-                catalog_id,
+                catalog_id: catalog_id.clone(),
                 sort_type: 1,
                 page_number: args.page,
                 page_size: args.page_size,
             };
 
-            let client = Client::new(config);
+            let mut config = config.clone();
+            let client = Client::new(config.clone());
             let resp: QueryContentListResp = client.api_request_post(url, serde_json::to_value(body)?).await?;
 
             if resp.data.result.result_code != "0" {
                 println!("获取文件列表失败: {}", resp.data.result.result_desc.unwrap_or_default());
                 return Ok(());
+            }
+
+            if catalog_id == "0" && !resp.data.path.is_empty() {
+                config.root_folder_id = Some(resp.data.path.clone());
+                let _ = config.save();
             }
 
             println!("\n家庭云文件列表 ({}):", args.path);

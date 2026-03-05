@@ -314,6 +314,11 @@ async fn step3_third_login(
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     log::info!("Refreshing token for user: {}", config.username);
 
+    if let Err(e) = check_token_expiration(config) {
+        log::warn!("Token may be expired or invalid: {}, attempting re-login", e);
+        return re_login(config).await;
+    }
+
     let refresh_token = config.refresh_token.as_ref()
         .ok_or(ClientError::TokenExpired)?;
 
@@ -346,6 +351,7 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     struct RefreshResp {
         #[serde(rename = "return")]
         return_code: String,
+        #[allow(dead_code)]
         token: String,
         #[serde(rename = "accessToken")]
         access_token: String,
@@ -355,7 +361,8 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         .map_err(|e| ClientError::Other(format!("Failed to parse refresh response: {}", e)))?;
 
     if refresh_resp.return_code != "0" {
-        return Err(ClientError::TokenExpired);
+        log::warn!("Token refresh failed with code: {}, attempting re-login", refresh_resp.return_code);
+        return re_login(config).await;
     }
 
     let authorization = base64::Engine::encode(
@@ -371,8 +378,52 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     Ok(new_config)
 }
 
+fn check_token_expiration(config: &Config) -> Result<(), ClientError> {
+    let auth_parts: Vec<&str> = config.authorization.split(':').collect();
+    if auth_parts.len() < 3 {
+        return Err(ClientError::Other("Invalid authorization format".to_string()));
+    }
+    
+    let token_part = auth_parts[2];
+    let token_parts: Vec<&str> = token_part.split('|').collect();
+    
+    if token_parts.len() < 4 {
+        return Err(ClientError::Other("Invalid token format".to_string()));
+    }
+    
+    let expiration = token_parts[3].parse::<i64>()
+        .map_err(|_| ClientError::Other("Invalid expiration timestamp".to_string()))?;
+    
+    let now = chrono::Utc::now().timestamp_millis();
+    let remaining = expiration - now;
+    
+    if remaining < 0 {
+        return Err(ClientError::TokenExpired);
+    }
+    
+    if remaining > 15 * 24 * 60 * 60 * 1000 {
+        return Err(ClientError::Other("Token still valid for more than 15 days".to_string()));
+    }
+    
+    Ok(())
+}
+
+async fn re_login(config: &Config) -> Result<Config, ClientError> {
+    log::info!("Attempting re-login for user: {}", config.username);
+    
+    let new_config = login(
+        &config.username,
+        &config.password,
+        &config.mail_cookies,
+        &config.storage_type,
+    ).await?;
+    
+    Ok(new_config)
+}
+
 struct Step1Result {
     sid: String,
+    #[allow(dead_code)]
     cguid: String,
 }
 

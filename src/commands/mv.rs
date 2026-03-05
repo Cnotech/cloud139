@@ -153,37 +153,100 @@ async fn mv_group(config: &crate::config::Config, sources: &[String], target: &s
     }
 
     let source = &sources[0];
-    let source_path = if source.starts_with('/') {
-        source.clone()
-    } else {
-        format!("/{}", source)
-    };
+    let source = source.trim_start_matches('/');
     
-    let target_path = if target.starts_with('/') {
-        target.to_string()
-    } else {
-        format!("/{}", target)
-    };
-
-    let url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
-
-    let body = serde_json::json!({
-        "taskType": 3,
-        "srcType": 2,
-        "srcGroupID": config.cloud_id,
-        "destType": 2,
-        "destGroupID": config.cloud_id,
-        "destPath": target_path,
-        "contentList": [source_path],
-        "catalogList": [],
-        "commonAccountInfo": {
-            "account": config.username,
-            "accountType": 1
-        }
+    let parent_path = std::path::Path::new(source);
+    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
+    
+    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    
+    let list_body = serde_json::json!({
+        "groupID": config.cloud_id,
+        "catalogID": catalog_id,
+        "contentSortType": 0,
+        "sortDirection": 1,
+        "startNumber": 1,
+        "endNumber": 100,
+        "path": if parent_dir.is_empty() { "root:".to_string() } else { format!("root:/{}", parent_dir) }
     });
 
     let client = Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+    let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
+    
+    let mut is_dir = false;
+    let mut found_id = String::new();
+    
+    if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
+                is_dir = true;
+                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                break;
+            }
+        }
+    }
+    
+    if !is_dir && found_id.is_empty() {
+        if let Some(content_list) = list_resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    if found_id.is_empty() {
+        println!("错误: 文件不存在");
+        return Ok(());
+    }
+
+    let target = target.trim_start_matches('/');
+    let dest_path = if target.is_empty() {
+        "root:".to_string()
+    } else {
+        format!("root:/{}", target)
+    };
+
+    let move_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
+
+    let body = if is_dir {
+        serde_json::json!({
+            "taskType": 3,
+            "srcType": 2,
+            "srcGroupID": config.cloud_id,
+            "destType": 2,
+            "destGroupID": config.cloud_id,
+            "destPath": dest_path,
+            "contentList": [],
+            "catalogList": [found_id],
+            "commonAccountInfo": {
+                "account": config.username,
+                "accountType": 1
+            }
+        })
+    } else {
+        serde_json::json!({
+            "taskType": 3,
+            "srcType": 2,
+            "srcGroupID": config.cloud_id,
+            "destType": 2,
+            "destGroupID": config.cloud_id,
+            "destPath": dest_path,
+            "contentList": [found_id],
+            "catalogList": [],
+            "commonAccountInfo": {
+                "account": config.username,
+                "accountType": 1
+            }
+        })
+    };
+
+    let resp: serde_json::Value = client.api_request_post(move_url, body).await?;
 
     if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
         println!("移动成功");

@@ -94,28 +94,92 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
 
 async fn cp_group(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
     let client = Client::new(config.clone());
+    
+    let source = source.trim_start_matches('/');
+    let target = target.trim_start_matches('/');
+    
+    let parent_path = std::path::Path::new(source);
+    let parent_dir = parent_path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let file_name = parent_path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    
+    let catalog_id = if parent_dir.is_empty() { "0".to_string() } else { parent_dir.clone() };
+    
+    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    
+    let list_body = serde_json::json!({
+        "groupID": config.cloud_id,
+        "catalogID": catalog_id,
+        "contentSortType": 0,
+        "sortDirection": 1,
+        "startNumber": 1,
+        "endNumber": 100,
+        "path": if parent_dir.is_empty() { "root:".to_string() } else { format!("root:/{}", parent_dir) }
+    });
 
-    let source_file_id = crate::client::api::get_file_id_by_path(config, source).await?;
-    let target_file_id = if target == "/" || target.is_empty() {
-        "0".to_string()
+    let list_resp: serde_json::Value = client.api_request_post(url, list_body).await?;
+    
+    let mut is_dir = false;
+    let mut found_id = String::new();
+    
+    if let Some(catalog_list) = list_resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(&file_name) {
+                is_dir = true;
+                found_id = cat.get("catalogID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                break;
+            }
+        }
+    }
+    
+    if !is_dir && found_id.is_empty() {
+        if let Some(content_list) = list_resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                    found_id = content.get("contentID").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    if found_id.is_empty() {
+        println!("错误: 文件不存在");
+        return Ok(());
+    }
+
+    let source_path = if parent_dir.is_empty() {
+        format!("root:/{}", found_id)
     } else {
-        crate::client::api::get_file_id_by_path(config, target).await?
+        format!("root:/{}/{}", parent_dir, found_id)
     };
 
-    let source_path = format!("root:/{}:{}", target, source_file_id);
-    let dest_path = format!("root:/{}:{}", target, target_file_id);
+    let dest_catalog_id = if target.is_empty() { "root:".to_string() } else { format!("root:/{}", target) };
 
-    let body = serde_json::json!({
-        "commonAccountInfo": {
-            "accountType": "1",
-            "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
-        },
-        "destCatalogID": dest_path,
-        "destCloudID": config.cloud_id,
-        "sourceCatalogIDs": [source_path],
-        "sourceCloudID": config.cloud_id,
-        "sourceContentIDs": []
-    });
+    let body = if is_dir {
+        serde_json::json!({
+            "commonAccountInfo": {
+                "accountType": "1",
+                "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
+            },
+            "destCatalogID": dest_catalog_id,
+            "destCloudID": config.cloud_id,
+            "sourceCatalogIDs": [source_path],
+            "sourceCloudID": config.cloud_id,
+            "sourceContentIDs": []
+        })
+    } else {
+        serde_json::json!({
+            "commonAccountInfo": {
+                "accountType": "1",
+                "accountUserId": config.user_domain_id.as_deref().unwrap_or("")
+            },
+            "destCatalogID": dest_catalog_id,
+            "destCloudID": config.cloud_id,
+            "sourceCatalogIDs": [],
+            "sourceCloudID": config.cloud_id,
+            "sourceContentIDs": [source_path]
+        })
+    };
 
     let resp: serde_json::Value = client.and_album_request("/copyContentCatalog", body).await?;
 

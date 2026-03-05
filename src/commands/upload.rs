@@ -338,8 +338,18 @@ async fn upload_family(
     
     let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileUploadURL";
     
-    let parent_id = if remote_path == "/" || remote_path.is_empty() {
+    let _parent_id = if remote_path == "/" || remote_path.is_empty() {
         config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+    } else {
+        remote_path.to_string()
+    };
+
+    let upload_path = if remote_path == "/" || remote_path.is_empty() {
+        if let Some(ref root_path) = config.root_folder_id {
+            root_path.clone()
+        } else {
+            "0".to_string()
+        }
     } else {
         remote_path.to_string()
     };
@@ -350,7 +360,7 @@ async fn upload_family(
         "fileCount": 1,
         "manualRename": 2,
         "operation": 0,
-        "path": parent_id,
+        "path": upload_path,
         "seqNo": crate::utils::crypto::generate_random_string(32),
         "totalSize": report_size,
         "uploadContentList": [{
@@ -391,10 +401,20 @@ async fn upload_group(
     
     let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/getGroupFileUploadURL";
     
-    let parent_id = if remote_path == "/" || remote_path.is_empty() {
+    let _parent_id = if remote_path == "/" || remote_path.is_empty() {
         "0".to_string()
     } else {
         remote_path.to_string()
+    };
+
+    let upload_path = if remote_path == "/" || remote_path.is_empty() {
+        if let Some(ref root_path) = config.root_folder_id {
+            root_path.clone()
+        } else {
+            "root:".to_string()
+        }
+    } else {
+        format!("root:/{}", remote_path.trim_start_matches('/'))
     };
 
     let report_size = if config.report_real_size { file_size } else { 0 };
@@ -403,7 +423,7 @@ async fn upload_group(
         "fileCount": 1,
         "manualRename": 2,
         "operation": 0,
-        "path": parent_id,
+        "path": upload_path,
         "seqNo": crate::utils::crypto::generate_random_string(32),
         "totalSize": report_size,
         "uploadContentList": [{
