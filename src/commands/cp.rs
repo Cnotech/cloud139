@@ -26,7 +26,7 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
             cp_family(&config, &args.source, &args.target).await?;
         }
         StorageType::Group => {
-            println!("群组云复制暂未实现");
+            cp_group(&config, &args.source, &args.target).await?;
         }
     }
 
@@ -100,5 +100,42 @@ async fn cp_family(config: &crate::config::Config, source: &str, target: &str) -
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
     println!("复制响应: {:?}", resp);
+    Ok(())
+}
+
+async fn cp_group(config: &crate::config::Config, source: &str, target: &str) -> Result<(), ClientError> {
+    let url = "https://yun.139.com/orchestration/group-rebuild/contentCatalog/v1.0/copyGroupContent";
+
+    let source_id = if source.starts_with('/') || source.contains('/') {
+        crate::client::api::get_file_id_by_path(config, source).await?
+    } else {
+        source.to_string()
+    };
+
+    let target_id = if target.starts_with('/') || target.contains('/') {
+        crate::client::api::get_file_id_by_path(config, target).await?
+    } else {
+        target.to_string()
+    };
+
+    let body = serde_json::json!({
+        "contentID": source_id,
+        "targetCatalogID": target_id,
+        "cloudID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let client = Client::new(config.clone());
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        println!("复制成功");
+    } else {
+        println!("复制失败: {:?}", resp);
+    }
+
     Ok(())
 }

@@ -255,6 +255,22 @@ pub struct FamilyDiskInfoData {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct GroupDiskInfoResp {
+    #[serde(flatten)]
+    pub base: BaseResp,
+    pub data: GroupDiskInfoData,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDiskInfoData {
+    #[serde(rename = "usedSize")]
+    pub used_size: String,
+    #[serde(rename = "diskSize")]
+    pub disk_size: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct QueryGroupContentListResp {
     #[serde(flatten)]
     pub base: BaseResp,
@@ -343,6 +359,12 @@ pub struct BatchCopyResp {
 
 #[derive(Debug, Deserialize)]
 pub struct BatchTrashResp {
+    #[serde(flatten)]
+    pub base: BaseResp,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BatchRenameResp {
     #[serde(flatten)]
     pub base: BaseResp,
 }

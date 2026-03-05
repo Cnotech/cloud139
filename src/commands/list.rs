@@ -39,9 +39,15 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             let mut next_cursor = String::new();
             
+            let thumbnail_styles = if config.use_large_thumbnail {
+                serde_json::json!(["Small", "Large", "Original"])
+            } else {
+                serde_json::json!(["Small", "Large"])
+            };
+            
             loop {
                 let body = serde_json::json!({
-                    "imageThumbnailStyleList": ["Small", "Large"],
+                    "imageThumbnailStyleList": thumbnail_styles,
                     "orderBy": "updated_at",
                     "orderDirection": "DESC",
                     "pageInfo": {

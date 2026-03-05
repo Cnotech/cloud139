@@ -28,7 +28,7 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
             mv_family(&config, &args.source, &args.target).await?;
         }
         StorageType::Group => {
-            println!("群组云移动暂未实现");
+            mv_group(&config, &args.source, &args.target).await?;
         }
     }
 
@@ -133,5 +133,48 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
     println!("移动响应: {:?}", resp);
+    Ok(())
+}
+
+async fn mv_group(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
+    if sources.len() > 1 {
+        println!("群组云暂不支持批量移动");
+        return Ok(());
+    }
+
+    let source = &sources[0];
+    let source_id = if source.starts_with('/') || source.contains('/') {
+        crate::client::api::get_file_id_by_path(config, source).await?
+    } else {
+        source.to_string()
+    };
+
+    let target_id = if target.starts_with('/') || target.contains('/') {
+        crate::client::api::get_file_id_by_path(config, target).await?
+    } else {
+        target.to_string()
+    };
+
+    let url = "https://yun.139.com/orchestration/group-rebuild/contentCatalog/v1.0/moveGroupContent";
+
+    let body = serde_json::json!({
+        "contentID": source_id,
+        "targetCatalogID": target_id,
+        "cloudID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let client = Client::new(config.clone());
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        println!("移动成功");
+    } else {
+        println!("移动失败: {:?}", resp);
+    }
+
     Ok(())
 }

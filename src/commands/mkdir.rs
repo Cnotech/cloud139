@@ -23,7 +23,7 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
             mkdir_family(&config, &args.name, &args.parent).await?;
         }
         StorageType::Group => {
-            println!("群组云创建目录暂未实现");
+            mkdir_group(&config, &args.name, &args.parent).await?;
         }
     }
 
@@ -92,5 +92,38 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
     println!("创建目录响应: {:?}", resp);
+    Ok(())
+}
+
+async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
+    let url = "https://yun.139.com/orchestration/group-rebuild/contentCatalog/v1.0/createGroupCatalog";
+
+    let catalog_id = if parent == "/" || parent.is_empty() {
+        "0".to_string()
+    } else if parent.starts_with('/') || parent.contains('/') {
+        crate::client::api::get_file_id_by_path(config, parent).await?
+    } else {
+        parent.to_string()
+    };
+
+    let body = serde_json::json!({
+        "catalogName": name,
+        "parentCatalogID": catalog_id,
+        "cloudID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let client = Client::new(config.clone());
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+        println!("目录创建成功: {}", name);
+    } else {
+        println!("创建失败: {:?}", resp);
+    }
+
     Ok(())
 }

@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload};
+use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename, other};
 use mobile_cloud_cli::Config;
 use mobile_cloud_cli::client::Client;
 
@@ -34,6 +34,10 @@ enum Commands {
     Mv(mv::MvArgs),
     /// 复制文件
     Cp(cp::CpArgs),
+    /// 重命名文件
+    Rename(rename::RenameArgs),
+    /// 其他操作（视频预览等）
+    Other(other::OtherArgs),
     /// 查看存储信息
     Info,
 }
@@ -53,6 +57,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Mkdir(args) => mkdir::execute(args).await?,
         Commands::Mv(args) => mv::execute(args).await?,
         Commands::Cp(args) => cp::execute(args).await?,
+        Commands::Rename(args) => rename::execute(args).await?,
+        Commands::Other(args) => other::execute(args).await?,
         Commands::Info => {
             let config = Config::load()?;
             let client = Client::new(config);

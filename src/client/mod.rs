@@ -126,7 +126,13 @@ impl Client {
                 }
             }
             StorageType::Group => {
-                println!("群组云存储信息查询暂未实现");
+                let resp = api::get_group_disk_info(&self.config).await?;
+                if resp.base.success {
+                    let data = resp.data;
+                    println!("群组云存储空间信息:");
+                    println!("  总容量: {} GB", parse_size(&data.disk_size));
+                    println!("  已使用: {} GB", parse_size(&data.used_size));
+                }
             }
         }
         
@@ -163,6 +169,7 @@ impl Client {
         headers.insert("Authorization", format!("Basic {}", self.config.authorization).parse().unwrap());
         headers.insert("mcloud-channel", "1000101".parse().unwrap());
         headers.insert("mcloud-client", "10701".parse().unwrap());
+        headers.insert("mcloud-route", "001".parse().unwrap());
         headers.insert("mcloud-sign", format!("{},{},{}", ts, rand_str, sign).parse().unwrap());
         headers.insert("mcloud-version", "7.14.0".parse().unwrap());
         headers.insert("Origin", "https://yun.139.com".parse().unwrap());
