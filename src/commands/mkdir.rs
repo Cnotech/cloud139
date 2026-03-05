@@ -1,6 +1,6 @@
-use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct MkdirArgs {
@@ -12,25 +12,37 @@ pub struct MkdirArgs {
 }
 
 pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
+    let name = args.name.clone();
+
+    let parent = if args.parent.is_empty() || args.parent == "/" {
+        "/".to_string()
+    } else {
+        args.parent.trim().to_string()
+    };
+
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
     match storage_type {
         StorageType::PersonalNew => {
-            mkdir_personal(&config, &args.name, &args.parent).await?;
+            mkdir_personal(&config, &name, &parent).await?;
         }
         StorageType::Family => {
-            mkdir_family(&config, &args.name, &args.parent).await?;
+            mkdir_family(&config, &name, &parent).await?;
         }
         StorageType::Group => {
-            mkdir_group(&config, &args.name, &args.parent).await?;
+            mkdir_group(&config, &name, &parent).await?;
         }
     }
 
     Ok(())
 }
 
-async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
+async fn mkdir_personal(
+    config: &crate::config::Config,
+    name: &str,
+    parent: &str,
+) -> Result<(), ClientError> {
     let _full_path = if parent == "/" || parent.is_empty() {
         format!("/{}", name)
     } else {
@@ -42,7 +54,7 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
     let url = format!("{}/file/create", host);
 
     let parent_file_id = if parent == "/" || parent.is_empty() {
-        "".to_string()
+        "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(&config, parent).await?
     };
@@ -55,19 +67,32 @@ async fn mkdir_personal(config: &crate::config::Config, name: &str, parent: &str
         "fileRenameMode": "force_rename"
     });
 
-    let resp: PersonalUploadResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
+    let resp: PersonalUploadResp =
+        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
+            .await?;
 
     if resp.base.success {
-        println!("目录创建成功: {}", resp.data.file_name.as_deref().unwrap_or(""));
+        println!(
+            "目录创建成功: {}",
+            resp.data.file_name.as_deref().unwrap_or("")
+        );
     } else {
-        println!("创建失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"));
+        println!(
+            "创建失败: {}",
+            resp.base.message.as_deref().unwrap_or("未知错误")
+        );
     }
 
     Ok(())
 }
 
-async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/cloudCatalog/v1.0/createCloudDoc";
+async fn mkdir_family(
+    config: &crate::config::Config,
+    name: &str,
+    parent: &str,
+) -> Result<(), ClientError> {
+    let url =
+        "https://yun.139.com/orchestration/familyCloud-rebuild/cloudCatalog/v1.0/createCloudDoc";
 
     let _parent_id = if parent == "/" || parent.is_empty() {
         "0".to_string()
@@ -102,7 +127,11 @@ async fn mkdir_family(config: &crate::config::Config, name: &str, parent: &str) 
     Ok(())
 }
 
-async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -> Result<(), ClientError> {
+async fn mkdir_group(
+    config: &crate::config::Config,
+    name: &str,
+    parent: &str,
+) -> Result<(), ClientError> {
     let url = "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/createGroupCatalog";
 
     let parent_file_id = if parent == "/" || parent.is_empty() {
@@ -119,7 +148,7 @@ async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -
         if parts.len() == 1 {
             format!("root:{}", parent)
         } else {
-            let parent_name = parts[..parts.len()-1].join("/");
+            let parent_name = parts[..parts.len() - 1].join("/");
             format!("root:/{}", parent_name)
         }
     };
@@ -138,7 +167,12 @@ async fn mkdir_group(config: &crate::config::Config, name: &str, parent: &str) -
     let client = Client::new(config.clone());
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    if resp.get("result").and_then(|r| r.get("resultCode")).and_then(|c| c.as_str()) == Some("0") {
+    if resp
+        .get("result")
+        .and_then(|r| r.get("resultCode"))
+        .and_then(|c| c.as_str())
+        == Some("0")
+    {
         println!("目录创建成功: {}", name);
     } else {
         println!("创建失败: {:?}", resp);
