@@ -26,10 +26,10 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
             download_personal(&config, &file_id, &args.local_path).await?;
         }
         StorageType::Family => {
-            println!("家庭云下载暂未实现");
+            download_family(&config, &args.remote_path, &args.local_path).await?;
         }
         StorageType::Group => {
-            println!("群组云下载暂未实现");
+            download_group(&config, &args.remote_path, &args.local_path).await?;
         }
     }
 
@@ -110,5 +110,181 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
     }
 
     println!("\n下载完成!");
+    Ok(())
+}
+
+async fn download_family(
+    config: &crate::config::Config,
+    remote_path: &str,
+    local_path: &str,
+) -> Result<(), ClientError> {
+    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
+    if parts.is_empty() {
+        println!("错误: 无效的文件路径");
+        return Ok(());
+    }
+
+    let file_name = parts.last().unwrap();
+    let parent_path = if parts.len() > 1 {
+        parts[..parts.len()-1].join("/")
+    } else {
+        config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+    };
+
+    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    
+    let body = serde_json::json!({
+        "catalogID": parent_path,
+        "sortType": 1,
+        "pageNumber": 1,
+        "pageSize": 100,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let client = crate::client::Client::new(config.clone());
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    let mut found_id: Option<String> = None;
+    let mut found_path: Option<String> = None;
+
+    if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = cat.get("catalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                break;
+            }
+        }
+    }
+
+    if found_id.is_none() {
+        if let Some(content_list) = resp.pointer("/data/cloudContentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                    found_id = content.get("contentID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    found_path = resp.pointer("/data/path").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    let content_id = match found_id {
+        Some(id) => id,
+        None => {
+            println!("错误: 文件不存在");
+            return Ok(());
+        }
+    };
+
+    let path = found_path.unwrap_or_else(|| parent_path.clone());
+
+    let download_url = crate::client::api::get_family_download_link(config, &content_id, &path).await?;
+    
+    if download_url.is_empty() {
+        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
+    }
+
+    println!("下载链接: {}", download_url);
+
+    let local_path_obj = std::path::Path::new(local_path);
+    if local_path_obj.is_dir() {
+        let file_path = local_path_obj.join(file_name);
+        download_file(&download_url, &file_path).await?;
+    } else {
+        download_file(&download_url, local_path_obj).await?;
+    }
+
+    Ok(())
+}
+
+async fn download_group(
+    config: &crate::config::Config,
+    remote_path: &str,
+    local_path: &str,
+) -> Result<(), ClientError> {
+    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
+    if parts.is_empty() {
+        println!("错误: 无效的文件路径");
+        return Ok(());
+    }
+
+    let file_name = parts.last().unwrap();
+    let parent_path = if parts.len() > 1 {
+        parts[..parts.len()-1].join("/")
+    } else {
+        "0".to_string()
+    };
+
+    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    
+    let body = serde_json::json!({
+        "groupID": config.cloud_id,
+        "catalogID": parent_path,
+        "contentSortType": 0,
+        "sortDirection": 1,
+        "startNumber": 1,
+        "endNumber": 100,
+        "path": if parent_path == "0" { "root:".to_string() } else { format!("root:/{}", parent_path) }
+    });
+
+    let client = crate::client::Client::new(config.clone());
+    let resp: serde_json::Value = client.api_request_post(url, body).await?;
+
+    let mut found_id: Option<String> = None;
+    let mut found_path: Option<String> = None;
+
+    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList").and_then(|v| v.as_array()) {
+        for cat in catalog_list {
+            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = cat.get("catalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                found_path = cat.get("path").and_then(|v| v.as_str()).map(|s| s.to_string());
+                break;
+            }
+        }
+    }
+
+    if found_id.is_none() {
+        if let Some(content_list) = resp.pointer("/data/getGroupContentResult/contentList").and_then(|v| v.as_array()) {
+            for content in content_list {
+                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                    found_id = content.get("contentID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    found_path = resp.pointer("/data/getGroupContentResult/parentCatalogID").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    let content_id = match found_id {
+        Some(id) => id,
+        None => {
+            println!("错误: 文件不存在");
+            return Ok(());
+        }
+    };
+
+    let path = found_path.unwrap_or_else(|| format!("root:/{}", parent_path));
+
+    let download_url = crate::client::api::get_group_download_link(config, &content_id, &path).await?;
+    
+    if download_url.is_empty() {
+        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
+    }
+
+    println!("下载链接: {}", download_url);
+
+    let local_path_obj = std::path::Path::new(local_path);
+    if local_path_obj.is_dir() {
+        let file_path = local_path_obj.join(file_name);
+        download_file(&download_url, &file_path).await?;
+    } else {
+        download_file(&download_url, local_path_obj).await?;
+    }
+
     Ok(())
 }

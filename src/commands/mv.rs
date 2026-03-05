@@ -164,16 +164,22 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
     }
 
     let target = target.trim_start_matches('/');
-    let target_path = if target.is_empty() {
+    let target_catalog_id = if target.is_empty() {
         "0".to_string()
     } else {
-        format!("root:/{}", target)
+        target.to_string()
     };
 
     let full_source_path = if found_path.is_empty() {
         format!("root:/{}", found_id)
     } else {
         format!("{}/{}", found_path.trim_end_matches('/'), found_id)
+    };
+
+    let target_path = if target.is_empty() {
+        config.root_folder_id.clone().unwrap_or_else(|| "0".to_string())
+    } else {
+        format!("{}/{}", target, "")
     };
 
     let body = serde_json::json!({
@@ -183,7 +189,7 @@ async fn mv_family(config: &crate::config::Config, sources: &[String], target: &
             "accountType": "1"
         },
         "contentList": if !is_dir { vec![full_source_path.clone()] } else { vec![] },
-        "destCatalogID": target,
+        "destCatalogID": target_catalog_id,
         "destGroupID": config.cloud_id,
         "destPath": target_path,
         "destType": 0,

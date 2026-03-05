@@ -153,13 +153,13 @@ async fn cp_group(config: &crate::config::Config, source: &str, target: &str) ->
     let full_source_path = if found_path.is_empty() {
         format!("root:/{}", found_id)
     } else {
-        format!("{}/{}", found_path.trim_end_matches('/'), found_id)
+        format!("root:/{}/{}", found_path.trim_end_matches('/'), found_id)
     };
 
     let dest_catalog_id = if target.is_empty() { 
         "root:".to_string() 
     } else { 
-        format!("root:/{}", target) 
+        format!("root:/{}", target.trim_end_matches('/'))
     };
 
     let body = if is_dir {

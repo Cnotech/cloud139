@@ -72,6 +72,7 @@ async fn video_preview_personal(config: &crate::config::Config, path: &str) -> R
     let url = format!("{}/videoPreview/getPreviewInfo", host);
 
     let body = serde_json::json!({
+        "category": "video",
         "fileId": file_id
     });
 

@@ -331,3 +331,150 @@ pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Resul
 
     Ok(resp.data.items)
 }
+
+pub async fn get_family_download_link(config: &Config, content_id: &str, path: &str) -> Result<String, ClientError> {
+    let client = crate::client::Client::new(config.clone());
+    
+    let body = serde_json::json!({
+        "contentID": content_id,
+        "path": path,
+        "catalogType": 3,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let resp: serde_json::Value = client.api_request_post(
+        "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileDownLoadURL",
+        body
+    ).await?;
+
+    let url = resp.pointer("/data/downloadURL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(url)
+}
+
+pub async fn get_group_download_link(config: &Config, content_id: &str, path: &str) -> Result<String, ClientError> {
+    let client = crate::client::Client::new(config.clone());
+    
+    let body = serde_json::json!({
+        "contentID": content_id,
+        "groupID": config.cloud_id,
+        "path": path,
+        "catalogType": 3,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        }
+    });
+
+    let resp: serde_json::Value = client.api_request_post(
+        "https://yun.139.com/orchestration/group-rebuild/groupManage/v1.0/getGroupFileDownLoadURL",
+        body
+    ).await?;
+
+    let url = resp.pointer("/data/downloadURL")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Ok(url)
+}
+
+pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError> {
+    let client = crate::client::Client::new(config.clone());
+    
+    let body = serde_json::json!({
+        "catalogID": "",
+        "catalogType": 3,
+        "cloudID": config.cloud_id,
+        "cloudType": 1,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        },
+        "contentSortType": 0,
+        "pageInfo": {
+            "pageNum": 1,
+            "pageSize": 1
+        },
+        "sortDirection": 1
+    });
+
+    let resp: serde_json::Value = client.api_request_post(
+        "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList",
+        body
+    ).await?;
+
+    let path = resp.pointer("/data/path")
+        .and_then(|v| v.as_str())
+        .map(|s| {
+            let s = s.trim_start_matches("root:/");
+            let s = s.trim_start_matches("root:");
+            s.to_string()
+        })
+        .unwrap_or_default();
+
+    if path.is_empty() {
+        if let Some(catalog_list) = resp.pointer("/data/cloudCatalogList").and_then(|v| v.as_array()) {
+            if let Some(first) = catalog_list.first() {
+                if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
+                    let p = p.trim_start_matches("root:/");
+                    let p = p.trim_start_matches("root:");
+                    return Ok(p.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(path)
+}
+
+pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, ClientError> {
+    let client = crate::client::Client::new(config.clone());
+    
+    let body = serde_json::json!({
+        "groupID": config.cloud_id,
+        "commonAccountInfo": {
+            "account": config.username,
+            "accountType": 1
+        },
+        "pageInfo": {
+            "pageNum": 1,
+            "pageSize": 1
+        }
+    });
+
+    let resp: serde_json::Value = client.api_request_post(
+        "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/queryGroupContentList",
+        body
+    ).await?;
+
+    if let Some(parent_catalog_id) = resp.pointer("/data/getGroupContentResult/parentCatalogID")
+        .and_then(|v| v.as_str()) 
+    {
+        if !parent_catalog_id.is_empty() {
+            return Ok(parent_catalog_id.to_string());
+        }
+    }
+
+    if let Some(catalog_list) = resp.pointer("/data/getGroupContentResult/catalogList")
+        .and_then(|v| v.as_array()) 
+    {
+        if let Some(first) = catalog_list.first() {
+            if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
+                return Ok(p.to_string());
+            }
+        }
+    }
+
+    Err(ClientError::Other("Failed to get group root path".to_string()))
+}
