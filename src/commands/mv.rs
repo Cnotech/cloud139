@@ -4,7 +4,7 @@ use crate::models::BatchMoveResp;
 
 #[derive(Parser, Debug)]
 pub struct MvArgs {
-    #[arg(help = "源文件路径（支持多个，用空格分隔）")]
+    #[arg(required = true, help = "源文件路径（支持多个，用空格分隔）")]
     pub source: Vec<String>,
 
     #[arg(help = "目标路径")]

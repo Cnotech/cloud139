@@ -18,8 +18,6 @@ pub struct ListArgs {
 pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
     let path = if args.path.is_empty() || args.path == "/" {
         "/".to_string()
-    } else if args.path.contains("Program Files") || args.path.contains(":") || args.path.starts_with("C:") || args.path.starts_with("c:") {
-        "/".to_string()
     } else {
         args.path.trim().to_string()
     };
