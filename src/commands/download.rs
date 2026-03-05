@@ -8,28 +8,42 @@ pub struct DownloadArgs {
     #[arg(help = "远程文件路径")]
     pub remote_path: String,
 
-    #[arg(default_value = ".", help = "本地保存路径")]
-    pub local_path: String,
+    #[arg(help = "本地保存路径（默认保存到当前目录的同名文件）")]
+    pub local_path: Option<String>,
 }
 
 pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
 
+    let remote_path = &args.remote_path;
+    let local_path = match &args.local_path {
+        Some(path) if !path.is_empty() => path.clone(),
+        _ => {
+            let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
+            let file_name = parts.first().copied().unwrap_or_else(|| remote_path.as_str());
+            if file_name.is_empty() || file_name == remote_path {
+                "download".to_string()
+            } else {
+                file_name.to_string()
+            }
+        }
+    };
+
     match storage_type {
         StorageType::PersonalNew => {
-            let file_id = crate::client::api::get_file_id_by_path(&config, &args.remote_path).await?;
+            let file_id = crate::client::api::get_file_id_by_path(&config, remote_path).await?;
             if file_id.is_empty() {
                 println!("错误: 无效的文件路径");
                 return Ok(());
             }
-            download_personal(&config, &file_id, &args.local_path).await?;
+            download_personal(&config, &file_id, &local_path).await?;
         }
         StorageType::Family => {
-            download_family(&config, &args.remote_path, &args.local_path).await?;
+            download_family(&config, remote_path, &local_path).await?;
         }
         StorageType::Group => {
-            download_group(&config, &args.remote_path, &args.local_path).await?;
+            download_group(&config, remote_path, &local_path).await?;
         }
     }
 
