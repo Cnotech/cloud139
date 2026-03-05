@@ -210,11 +210,12 @@ async fn upload_parts(
 ) -> Result<(), ClientError> {
     use std::fs::File;
     use std::io::{Read, Seek, SeekFrom};
+    use std::collections::HashMap;
 
     let mut file = File::open(local_path)?;
     let part_count = (file_size + part_size - 1) / part_size;
 
-    let mut all_upload_urls: Vec<String> = Vec::new();
+    let mut upload_urls: HashMap<i32, String> = HashMap::new();
     
     for batch_start in (0..part_count as usize).step_by(100) {
         let batch_end = std::cmp::min(batch_start + 100, part_count as usize);
@@ -252,8 +253,11 @@ async fn upload_parts(
         
         if let Some(part_infos) = resp_json.get("data").and_then(|d| d.get("partInfos")).and_then(|p| p.as_array()) {
             for info in part_infos {
-                if let Some(url) = info.get("uploadUrl").and_then(|u| u.as_str()) {
-                    all_upload_urls.push(url.to_string());
+                if let (Some(part_num), Some(url)) = (
+                    info.get("partNumber").and_then(|n| n.as_i64()),
+                    info.get("uploadUrl").and_then(|u| u.as_str())
+                ) {
+                    upload_urls.insert(part_num as i32, url.to_string());
                 }
             }
         }
@@ -275,20 +279,10 @@ async fn upload_parts(
             break;
         }
 
-        let part_number = i + 1;
+        let part_number = (i + 1) as i32;
         println!("上传分片 {}/{}", part_number, part_count);
 
-        let upload_url = all_upload_urls.iter()
-            .find(|url| {
-                if let Some(pos) = url.find("partNumber=") {
-                    let num_str = &url[pos + 11..];
-                    let end_pos = num_str.find('&').unwrap_or(num_str.len());
-                    let num = num_str[..end_pos].parse::<i64>().unwrap_or(0);
-                    num == part_number as i64
-                } else {
-                    false
-                }
-            })
+        let upload_url = upload_urls.get(&part_number)
             .cloned()
             .ok_or_else(|| 
                 ClientError::Api(format!("找不到分片 {} 的上传URL", part_number))

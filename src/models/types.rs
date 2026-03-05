@@ -95,7 +95,7 @@ pub struct PersonalListResp {
 #[derive(Debug, Deserialize)]
 pub struct PersonalListData {
     pub items: Vec<PersonalFileItem>,
-    #[serde(rename = "next_page_cursor")]
+    #[serde(rename = "nextPageCursor")]
     pub next_page_cursor: String,
 }
 
@@ -410,10 +410,19 @@ pub struct UploadRequest {
 pub struct FamilyListRequest {
     #[serde(rename = "catalogID")]
     pub catalog_id: String,
-    #[serde(rename = "sortType")]
-    pub sort_type: i32,
-    #[serde(rename = "pageNumber")]
-    pub page_number: i32,
+    #[serde(rename = "contentSortType")]
+    pub content_sort_type: i32,
+    #[serde(rename = "sortDirection")]
+    pub sort_direction: i32,
+    #[serde(rename = "pageInfo")]
+    pub page_info: PageInfo,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageInfo {
+    #[serde(rename = "pageNum")]
+    pub page_num: i32,
     #[serde(rename = "pageSize")]
     pub page_size: i32,
 }
@@ -430,14 +439,19 @@ pub struct FamilyCreateFolderRequest {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupListRequest {
+    #[serde(rename = "groupID")]
+    pub group_id: String,
     #[serde(rename = "catalogID")]
     pub catalog_id: String,
-    #[serde(rename = "sortType")]
-    pub sort_type: i32,
-    #[serde(rename = "pageNumber")]
-    pub page_number: i32,
-    #[serde(rename = "pageSize")]
-    pub page_size: i32,
+    #[serde(rename = "contentSortType")]
+    pub content_sort_type: i32,
+    #[serde(rename = "sortDirection")]
+    pub sort_direction: i32,
+    #[serde(rename = "startNumber")]
+    pub start_number: i32,
+    #[serde(rename = "endNumber")]
+    pub end_number: i32,
+    pub path: String,
 }
 
 #[derive(Debug, Deserialize)]

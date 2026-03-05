@@ -43,7 +43,7 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn delete_personal(config: &crate::config::Config, path: &str, permanent: bool) -> Result<(), ClientError> {
+async fn delete_personal(config: &crate::config::Config, path: &str, _permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
         println!("错误: 不能删除根目录");
         return Ok(());
@@ -58,11 +58,7 @@ async fn delete_personal(config: &crate::config::Config, path: &str, permanent: 
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     
-    let url = if permanent {
-        format!("{}/file/batchDelete", host)
-    } else {
-        format!("{}/recyclebin/batchTrash", host)
-    };
+    let url = format!("{}/recyclebin/batchTrash", host);
 
     let body = serde_json::json!({
         "fileIds": [file_id]
@@ -71,11 +67,7 @@ async fn delete_personal(config: &crate::config::Config, path: &str, permanent: 
     let resp: BatchTrashResp = crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew).await?;
 
     if resp.base.success {
-        if permanent {
-            println!("文件已永久删除");
-        } else {
-            println!("文件已移动到回收站");
-        }
+        println!("文件已移动到回收站");
     } else {
         println!("删除失败: {}", resp.base.message);
     }

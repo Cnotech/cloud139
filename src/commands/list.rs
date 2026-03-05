@@ -1,6 +1,6 @@
 use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
-use crate::models::{PersonalListResp, FamilyListRequest, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
+use crate::models::{PersonalListResp, FamilyListRequest, PageInfo, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
 use chrono::NaiveDateTime;
 
 #[derive(Parser, Debug)]
@@ -95,14 +95,17 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let catalog_id = if args.path == "/" || args.path.is_empty() {
                 "0".to_string()
             } else {
-                args.path.clone()
+                args.path.trim_start_matches('/').to_string()
             };
 
             let body = FamilyListRequest {
                 catalog_id: catalog_id.clone(),
-                sort_type: 1,
-                page_number: args.page,
-                page_size: args.page_size,
+                content_sort_type: 0,
+                sort_direction: 1,
+                page_info: PageInfo {
+                    page_num: args.page,
+                    page_size: args.page_size,
+                },
             };
 
             let mut config = config.clone();
@@ -140,14 +143,27 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             let catalog_id = if args.path == "/" || args.path.is_empty() {
                 "0".to_string()
             } else {
-                args.path.clone()
+                args.path.trim_start_matches('/').to_string()
             };
 
+            let root_folder_id = config.root_folder_id.clone().unwrap_or_else(|| "root:".to_string());
+            let path = if catalog_id == "0" || catalog_id.is_empty() {
+                root_folder_id.clone()
+            } else {
+                format!("{}/{}", root_folder_id.trim_end_matches(':'), catalog_id)
+            };
+            
+            let start_number = (args.page - 1) * args.page_size + 1;
+            let end_number = args.page * args.page_size;
+
             let body = GroupListRequest {
-                catalog_id,
-                sort_type: 1,
-                page_number: args.page,
-                page_size: args.page_size,
+                group_id: config.cloud_id.clone().unwrap_or_default(),
+                catalog_id: catalog_id.clone(),
+                content_sort_type: 0,
+                sort_direction: 1,
+                start_number,
+                end_number,
+                path,
             };
 
             let client = Client::new(config);
