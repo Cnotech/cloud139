@@ -187,7 +187,8 @@ pub struct DownloadUrlData {
 pub struct PersonalDiskInfoResp {
     #[serde(flatten)]
     pub base: BaseResp,
-    pub data: PersonalDiskInfoData,
+    #[serde(default)]
+    pub data: Option<PersonalDiskInfoData>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -197,6 +198,8 @@ pub struct PersonalDiskInfoData {
     pub free_disk_size: String,
     #[serde(rename = "diskSize")]
     pub disk_size: String,
+    #[serde(rename = "isInfinitePicStorage", default)]
+    pub is_infinite_pic_storage: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -252,7 +255,8 @@ pub struct CloudCatalog {
 pub struct FamilyDiskInfoResp {
     #[serde(flatten)]
     pub base: BaseResp,
-    pub data: FamilyDiskInfoData,
+    #[serde(default)]
+    pub data: Option<FamilyDiskInfoData>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -268,7 +272,8 @@ pub struct FamilyDiskInfoData {
 pub struct GroupDiskInfoResp {
     #[serde(flatten)]
     pub base: BaseResp,
-    pub data: GroupDiskInfoData,
+    #[serde(default)]
+    pub data: Option<GroupDiskInfoData>,
 }
 
 #[derive(Debug, Deserialize)]

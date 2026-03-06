@@ -36,6 +36,8 @@ pub struct Config {
     pub token_expire_time: Option<i64>,
     #[serde(default)]
     pub root_folder_id: Option<String>,
+    #[serde(default)]
+    pub user_domain_id: Option<String>,
 }
 
 fn default_true() -> bool {

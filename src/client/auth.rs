@@ -23,6 +23,7 @@ pub async fn login(
         refresh_token: Some(token_info),
         token_expire_time: Some(expire_time),
         root_folder_id: None,
+        user_domain_id: None,
     };
 
     Ok(config)
