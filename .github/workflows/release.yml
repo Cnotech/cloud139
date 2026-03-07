@@ -34,6 +34,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Rust crates
+        uses: swatinem/rust-cache@v2
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
