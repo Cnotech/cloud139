@@ -144,6 +144,8 @@ async fn upload_personal(
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
             println!("服务器未返回分片信息");
+            let file_name_val = data.file_name.clone().unwrap_or_else(|| file_name.to_string());
+            println!("上传完成: {}", file_name_val);
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
@@ -204,6 +206,7 @@ async fn upload_personal(
         }
     } else {
         println!("服务器未返回分片信息");
+        println!("上传完成: {}", file_name);
     }
 
     Ok(())
