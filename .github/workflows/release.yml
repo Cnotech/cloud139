@@ -29,7 +29,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: cloud139-windows-x86_64.zip
-            archive: powershell -Command "Compress-Archive -Path target/release/cloud139.exe -DestinationPath"
+            archive: powershell -Command "Compress-Archive -Path $env:SOURCE -DestinationPath $env:DEST"
 
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +46,11 @@ jobs:
 
       - name: Create artifact
         run: |
-          ${{ matrix.archive }} ${{ matrix.artifact_name }} target/${{ matrix.target }}/release/${{ matrix.target == 'x86_64-pc-windows-msvc' && 'cloud139.exe' || 'cloud139' }}
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            powershell -Command "Compress-Archive -Path target/${{ matrix.target }}/release/cloud139.exe -DestinationPath ${{ matrix.artifact_name }}"
+          else
+            ${{ matrix.archive }} ${{ matrix.artifact_name }} target/${{ matrix.target }}/release/cloud139
+          fi
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
