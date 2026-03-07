@@ -38,7 +38,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
                 error!("无效的文件路径");
                 return Ok(());
             }
-            download_personal(&config, &file_id, &local_path).await?;
+            download_personal(&config, remote_path, &file_id, &local_path).await?;
         }
         StorageType::Family => {
             download_family(&config, remote_path, &local_path).await?;
@@ -53,6 +53,7 @@ pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
 
 async fn download_personal(
     config: &crate::config::Config,
+    remote_path: &str,
     file_id: &str,
     local_path: &str,
 ) -> Result<(), ClientError> {
@@ -81,10 +82,9 @@ async fn download_personal(
     if local_path_obj.is_dir() {
         let file_name = resp.data.file_name
             .unwrap_or_else(|| {
-                Path::new(file_id)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("download")
+                let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
+                parts.first().copied()
+                    .unwrap_or_else(|| remote_path)
                     .to_string()
             });
         let file_path = local_path_obj.join(&file_name);
