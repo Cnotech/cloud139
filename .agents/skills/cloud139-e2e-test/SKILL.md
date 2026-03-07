@@ -37,6 +37,14 @@ cargo build --release
 ./target/release/cloud139 login --token <token> --storage-type personal_new
 ```
 
+检查并删除根目录下的遗留测试文件（如 README.md, Cargo.lock 等）：
+```bash
+./target/release/cloud139 ls /
+# 如果存在遗留测试文件，执行删除
+./target/release/cloud139 rm /README.md --yes
+./target/release/cloud139 rm /Cargo.lock --yes
+```
+
 创建一个随机命名的测试目录，格式：`e2e_test_{timestamp}`
 ```bash
 ./target/release/cloud139 mkdir /e2e_test_xxx
@@ -159,7 +167,7 @@ rm -rf cloud139_e2e_download_test
 
 汇总所有测试结果，生成测试报告。
 
-> **报告时应包含在执行过程中发现的潜在问题或风险**
+> **报告时应包含在执行过程中发现的潜在问题或风险**，如果有 SKILL 中没有清晰描述的情况，也应在报告中指出并建议添加到 SKILL 中。
 
 ## 边界情况总结
 
