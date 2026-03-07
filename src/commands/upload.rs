@@ -91,7 +91,7 @@ async fn upload_personal(
     if !force {
         let exists = crate::client::api::check_file_exists(&config, &parent_file_id, file_name).await?;
         if exists {
-            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+            warn!("云端已存在「{}」，如果继续则云端会自动覆盖", file_name);
             error!("请使用 --force 参数确认继续");
             return Ok(());
         }
@@ -164,7 +164,7 @@ async fn upload_personal(
 
     if data.exist.unwrap_or(false) {
         warn!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));
-        return Ok(());
+        // return Ok(());
     }
 
     if let Some(part_infos_response) = data.part_infos {
