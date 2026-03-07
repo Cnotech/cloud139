@@ -44,13 +44,13 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Create artifact
-        run: |
-          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
-            powershell -Command "Compress-Archive -Path target/${{ matrix.target }}/release/cloud139.exe -DestinationPath ${{ matrix.artifact_name }}"
-          else
-            ${{ matrix.archive }} ${{ matrix.artifact_name }} target/${{ matrix.target }}/release/cloud139
-          fi
+      - name: Create artifact (Windows)
+        if: matrix.os == 'windows-latest'
+        run: powershell -Command "Compress-Archive -Path target/${{ matrix.target }}/release/cloud139.exe -DestinationPath ${{ matrix.artifact_name }}"
+
+      - name: Create artifact (Unix)
+        if: matrix.os != 'windows-latest'
+        run: ${{ matrix.archive }} ${{ matrix.artifact_name }} target/${{ matrix.target }}/release/cloud139
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
