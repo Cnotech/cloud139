@@ -133,7 +133,7 @@ rm -rf cloud139_e2e_download_test
 |------|------|--------|
 | 8.1 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | 创建子目录 |
 | 8.2 | `./target/release/cloud139 ls /e2e_test_xxx` | 应有 subdir |
-| 8.3 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | **边界**：目录已存在 |
+| 8.3 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | **边界**：目录已存在，会自动重命名该目录 |
 | 8.4 | `./target/release/cloud139 mkdir /e2e_test_xxx/not_exist/child` | **边界**：父目录不存在 |
 
 #### 阶段 9: 删除测试 (rm)

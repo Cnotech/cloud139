@@ -51,7 +51,7 @@ cloud139 upload ./local.txt /remote/path
 cloud139 download /remote/file.txt
 
 # 永久删除
-cloud139 rm /remote/file.txt --force
+cloud139 rm /remote/file.txt --yes
 
 # 创建目录
 cloud139 mkdir /remote/newfolder
@@ -172,7 +172,7 @@ cloud139 download /folder/photo.jpg ./downloads/
 删除云盘文件或目录。
 
 ```bash
-cloud139 rm <路径> [--force] [--permanent]
+cloud139 rm <路径> [--yes] [--permanent]
 ```
 
 **参数说明：**
@@ -180,7 +180,7 @@ cloud139 rm <路径> [--force] [--permanent]
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
 | 路径 | - | 是 | 要删除的文件或目录路径 |
-| --force | -f | 是 | 确认删除（必填） |
+| --yes | -y | 是 | 确认删除（必填） |
 | --permanent | -p | 否 | 永久删除（不移动到回收站） |
 
 **示例：**
