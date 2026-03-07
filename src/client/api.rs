@@ -186,6 +186,11 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     Ok(result)
 }
 
+pub async fn check_file_exists(config: &Config, parent_file_id: &str, file_name: &str) -> Result<bool, ClientError> {
+    let files = list_personal_files(config, parent_file_id).await?;
+    Ok(files.iter().any(|f| f.name.as_deref() == Some(file_name)))
+}
+
 pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;

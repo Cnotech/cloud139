@@ -11,6 +11,9 @@ pub struct UploadArgs {
 
     #[arg(default_value = "/", help = "远程目录路径")]
     pub remote_path: String,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    pub force: bool,
 }
 
 pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
@@ -41,7 +44,7 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            upload_personal(&config, local_path, &remote_dir, file_name, file_size).await?;
+            upload_personal(&config, local_path, &remote_dir, file_name, file_size, args.force).await?;
         }
         StorageType::Family => {
             upload_family(&config, local_path, &remote_dir, file_name, file_size).await?;
@@ -70,6 +73,7 @@ async fn upload_personal(
     remote_path: &str,
     file_name: &str,
     file_size: i64,
+    force: bool,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -83,6 +87,15 @@ async fn upload_personal(
     } else {
         crate::client::api::get_file_id_by_path(&config, remote_path).await?
     };
+
+    if !force {
+        let exists = crate::client::api::check_file_exists(&config, &parent_file_id, file_name).await?;
+        if exists {
+            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+            error!("请使用 --force 参数确认继续");
+            return Ok(());
+        }
+    }
 
     let part_size = get_part_size(file_size, config.custom_upload_part_size);
     let part_count = (file_size + part_size - 1) / part_size;

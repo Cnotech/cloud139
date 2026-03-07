@@ -1,12 +1,15 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{success, error, info};
+use crate::{success, error, info, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct MkdirArgs {
     #[arg(help = "新目录路径，格式: /父目录/新目录名")]
     pub path: String,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名目录则自动重命名")]
+    pub force: bool,
 }
 
 pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
@@ -17,7 +20,7 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            mkdir_personal(&config, &name, &parent).await?;
+            mkdir_personal(&config, &name, &parent, args.force).await?;
         }
         StorageType::Family => {
             mkdir_family(&config, &name, &parent).await?;
@@ -58,6 +61,7 @@ async fn mkdir_personal(
     config: &crate::config::Config,
     name: &str,
     parent: &str,
+    force: bool,
 ) -> Result<(), ClientError> {
     let _full_path = if parent == "/" || parent.is_empty() {
         format!("/{}", name)
@@ -74,6 +78,15 @@ async fn mkdir_personal(
     } else {
         crate::client::api::get_file_id_by_path(&config, parent).await?
     };
+
+    if !force {
+        let exists = crate::client::api::check_file_exists(&config, &parent_file_id, name).await?;
+        if exists {
+            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", name);
+            error!("请使用 --force 参数确认继续");
+            return Ok(());
+        }
+    }
 
     let body = serde_json::json!({
         "parentFileId": parent_file_id,

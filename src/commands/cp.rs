@@ -2,7 +2,7 @@ use clap::Parser;
 use log::info;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
-use crate::{success, error};
+use crate::{success, error, warn};
 
 #[derive(Parser, Debug)]
 pub struct CpArgs {
@@ -14,6 +14,9 @@ pub struct CpArgs {
 
     #[arg(short, long, help = "合并复制（覆盖目标中的同名文件）")]
     pub merge: bool,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    pub force: bool,
 }
 
 pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
@@ -22,7 +25,7 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            cp_personal(&config, &args.source, &args.target, args.merge).await?;
+            cp_personal(&config, &args.source, &args.target, args.merge, args.force).await?;
         }
         StorageType::Family => {
             cp_family(&config, &args.source, &args.target).await?;
@@ -35,18 +38,32 @@ pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, _merge: bool) -> Result<(), ClientError> {
+async fn cp_personal(config: &crate::config::Config, source: &str, target: &str, _merge: bool, force: bool) -> Result<(), ClientError> {
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
         error!("错误: 无效的源文件路径");
         return Ok(());
     }
 
+    let source_path = std::path::Path::new(source);
+    let file_name = source_path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+
     let target_id = if target == "/" || target.is_empty() {
         "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };
+
+    if !force {
+        let exists = crate::client::api::check_file_exists(config, &target_id, &file_name).await?;
+        if exists {
+            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+            error!("请使用 --force 参数确认继续");
+            return Ok(());
+        }
+    }
     
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;

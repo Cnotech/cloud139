@@ -10,6 +10,9 @@ pub struct MvArgs {
 
     #[arg(help = "目标路径")]
     pub target: String,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    pub force: bool,
 }
 
 pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
@@ -23,7 +26,7 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            mv_personal(&config, &args.source, &args.target).await?;
+            mv_personal(&config, &args.source, &args.target, args.force).await?;
         }
         StorageType::Family => {
             mv_family(&config, &args.source, &args.target).await?;
@@ -36,7 +39,7 @@ pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-async fn mv_personal(config: &crate::config::Config, sources: &[String], target: &str) -> Result<(), ClientError> {
+async fn mv_personal(config: &crate::config::Config, sources: &[String], target: &str, force: bool) -> Result<(), ClientError> {
     let target_normalized = if target == "/" || target.is_empty() {
         "/".to_string()
     } else {
@@ -44,6 +47,7 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     };
 
     let mut source_ids: Vec<String> = Vec::new();
+    let mut file_names: Vec<String> = Vec::new();
     
     for source in sources {
         let source_path = std::path::Path::new(source);
@@ -65,7 +69,12 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
             warn!("无效的源文件路径: {}", source);
             continue;
         }
+        
+        let file_name = source_path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         source_ids.push(source_id);
+        file_names.push(file_name);
     }
 
     if source_ids.is_empty() {
@@ -78,6 +87,17 @@ async fn mv_personal(config: &crate::config::Config, sources: &[String], target:
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };
+
+    if !force {
+        for file_name in &file_names {
+            let exists = crate::client::api::check_file_exists(config, &target_id, file_name).await?;
+            if exists {
+                warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", file_name);
+                error!("请使用 --force 参数确认继续");
+                return Ok(());
+            }
+        }
+    }
     
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
