@@ -261,6 +261,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
+name = "cloud139"
+version = "1.0.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "base64",
+ "block-modes",
+ "cbc",
+ "chrono",
+ "cipher",
+ "clap",
+ "digest",
+ "directories",
+ "env_logger",
+ "futures-util",
+ "generic-array",
+ "hex",
+ "log",
+ "md-5",
+ "quick-xml",
+ "rand",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde-xml-rs",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "typenum",
+ "url",
+ "urlencoding",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1011,44 +1049,6 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mobile-cloud-cli"
-version = "0.1.0"
-dependencies = [
- "aes",
- "aes-gcm",
- "base64",
- "block-modes",
- "cbc",
- "chrono",
- "cipher",
- "clap",
- "digest",
- "directories",
- "env_logger",
- "futures-util",
- "generic-array",
- "hex",
- "log",
- "md-5",
- "quick-xml",
- "rand",
- "regex",
- "reqwest",
- "serde",
- "serde-xml-rs",
- "serde_json",
- "sha1",
- "sha2",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "typenum",
- "url",
- "urlencoding",
 ]
 
 [[package]]

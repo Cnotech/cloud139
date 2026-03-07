@@ -19,8 +19,8 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/mobile-cloud-cli.git
-cd mobile-cloud-cli
+git clone https://github.com/Cnotech/cloud139.git
+cd cloud139
 
 # 编译
 cargo build --release
@@ -313,7 +313,7 @@ cloud139 rename /folder/old newname
 ## 项目结构
 
 ```
-mobile-cloud-cli/
+cloud139/
 ├── Cargo.toml           # 项目配置
 ├── LICENSE              # MIT 许可证
 ├── config/

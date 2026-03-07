@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: cloud139-linux-x86_64.tar.gz
+            archive: tar -czf
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: cloud139-macos-x86_64.tar.gz
+            archive: tar -czf
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: cloud139-macos-arm64.tar.gz
+            archive: tar -czf
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: cloud139-windows-x86_64.zip
+            archive: powershell -Command "Compress-Archive -Path target/release/cloud139.exe -DestinationPath"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create artifact
+        run: |
+          ${{ matrix.archive }} ${{ matrix.artifact_name }} target/release/cloud139.exe
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

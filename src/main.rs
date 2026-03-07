@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename};
+use cloud139::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
