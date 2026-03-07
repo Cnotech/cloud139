@@ -5,6 +5,7 @@ use chrono::NaiveDateTime;
 use serde::Serialize;
 use std::fs;
 use crate::{success, error};
+use crate::utils::pad_with_width;
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -120,7 +121,8 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                             .or(item.last_modified.as_deref())
                             .unwrap_or_default()
                     );
-                    println!("{:<1} {:<38} {:>15} {:<20}", file_type_str, item.name.as_deref().unwrap_or(""), size, time);
+                    let name = item.name.as_deref().unwrap_or("");
+                    println!("{} {} {:>15} {:<20}", file_type_str, pad_with_width(name, 38), size, time);
 
                     all_items.push(JsonFileItem {
                         name: item.name.clone().unwrap_or_default(),
@@ -190,7 +192,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             println!("{}", "-".repeat(80));
 
             for cat in &resp.data.cloud_catalog_list {
-                println!("{:<1} {:<38} {:>15} {:<20}", "d", cat.catalog_name, "-", cat.last_update_time);
+                println!("{} {} {:>15} {:<20}", "d", pad_with_width(&cat.catalog_name, 38), "-", cat.last_update_time);
                 all_items.push(JsonFileItem {
                     name: cat.catalog_name.clone(),
                     file_type: "folder".to_string(),
@@ -201,7 +203,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for content in &resp.data.cloud_content_list {
                 let size = format_size(content.content_size);
-                println!("{:<1} {:<38} {:>15} {:<20}", "-", content.content_name, size, content.last_update_time);
+                println!("{} {} {:>15} {:<20}", "-", pad_with_width(&content.content_name, 38), size, content.last_update_time);
                 all_items.push(JsonFileItem {
                     name: content.content_name.clone(),
                     file_type: "file".to_string(),
@@ -270,7 +272,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             println!("{}", "-".repeat(80));
 
             for cat in &resp.data.get_group_content_result.catalog_list {
-                println!("{:<1} {:<38} {:>15} {:<20}", "d", cat.catalog_name, "-", cat.update_time);
+                println!("{} {} {:>15} {:<20}", "d", pad_with_width(&cat.catalog_name, 38), "-", cat.update_time);
                 all_items.push(JsonFileItem {
                     name: cat.catalog_name.clone(),
                     file_type: "folder".to_string(),
@@ -281,7 +283,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for content in &resp.data.get_group_content_result.content_list {
                 let size = format_size(content.content_size);
-                println!("{:<1} {:<38} {:>15} {:<20}", "-", content.content_name, size, content.update_time);
+                println!("{} {} {:>15} {:<20}", "-", pad_with_width(&content.content_name, 38), size, content.update_time);
                 all_items.push(JsonFileItem {
                     name: content.content_name.clone(),
                     file_type: "file".to_string(),
