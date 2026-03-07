@@ -44,7 +44,7 @@ jobs:
 
       - name: Create artifact
         run: |
-          ${{ matrix.archive }} ${{ matrix.artifact_name }} target/release/${{ matrix.target == 'x86_64-pc-windows-msvc' && 'cloud139.exe' || 'cloud139' }}
+          ${{ matrix.archive }} ${{ matrix.artifact_name }} target/${{ matrix.target }}/release/${{ matrix.target == 'x86_64-pc-windows-msvc' && 'cloud139.exe' || 'cloud139' }}
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
