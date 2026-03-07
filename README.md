@@ -17,6 +17,10 @@
 
 ### 安装
 
+从 [GitHub Releases](https://github.com/Cnotech/cloud139/releases) 下载对应平台的预编译二进制文件，然后添加到系统 PATH 中。
+
+如需从源码编译：
+
 ```bash
 # 克隆项目
 git clone https://github.com/Cnotech/cloud139.git
@@ -27,8 +31,6 @@ cargo build --release
 
 # 可执行文件位于 target/release/cloud139
 ```
-
-> 也可以从 [GitHub Releases](https://github.com/Cnotech/cloud139/releases) 下载预编译的二进制文件
 
 ### 登录
 
@@ -375,16 +377,6 @@ cloud139/
 - [chrono](https://chrono.rs/) - 日期时间处理
 - [directories](https://docs.rs/directories/) - 目录路径处理
 - [env_logger](https://docs.rs/env_logger/) - 日志输出
-
-## 自动发布
-
-项目使用 GitHub Actions 实现自动发布。每次推送版本标签时，会自动构建并发布以下平台的二进制文件：
-
-- Linux (x86_64)
-- macOS (x86_64, ARM64)
-- Windows (x86_64)
-
-发布包可在 [Releases](https://github.com/Cnotech/cloud139/releases) 页面下载。
 
 ## 许可证
 
