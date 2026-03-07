@@ -9,14 +9,14 @@ pub struct DeleteArgs {
     pub path: String,
 
     #[arg(short, long, help = "确认删除")]
-    pub force: bool,
+    pub yes: bool,
 
     #[arg(short, long, help = "永久删除（不移动到回收站）")]
     pub permanent: bool,
 }
 
 pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
-    if !args.force {
+    if !args.yes {
         if args.permanent {
             warn!("此操作将永久删除文件，无法恢复！");
         } else {
