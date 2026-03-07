@@ -72,6 +72,8 @@ cargo build --release
 | 2.4 | `./target/release/cloud139 upload Cargo.toml /e2e_test_xxx/` | 上传到测试目录 |
 | 2.5 | `./target/release/cloud139 upload not_exist_file.txt /` | **边界**：本地文件不存在 |
 | 2.6 | `./target/release/cloud139 upload README.md /not_exist_dir/` | **边界**：远程目录不存在 |
+| 2.7 | `./target/release/cloud139 upload README.md /` | **边界**：上传同名文件，云端已存在应提示警告 |
+| 2.8 | `./target/release/cloud139 upload README.md / --force` | 强制上传，云端会自动重命名 |
 
 #### 阶段 3: 列表验证
 
@@ -115,6 +117,8 @@ rm -rf cloud139_e2e_download_test
 | 5.2 | `./target/release/cloud139 ls /e2e_test_xxx` | 应有 3 个文件（含自动重命名的文件） |
 | 5.3 | `./target/release/cloud139 cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
 | 5.4 | `./target/release/cloud139 cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
+| 5.5 | `./target/release/cloud139 cp /Cargo.toml /e2e_test_xxx/` | **边界**：复制同名文件，云端已存在应提示警告 |
+| 5.6 | `./target/release/cloud139 cp /Cargo.toml /e2e_test_xxx/ --force` | 强制复制，云端会自动重命名 |
 
 #### 阶段 6: 重命名测试 (rename)
 
@@ -134,6 +138,8 @@ rm -rf cloud139_e2e_download_test
 | 7.3 | `./target/release/cloud139 ls /e2e_test_xxx` | README_copy.md 已移出 |
 | 7.4 | `./target/release/cloud139 mv /README_copy.md /not_exist_dir/` | **边界**：目标不存在 |
 | 7.5 | `./target/release/cloud139 mv / /somewhere` | **边界**：不能移动根目录 |
+| 7.6 | `./target/release/cloud139 mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录，云端已存在应提示警告 |
+| 7.7 | `./target/release/cloud139 mv /README.md /e2e_test_xxx/ --force` | 强制移动，云端会自动重命名 |
 
 #### 阶段 8: 创建目录测试 (mkdir)
 
@@ -141,8 +147,9 @@ rm -rf cloud139_e2e_download_test
 |------|------|--------|
 | 8.1 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | 创建子目录 |
 | 8.2 | `./target/release/cloud139 ls /e2e_test_xxx` | 应有 subdir |
-| 8.3 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | **边界**：目录已存在，会自动重命名该目录 |
-| 8.4 | `./target/release/cloud139 mkdir /e2e_test_xxx/not_exist/child` | **边界**：父目录不存在 |
+| 8.3 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir` | **边界**：目录已存在，云端已存在应提示警告 |
+| 8.4 | `./target/release/cloud139 mkdir /e2e_test_xxx/subdir --force` | 强制创建，云端会自动重命名 |
+| 8.5 | `./target/release/cloud139 mkdir /e2e_test_xxx/not_exist/child` | **边界**：父目录不存在 |
 
 #### 阶段 9: 删除测试 (rm)
 
@@ -178,6 +185,8 @@ rm -rf cloud139_e2e_download_test
 | 空目录 | 正常显示空列表 |
 | 重名文件 | 按云端规则处理（自动重命名或覆盖） |
 | 不带 --yes 删除 | 提示确认信息 |
+| 同名文件（不带 --force） | 提示"云端已存在"，需使用 --force 确认继续 |
+| 同名文件（带 --force） | 继续执行，云端自动重命名 |
 
 ## 测试文件
 
