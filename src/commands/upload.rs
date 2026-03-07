@@ -73,7 +73,7 @@ async fn upload_personal(
     let content_hash = crate::utils::crypto::calc_file_sha256(local_path.to_str().unwrap())?;
 
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
-        "".to_string()
+        "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(&config, remote_path).await?
     };
@@ -135,7 +135,13 @@ async fn upload_personal(
         return Err(ClientError::Api(format!("创建上传任务失败: {}", resp.base.message.as_deref().unwrap_or("未知错误"))));
     }
 
-    let data = resp.data;
+    let data = match resp.data {
+        Some(d) => d,
+        None => {
+            success!("上传完成: {}", file_name);
+            return Ok(());
+        }
+    };
 
     if data.exist.unwrap_or(false) {
         warn!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));

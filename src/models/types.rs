@@ -139,7 +139,8 @@ pub struct PersonalThumbnail {
 pub struct PersonalUploadResp {
     #[serde(flatten)]
     pub base: BaseResp,
-    pub data: PersonalUploadData,
+    #[serde(default)]
+    pub data: Option<PersonalUploadData>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -90,7 +90,7 @@ async fn mkdir_personal(
     if resp.base.success {
         success!(
             "目录创建成功: {}",
-            resp.data.file_name.as_deref().unwrap_or("")
+            resp.data.map(|d| d.file_name.unwrap_or_default()).unwrap_or_default()
         );
     } else {
         error!(
