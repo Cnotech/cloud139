@@ -1,8 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename, other};
-use mobile_cloud_cli::Config;
-use mobile_cloud_cli::client::Client;
+use mobile_cloud_cli::commands::{cp, delete, download, list, login, mkdir, mv, upload, rename};
 
 #[derive(Parser)]
 #[command(name = "139yun")]
@@ -36,10 +34,6 @@ enum Commands {
     Cp(cp::CpArgs),
     /// 重命名文件
     Rename(rename::RenameArgs),
-    /// 其他操作（视频预览等）
-    Other(other::OtherArgs),
-    /// 查看存储信息
-    Info,
 }
 
 #[tokio::main]
@@ -58,12 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Mv(args) => mv::execute(args).await?,
         Commands::Cp(args) => cp::execute(args).await?,
         Commands::Rename(args) => rename::execute(args).await?,
-        Commands::Other(args) => other::execute(args).await?,
-        Commands::Info => {
-            let config = Config::load()?;
-            let client = Client::new(config);
-            client.get_disk_info().await?;
-        }
     }
 
     Ok(())

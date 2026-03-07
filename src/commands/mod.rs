@@ -7,4 +7,3 @@ pub mod mkdir;
 pub mod mv;
 pub mod cp;
 pub mod rename;
-pub mod other;

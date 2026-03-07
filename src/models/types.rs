@@ -184,25 +184,6 @@ pub struct DownloadUrlData {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PersonalDiskInfoResp {
-    #[serde(flatten)]
-    pub base: BaseResp,
-    #[serde(default)]
-    pub data: Option<PersonalDiskInfoData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PersonalDiskInfoData {
-    #[serde(rename = "freeDiskSize")]
-    pub free_disk_size: String,
-    #[serde(rename = "diskSize")]
-    pub disk_size: String,
-    #[serde(rename = "isInfinitePicStorage", default)]
-    pub is_infinite_pic_storage: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct QueryContentListResp {
     #[serde(flatten)]
     pub base: BaseResp,
@@ -249,40 +230,6 @@ pub struct CloudCatalog {
     pub create_time: String,
     #[serde(rename = "lastUpdateTime")]
     pub last_update_time: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct FamilyDiskInfoResp {
-    #[serde(flatten)]
-    pub base: BaseResp,
-    #[serde(default)]
-    pub data: Option<FamilyDiskInfoData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FamilyDiskInfoData {
-    #[serde(rename = "usedSize")]
-    pub used_size: String,
-    #[serde(rename = "diskSize")]
-    pub disk_size: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GroupDiskInfoResp {
-    #[serde(flatten)]
-    pub base: BaseResp,
-    #[serde(default)]
-    pub data: Option<GroupDiskInfoData>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GroupDiskInfoData {
-    #[serde(rename = "usedSize")]
-    pub used_size: String,
-    #[serde(rename = "diskSize")]
-    pub disk_size: String,
 }
 
 #[derive(Debug, Deserialize)]

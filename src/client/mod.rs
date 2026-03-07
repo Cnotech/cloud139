@@ -101,64 +101,6 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_disk_info(&self) -> Result<(), ClientError> {
-        let storage_type = self.config.storage_type();
-        
-        match storage_type {
-            StorageType::PersonalNew => {
-                let resp = api::get_personal_disk_info(&self.config).await?;
-                if resp.base.success {
-                    if let Some(data) = resp.data {
-                        println!("存储空间信息:");
-                        println!("  总容量: {} GB", parse_size(&data.disk_size));
-                        println!("  剩余: {} GB", parse_size(&data.free_disk_size));
-                    } else {
-                        println!("暂无个人云存储空间信息");
-                    }
-                } else {
-                    let msg = resp.base.message.unwrap_or_default();
-                    if msg.contains("暂无权限") {
-                        println!("当前账号无个人云存储空间信息，尝试获取家庭云...");
-                        let resp = api::get_family_disk_info(&self.config).await?;
-                        if resp.base.success {
-                            if let Some(data) = resp.data {
-                                println!("家庭云存储空间信息:");
-                                println!("  总容量: {} GB", parse_size(&data.disk_size));
-                                println!("  已使用: {} GB", parse_size(&data.used_size));
-                            } else {
-                                println!("暂无家庭云存储空间信息");
-                            }
-                        } else {
-                            println!("获取家庭云失败: {:?}", resp.base.message);
-                        }
-                    }
-                }
-            }
-            StorageType::Family => {
-                let resp = api::get_family_disk_info(&self.config).await?;
-                if resp.base.success {
-                    if let Some(data) = resp.data {
-                        println!("家庭云存储空间信息:");
-                        println!("  总容量: {} GB", parse_size(&data.disk_size));
-                        println!("  已使用: {} GB", parse_size(&data.used_size));
-                    }
-                }
-            }
-            StorageType::Group => {
-                let resp = api::get_group_disk_info(&self.config).await?;
-                if resp.base.success {
-                    if let Some(data) = resp.data {
-                        println!("群组云存储空间信息:");
-                        println!("  总容量: {} GB", parse_size(&data.disk_size));
-                        println!("  已使用: {} GB", parse_size(&data.used_size));
-                    }
-                }
-            }
-        }
-        
-        Ok(())
-    }
-
     pub async fn api_request_post<T: for<'de> Deserialize<'de>>(
         &self,
         url: &str,
@@ -252,14 +194,6 @@ fn sort_json_value_to_string(value: &serde_json::Value) -> String {
         serde_json::Value::Null => {
             "null".to_string()
         }
-    }
-}
-
-fn parse_size(size_str: &str) -> String {
-    if let Ok(size) = size_str.parse::<i64>() {
-        format!("{:.2}", size as f64 / 1024.0)
-    } else {
-        size_str.to_string()
     }
 }
 
