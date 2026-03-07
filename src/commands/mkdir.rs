@@ -33,7 +33,7 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-fn parse_path(path: &str) -> Result<(String, String), ClientError> {
+pub fn parse_path(path: &str) -> Result<(String, String), ClientError> {
     let path = path.trim();
     if path.is_empty() {
         return Err(ClientError::Other("路径不能为空".to_string()));

@@ -313,7 +313,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-fn format_size(size: i64) -> String {
+pub fn format_size(size: i64) -> String {
     if size < 1024 {
         format!("{} B", size)
     } else if size < 1024 * 1024 {
@@ -325,7 +325,7 @@ fn format_size(size: i64) -> String {
     }
 }
 
-fn parse_personal_time(time_str: &str) -> String {
+pub fn parse_personal_time(time_str: &str) -> String {
     if time_str.is_empty() {
         return String::new();
     }

@@ -57,7 +57,7 @@ pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
     Ok(())
 }
 
-fn get_part_size(size: i64, custom_size: i64) -> i64 {
+pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
     if custom_size != 0 {
         return custom_size;
     }
