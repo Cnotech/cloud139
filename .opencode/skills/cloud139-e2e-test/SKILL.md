@@ -74,6 +74,9 @@ cargo build --release
 
 #### 阶段 4: 下载测试 (download)
 
+> 请注意在下载完成后检查本地文件是否存在、文件大小是否与云端一致
+
+
 首先创建本地临时测试目录：
 ```bash
 mkdir -p cloud139_e2e_download_test
@@ -88,7 +91,8 @@ mkdir -p cloud139_e2e_download_test
 | 4.5 | `ls ./cloud139_e2e_download_test/` | 验证文件已保存 |
 | 4.6 | `./target/release/cloud139 download /not_exist.txt` | **边界**：文件不存在 |
 | 4.7 | `./target/release/cloud139 download /e2e_test_xxx` | **边界**：不能下载目录 |
-| 4.8 | `./target/release/cloud139 download /README.md /not_exist_dir/custom.txt` | **边界**：本地目录不存在 |
+| 4.8 | `./target/release/cloud139 download /Cargo.toml ./non-exist-dir-1/` | **边界**：自动创建目录并成功下载文件 |
+| 4.9 | `./target/release/cloud139 download /README.md ./non-exist-dir-2/custom.txt` | **边界**：自动创建目录并成功下载文件 |
 
 测试完成后清理本地临时目录：
 ```bash
@@ -99,8 +103,8 @@ rm -rf cloud139_e2e_download_test
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 5.1 | `./target/release/cloud139 cp /README.md /e2e_test_xxx/` | 复制到测试目录 |
-| 5.2 | `./target/release/cloud139 ls /e2e_test_xxx` | 应有 3 个文件 |
+| 5.1 | `./target/release/cloud139 cp /Cargo.toml /e2e_test_xxx/` | 复制到测试目录（云端自动重命名） |
+| 5.2 | `./target/release/cloud139 ls /e2e_test_xxx` | 应有 3 个文件（含自动重命名的文件） |
 | 5.3 | `./target/release/cloud139 cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
 | 5.4 | `./target/release/cloud139 cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
 
