@@ -4,21 +4,12 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct MkdirArgs {
-    #[arg(help = "新目录名称")]
-    pub name: String,
-
-    #[arg(default_value = "/", help = "父目录路径")]
-    pub parent: String,
+    #[arg(help = "新目录路径，格式: /父目录/新目录名")]
+    pub path: String,
 }
 
 pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
-    let name = args.name.clone();
-
-    let parent = if args.parent.is_empty() || args.parent == "/" {
-        "/".to_string()
-    } else {
-        args.parent.trim().to_string()
-    };
+    let (parent, name) = parse_path(&args.path)?;
 
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
     let storage_type = config.storage_type();
@@ -36,6 +27,30 @@ pub async fn execute(args: MkdirArgs) -> Result<(), ClientError> {
     }
 
     Ok(())
+}
+
+fn parse_path(path: &str) -> Result<(String, String), ClientError> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(ClientError::Other("路径不能为空".to_string()));
+    }
+
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    
+    if parts.is_empty() || (parts.len() == 1 && parts[0].is_empty()) {
+        return Err(ClientError::Other("无效的路径".to_string()));
+    }
+
+    let name = parts.last().unwrap().to_string();
+    
+    let parent = if parts.len() == 1 {
+        "/".to_string()
+    } else {
+        let parent_parts = &parts[..parts.len() - 1];
+        format!("/{}", parent_parts.join("/"))
+    };
+
+    Ok((parent, name))
 }
 
 async fn mkdir_personal(
