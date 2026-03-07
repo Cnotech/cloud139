@@ -28,7 +28,7 @@ enum Commands {
     Rm(delete::DeleteArgs),
     /// 创建目录
     Mkdir(mkdir::MkdirArgs),
-    /// 移动/重命名文件
+    /// 移动文件
     Mv(mv::MvArgs),
     /// 复制文件
     Cp(cp::CpArgs),
