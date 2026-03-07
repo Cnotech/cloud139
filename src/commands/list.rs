@@ -2,6 +2,8 @@ use clap::Parser;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::{PersonalListResp, FamilyListRequest, PageInfo, QueryContentListResp, GroupListRequest, QueryGroupContentListResp};
 use chrono::NaiveDateTime;
+use serde::Serialize;
+use std::fs;
 
 #[derive(Parser, Debug)]
 pub struct ListArgs {
@@ -13,6 +15,29 @@ pub struct ListArgs {
     
     #[arg(short = 's', long, default_value = "100", help = "每页数量")]
     pub page_size: i32,
+
+    #[arg(short, long, help = "将JSON输出到指定文件")]
+    pub output: Option<String>,
+}
+
+#[derive(Serialize)]
+struct JsonListOutput {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    page_size: Option<i32>,
+    total: i32,
+    items: Vec<JsonFileItem>,
+}
+
+#[derive(Serialize)]
+struct JsonFileItem {
+    name: String,
+    #[serde(rename = "type")]
+    file_type: String,
+    size: i64,
+    modified: String,
 }
 
 pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
@@ -44,6 +69,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             };
 
             let mut next_cursor = String::new();
+            let mut all_items = Vec::new();
             
             let thumbnail_styles = if config.use_large_thumbnail {
                 serde_json::json!(["Small", "Large", "Original"])
@@ -85,7 +111,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 }
 
                 for item in &data.items {
-                    let file_type = if item.file_type.as_deref() == Some("folder") { "d" } else { "-" };
+                    let file_type_str = if item.file_type.as_deref() == Some("folder") { "d" } else { "-" };
                     let size = format_size(item.size.unwrap_or(0));
                     let time = parse_personal_time(
                         item.updated_at.as_deref()
@@ -93,13 +119,34 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                             .or(item.last_modified.as_deref())
                             .unwrap_or_default()
                     );
-                    println!("{:<1} {:<38} {:>15} {:<20}", file_type, item.name.as_deref().unwrap_or(""), size, time);
+                    println!("{:<1} {:<38} {:>15} {:<20}", file_type_str, item.name.as_deref().unwrap_or(""), size, time);
+
+                    all_items.push(JsonFileItem {
+                        name: item.name.clone().unwrap_or_default(),
+                        file_type: if item.file_type.as_deref() == Some("folder") { "folder".to_string() } else { "file".to_string() },
+                        size: item.size.unwrap_or(0),
+                        modified: time,
+                    });
                 }
 
                 next_cursor = data.next_page_cursor.clone().unwrap_or_default();
                 if next_cursor.is_empty() {
                     break;
                 }
+            }
+
+            if let Some(output_path) = &args.output {
+                let total = all_items.len() as i32;
+                let json_output = JsonListOutput {
+                    path: path.clone(),
+                    page: Some(args.page),
+                    page_size: Some(args.page_size),
+                    total,
+                    items: all_items,
+                };
+                let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
+                fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
+                println!("已输出目录信息到 {}", output_path);
             }
         }
         StorageType::Family => {
@@ -135,20 +182,48 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 let _ = config.save();
             }
 
+            let mut all_items = Vec::new();
+
             println!("\n家庭云文件列表 ({}):", args.path);
             println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
             println!("{}", "-".repeat(80));
 
             for cat in &resp.data.cloud_catalog_list {
                 println!("{:<1} {:<38} {:>15} {:<20}", "d", cat.catalog_name, "-", cat.last_update_time);
+                all_items.push(JsonFileItem {
+                    name: cat.catalog_name.clone(),
+                    file_type: "folder".to_string(),
+                    size: 0,
+                    modified: cat.last_update_time.clone(),
+                });
             }
 
             for content in &resp.data.cloud_content_list {
                 let size = format_size(content.content_size);
                 println!("{:<1} {:<38} {:>15} {:<20}", "-", content.content_name, size, content.last_update_time);
+                all_items.push(JsonFileItem {
+                    name: content.content_name.clone(),
+                    file_type: "file".to_string(),
+                    size: content.content_size,
+                    modified: content.last_update_time.clone(),
+                });
             }
 
             println!("\n总计: {} 项", resp.data.total_count);
+
+            if let Some(output_path) = &args.output {
+                let total = all_items.len() as i32;
+                let json_output = JsonListOutput {
+                    path: path.clone(),
+                    page: None,
+                    page_size: None,
+                    total,
+                    items: all_items,
+                };
+                let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
+                fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
+                println!("已输出目录信息到 {}", output_path);
+            }
         }
         StorageType::Group => {
             let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
@@ -160,7 +235,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             };
 
             let root_folder_id = config.root_folder_id.clone().unwrap_or_else(|| "root:".to_string());
-            let path = if catalog_id == "0" || catalog_id.is_empty() {
+            let group_path = if catalog_id == "0" || catalog_id.is_empty() {
                 root_folder_id.clone()
             } else {
                 format!("{}/{}", root_folder_id.trim_end_matches(':'), catalog_id)
@@ -176,7 +251,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 sort_direction: 1,
                 start_number,
                 end_number,
-                path,
+                path: group_path.clone(),
             };
 
             let client = Client::new(config);
@@ -187,20 +262,48 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 return Ok(());
             }
 
+            let mut all_items = Vec::new();
+
             println!("\n群组云文件列表 ({}):", args.path);
             println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
             println!("{}", "-".repeat(80));
 
             for cat in &resp.data.get_group_content_result.catalog_list {
                 println!("{:<1} {:<38} {:>15} {:<20}", "d", cat.catalog_name, "-", cat.update_time);
+                all_items.push(JsonFileItem {
+                    name: cat.catalog_name.clone(),
+                    file_type: "folder".to_string(),
+                    size: 0,
+                    modified: cat.update_time.clone(),
+                });
             }
 
             for content in &resp.data.get_group_content_result.content_list {
                 let size = format_size(content.content_size);
                 println!("{:<1} {:<38} {:>15} {:<20}", "-", content.content_name, size, content.update_time);
+                all_items.push(JsonFileItem {
+                    name: content.content_name.clone(),
+                    file_type: "file".to_string(),
+                    size: content.content_size,
+                    modified: content.update_time.clone(),
+                });
             }
 
             println!("\n总计: {} 项", resp.data.get_group_content_result.node_count);
+
+            if let Some(output_path) = &args.output {
+                let total = all_items.len() as i32;
+                let json_output = JsonListOutput {
+                    path: args.path.clone(),
+                    page: None,
+                    page_size: None,
+                    total,
+                    items: all_items,
+                };
+                let json_str = serde_json::to_string_pretty(&json_output).map_err(|e| ClientError::Other(e.to_string()))?;
+                fs::write(output_path, json_str).map_err(|e| ClientError::Other(e.to_string()))?;
+                println!("已输出目录信息到 {}", output_path);
+            }
         }
     }
 
