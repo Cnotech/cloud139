@@ -157,11 +157,33 @@ fn generate_rand_str(len: usize) -> String {
     }).collect()
 }
 
+pub fn parse_path_segments(path: &str) -> Vec<&str> {
+    path.trim_start_matches('/').split('/').filter(|s| !s.is_empty()).collect()
+}
+
+pub fn get_parent_id(current_parent_id: &str) -> String {
+    if current_parent_id.is_empty() {
+        "/".to_string()
+    } else {
+        current_parent_id.to_string()
+    }
+}
+
 pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     config: &Config,
     url: &str,
     body: serde_json::Value,
     storage_type: crate::client::StorageType,
+) -> Result<T, ClientError> {
+    personal_api_request_with_client(config, url, body, storage_type, &HttpClientWrapper::new()).await
+}
+
+pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de>>(
+    config: &Config,
+    url: &str,
+    body: serde_json::Value,
+    storage_type: crate::client::StorageType,
+    http_client: &HttpClientWrapper,
 ) -> Result<T, ClientError> {
     let svctype = match storage_type {
         crate::client::StorageType::PersonalNew => "1",
@@ -174,7 +196,7 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     let body_str = body.to_string();
     let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
-    let client = reqwest::Client::new();
+    let client = &http_client.client;
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert("Accept", "application/json, text/plain, */*".parse().unwrap());
@@ -213,11 +235,19 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
 }
 
 pub async fn check_file_exists(config: &Config, parent_file_id: &str, file_name: &str) -> Result<bool, ClientError> {
-    let files = list_personal_files(config, parent_file_id).await?;
+    check_file_exists_with_client(config, parent_file_id, file_name, &HttpClientWrapper::new()).await
+}
+
+pub async fn check_file_exists_with_client(config: &Config, parent_file_id: &str, file_name: &str, http_client: &HttpClientWrapper) -> Result<bool, ClientError> {
+    let files = list_personal_files_with_client(config, parent_file_id, http_client).await?;
     Ok(files.iter().any(|f| f.name.as_deref() == Some(file_name)))
 }
 
 pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+    list_personal_files_with_client(config, parent_file_id, &HttpClientWrapper::new()).await
+}
+
+pub async fn list_personal_files_with_client(config: &Config, parent_file_id: &str, http_client: &HttpClientWrapper) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
@@ -233,7 +263,7 @@ pub async fn list_personal_files(config: &Config, parent_file_id: &str) -> Resul
         "parentFileId": parent_file_id
     });
 
-    let resp: crate::models::PersonalListResp = personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+    let resp: crate::models::PersonalListResp = personal_api_request_with_client(&config, &url, body, crate::client::StorageType::PersonalNew, http_client).await?;
 
     Ok(resp.data.map(|d| d.items).unwrap_or_default())
 }
