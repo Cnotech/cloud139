@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod api;
+pub mod api_trait;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

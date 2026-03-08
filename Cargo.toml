@@ -33,11 +33,14 @@ generic-array = "0.14"
 typenum = "1.17"
 urlencoding = "2"
 rand = "0.8"
+async-trait = "0.1"
 quick-xml = { version = "0.31", features = ["serialize"] }
 serde-xml-rs = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
+mockall = "0.12"
+httpmock = "0.8"
 
 [[bin]]
 name = "cloud139"

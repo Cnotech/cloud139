@@ -2,7 +2,33 @@ use crate::client::ClientError;
 use crate::config::Config;
 use crate::models::QueryRoutePolicyResp;
 
+pub struct HttpClientWrapper {
+    pub client: reqwest::Client,
+}
+
+impl Default for HttpClientWrapper {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HttpClientWrapper {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub fn with_client(client: reqwest::Client) -> Self {
+        Self { client }
+    }
+}
+
 pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, ClientError> {
+    get_personal_cloud_host_with_client(config, &HttpClientWrapper::new()).await
+}
+
+pub async fn get_personal_cloud_host_with_client(config: &mut Config, http_client: &HttpClientWrapper) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
         return Ok(host.clone());
     }
@@ -18,7 +44,7 @@ pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, Clie
         "modAddrType": 1
     });
 
-    let client = reqwest::Client::new();
+    let client = &http_client.client;
 
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let rand_str = generate_rand_str(16);
