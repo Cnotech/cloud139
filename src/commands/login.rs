@@ -18,8 +18,10 @@ pub struct LoginArgs {
 pub async fn execute(args: LoginArgs) -> Result<(), ClientError> {
     info!("正在验证 Token ...");
 
+    let token=args.token.strip_prefix("Basic ").map(|s| s.to_string()).unwrap_or_else(||args.token);
+    
     let config = crate::client::auth::login(
-        &args.token,
+        &token,
         &args.storage_type,
         args.cloud_id.as_deref(),
     ).await?;
