@@ -43,11 +43,12 @@ cloud139 login -t <YOUR_TOKEN>
 Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，具体步骤如下：
 - 打开浏览器，登录[移动云盘网页版](https://yun.139.com/)
 - 打开开发者工具（F12 或右键点击 -> 检查）
-- 切换到 Network 标签页，清空当前网络请求
-- 在移动云盘网页中点开任一文件夹，查看 Network 中出现的第一个 `list` 请求（示例`https://personal-kd-njs.yun.139.com/hcy/file/list`）
-- 复制这个请求的请求标头的 `Authorization` 中的值，即为 Token；复制时可忽略 `Basic ` 前缀
+- 切换到`应用（Application）`标签页，点击`存储（Storage）`-`Cookie`-`https://yun.139.com`
+- 找到 `authorization` 项，复制其值即可
 
-> 详情可参考：[AList 文档](https://alistgo.com/zh/guide/drivers/139.html#%E6%96%B0%E4%B8%AA%E4%BA%BA%E4%BA%91)
+> 如果粘贴 Token 后提示 `Invalid token`，可尝试去除 `Basic ` 前缀，或在 Token 前后增加单引号（`'`）
+> 
+> 更多详情可参考：[AList 文档](https://alistgo.com/zh/guide/drivers/139.html#%E6%96%B0%E4%B8%AA%E4%BA%BA%E4%BA%91)
 ### 基本使用
 
 ```bash
