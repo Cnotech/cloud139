@@ -98,7 +98,7 @@ mod config_test_extended {
     #[test]
     fn test_config_config_path() {
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("config.json"));
+        assert!(path.to_string_lossy().contains("cloud139.json"));
     }
 
     #[test]
@@ -106,7 +106,7 @@ mod config_test_extended {
         // Use an explicit invalid path by temporarily changing behavior
         // The config_path() is hardcoded, so we just verify it returns a valid path
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("config.json"));
+        assert!(path.to_string_lossy().contains("cloud139.json"));
     }
 
     #[test]
@@ -118,7 +118,7 @@ mod config_test_extended {
     #[test]
     fn test_config_load_valid() {
         let temp_dir = create_temp_config_dir();
-        let config_path = temp_dir.path().join("config.json");
+        let config_path = temp_dir.path().join("cloud139.json");
         let config_content = r#"{
             "authorization": "Basic dGVzdA==",
             "account": "test@139.com",

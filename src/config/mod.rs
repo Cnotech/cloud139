@@ -65,7 +65,7 @@ impl Default for Config {
 
 impl Config {
     pub fn config_path() -> PathBuf {
-        PathBuf::from("./config/config.json")
+        PathBuf::from("./cloud139.json")
     }
 
     pub fn load() -> Result<Self, ConfigError> {

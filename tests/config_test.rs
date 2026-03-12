@@ -7,7 +7,7 @@ use tempfile::TempDir;
 
 fn create_temp_dir() -> (TempDir, PathBuf) {
     let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("config.json");
+    let config_path = temp_dir.path().join("cloud139.json");
     (temp_dir, config_path)
 }
 
@@ -168,5 +168,5 @@ fn test_default_values() {
 #[test]
 fn test_config_path_default() {
     let path = Config::config_path();
-    assert!(path.ends_with("config/config.json"));
+    assert!(path.ends_with("cloud139.json"));
 }

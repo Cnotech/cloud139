@@ -290,7 +290,7 @@ cloud139 rename /folder/old newname
 
 ## 配置文件
 
-登录成功后，配置信息会保存在 `config/config.json` 文件中。
+登录成功后，配置信息会保存在 `cloud139.json` 文件中。
 
 ### 配置文件结构
 
@@ -334,8 +334,7 @@ cloud139 rename /folder/old newname
 cloud139/
 ├── Cargo.toml           # 项目配置
 ├── LICENSE              # MIT 许可证
-├── config/
-│   └── config.json      # 配置文件（运行时生成）
+├── cloud139.json        # 配置文件
 └── src/
     ├── main.rs          # 入口文件
     ├── lib.rs           # 库入口
