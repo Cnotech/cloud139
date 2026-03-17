@@ -70,17 +70,17 @@ function runCloud139Ls(remotePath: string): Cloud139ListOutput {
 }
 
 function isValidBotFile(filename: string): boolean {
-  return filename.endsWith("（Bot）.7z");
+  return filename.endsWith("（bot）.7z");
 }
 
 function hasTwoUnderscores(filename: string): boolean {
-  const withoutExt = filename.replace("（Bot）.7z", "");
+  const withoutExt = filename.replace("（bot）.7z", "");
   const underscoreCount = (withoutExt.match(/_/g) || []).length;
   return underscoreCount === 2;
 }
 
 function parseBotFilename(filename: string): { name: string; version: string; author: string } | null {
-  const withoutExt = filename.replace("（Bot）.7z", "");
+  const withoutExt = filename.replace("（bot）.7z", "");
   const parts = withoutExt.split("_");
   
   if (parts.length !== 3) {
@@ -115,7 +115,7 @@ async function main() {
     console.error("  npx ts-node scripts/generate-bot-db.ts /Bot");
     console.error("\nThe script will:");
     console.error("  1. List subdirectories in the given remote directory");
-    console.error("  2. Scan each subdirectory for files ending with '（Bot）.7z'");
+    console.error("  2. Scan each subdirectory for files ending with '（bot）.7z'");
     console.error("  3. Validate filenames have exactly 2 underscores");
     console.error("  4. Parse filenames as 'name_version_author'");
     console.error("  5. Generate bot-database.json in the current directory");
@@ -146,6 +146,7 @@ async function main() {
       const filename = file.name;
       
       if (!isValidBotFile(filename)) {
+        console.warn(`  ⚠️  Skipping non-bot file: ${filename}`);
         continue;
       }
       
