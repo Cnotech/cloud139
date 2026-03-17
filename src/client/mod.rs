@@ -29,6 +29,8 @@ pub enum ClientError {
     Other(String),
     #[error("请使用 --force 参数确认继续")]
     ForceRequired,
+    #[error("请使用 --yes 参数确认删除")]
+    ConfirmationRequired,
     #[error("无效的源文件路径")]
     InvalidSourcePath,
     #[error("文件不存在")]

@@ -23,7 +23,7 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
             warn!("此操作会将文件移动到回收站");
         }
         info!("使用 --yes 参数确认删除");
-        return Ok(());
+        return Err(ClientError::ConfirmationRequired);
     }
 
     let config = crate::config::Config::load().map_err(ClientError::Config)?;
