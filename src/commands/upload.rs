@@ -397,26 +397,42 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             .cloned()
             .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Content-Type", "application/octet-stream".parse().unwrap());
-        headers.insert("Content-Length", read_size.to_string().parse().unwrap());
-        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-        headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
+        let temp_file_path = format!("curl_upload_temp_{}.bin", part_number);
+        std::fs::write(&temp_file_path, &buffer[..bytes_read])?;
+        let temp_file_path_clone = temp_file_path.clone();
 
-        let client = reqwest::Client::new();
-        let resp = client
-            .put(upload_url)
-            .headers(headers)
-            .body(buffer)
-            .send()
-            .await?;
+        let resp_code = tokio::task::spawn_blocking(move || {
+            let output = std::process::Command::new("curl")
+                .args([
+                    "-X", "PUT",
+                    "-H", "Content-Type: application/octet-stream",
+                    "-H", &format!("Content-Length: {}", bytes_read),
+                    "-T", &temp_file_path_clone,
+                    "-w", "%{http_code}",
+                    "-o", "NUL",
+                    "-s",
+                    &upload_url,
+                ])
+                .output();
 
-        if !resp.status().is_success() {
-            return Err(ClientError::Api(format!(
-                "分片 {} 上传失败: {}",
-                part_number,
-                resp.status()
-            )));
+            match output {
+                Ok(out) => {
+                    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+                    stdout.trim().parse::<u32>().unwrap_or(0)
+                }
+                Err(e) => {
+                    error!("curl 执行失败: {}", e);
+                    0
+                }
+            }
+        })
+        .await
+        .map_err(|e| ClientError::Api(format!("上传任务失败: {}", e)))?;
+
+        let _ = std::fs::remove_file(&temp_file_path);
+
+        if resp_code != 200 {
+            return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp_code)));
         }
     }
 
