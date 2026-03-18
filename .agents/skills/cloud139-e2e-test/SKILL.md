@@ -86,6 +86,45 @@ cargo build --release
 | 2.6 | `./target/release/cloud139 upload README.md /not_exist_dir/` | **边界**：远程目录不存在 |
 | 2.7 | `./target/release/cloud139 upload README.md /` | **边界**：上传同名文件，云端已存在；应提示警告且退出码为1 |
 | 2.8 | `./target/release/cloud139 upload README.md / --force` | 强制上传，云端会自动重命名 |
+| 2.9 | 生成并上传随机1MB+文件 | 随机数据文件，验证哈希一致性 |
+
+**步骤 2.9 详细操作**：
+
+首先在本地生成一个带时间戳的随机1MB文件（Windows和Unix命令不同）：
+
+**Windows (PowerShell)**：
+```powershell
+$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+$filename = "e2e_random_$timestamp.bin"
+$size = 1MB
+$r = New-Object Random
+$b = [byte[]]::new($size)
+$r.NextBytes($b)
+[IO.File]::WriteAllBytes($filename, $b)
+# 计算本地哈希
+$localHash = (Get-FileHash $filename -Algorithm SHA256).Hash
+Write-Output "Local: $localHash"
+# 上传
+./target/release/cloud139 upload $filename /
+# 提取响应中的哈希进行对比
+```
+
+**Unix (Linux/macOS/WSL2)**：
+```bash
+timestamp=$(date +%Y%m%d_%H%M%S)
+filename="e2e_random_$timestamp.bin"
+dd if=/dev/urandom of="$filename" bs=1M count=1
+localHash=$(sha256sum "$filename" | cut -d' ' -f1)
+echo "Local: $localHash"
+./target/release/cloud139 upload "$filename" /
+```
+
+验证上传响应中的 `contentHash` 与本地计算的一致。
+
+清理本地测试文件：
+```bash
+rm -f e2e_random_*.bin
+```
 
 #### 阶段 3: 列表验证
 
@@ -115,6 +154,39 @@ mkdir -p cloud139_e2e_download_test
 | 4.7 | `./target/release/cloud139 download /e2e_test_xxx` | **边界**：不能下载目录 |
 | 4.8 | `./target/release/cloud139 download /Cargo.toml ./non-exist-dir-1/` | **边界**：自动创建目录并成功下载文件 |
 | 4.9 | `./target/release/cloud139 download /README.md ./non-exist-dir-2/custom.txt` | **边界**：自动创建目录并成功下载文件 |
+| 4.10 | 下载随机文件并验证哈希一致性 | 下载阶段2.9上传的随机文件，与本地哈希比对 |
+
+**步骤 4.10 详细操作**：
+
+首先从阶段2.9获取上传后的文件名（格式：`e2e_random_{timestamp}.bin`），然后下载并验证哈希：
+
+**Windows (PowerShell)**：
+```powershell
+# 找到阶段2.9生成的文件名（根据时间戳推断）
+$timestamp = "20260319_003824"  # 需根据实际情况调整
+$filename = "e2e_random_$timestamp.bin"
+# 下载文件
+./target/release/cloud139.exe download /$filename ./
+# 计算本地下载文件的哈希
+$downloadedHash = (Get-FileHash $filename -Algorithm SHA256).Hash
+Write-Output "Downloaded: $downloadedHash"
+# 注意：阶段2.9已将本地随机文件的哈希记录，可直接对比
+```
+
+**Unix (Linux/macOS/WSL2)**：
+```bash
+timestamp=$(date +%Y%m%d_%H%M%S)
+filename="e2e_random_$timestamp.bin"
+./target/release/cloud139 download "$filename" ./
+downloadedHash=$(sha256sum "$filename" | cut -d' ' -f1)
+echo "Downloaded: $downloadedHash"
+# 阶段2.9已将本地随机文件的哈希记录在 $localHash 变量中
+```
+
+**验证方法**：
+- 下载文件后计算其 SHA256 哈希
+- 与阶段2.9记录在日志中的 `$localHash` 对比
+- 二者应完全一致，确保上传下载过程数据完整性
 
 测试完成后清理本地临时目录：
 ```bash
@@ -180,6 +252,7 @@ rm -rf cloud139_e2e_download_test
 ./target/release/cloud139 rm /e2e_test_xxx --yes
 ./target/release/cloud139 rm /README.md --yes
 ./target/release/cloud139 rm /Cargo.toml --yes
+./target/release/cloud139 rm /e2e_random_*.bin --yes
 ```
 
 ### 5. 生成报告
