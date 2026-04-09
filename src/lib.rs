@@ -1,8 +1,14 @@
+pub mod application;
+pub mod cli;
+pub mod domain;
+pub mod infrastructure;
+pub mod presentation;
+pub mod shared;
+
 pub mod client;
 pub mod commands;
 pub mod config;
 pub mod models;
 pub mod utils;
 
-pub use client::Client;
-pub use config::Config;
+pub use infrastructure::config::app_config::AppConfig;
