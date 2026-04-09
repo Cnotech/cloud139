@@ -403,6 +403,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             .cloned()
             .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
+        // 由于reqwest库在windows平台的上传逻辑中存在bug会导致大文件无法正常分片上传，因此使用ureq替代
         let resp_code = tokio::task::spawn_blocking(move || {
             ureq::put(&upload_url)
                 .header("Content-Type", "application/octet-stream")
