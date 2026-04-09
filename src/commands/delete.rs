@@ -1,6 +1,7 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchTrashResp;
 use crate::{error, info, success, warn};
+use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -15,7 +16,7 @@ pub struct DeleteArgs {
     pub permanent: bool,
 }
 
-pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
+pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
     if !args.yes {
         if args.permanent {
             warn!("此操作将永久删除文件，无法恢复！");
@@ -23,10 +24,10 @@ pub async fn execute(args: DeleteArgs) -> Result<(), ClientError> {
             warn!("此操作会将文件移动到回收站");
         }
         info!("使用 --yes 参数确认删除");
-        return Err(ClientError::ConfirmationRequired);
+        return Err(ClientError::ConfirmationRequired.into());
     }
 
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+    let config = crate::config::Config::load().context("加载配置失败")?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -182,15 +183,14 @@ async fn get_family_file_info(
         }
     }
 
-    if !is_dir {
-        if let Some(content_list) = list_resp
+    if !is_dir
+        && let Some(content_list) = list_resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                break;
             }
         }
     }
@@ -276,25 +276,24 @@ async fn delete_group(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
     }

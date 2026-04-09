@@ -1,6 +1,7 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
 use crate::{error, info, step, success, warn};
+use anyhow::Context;
 use clap::Parser;
 use std::path::Path;
 
@@ -16,14 +17,14 @@ pub struct UploadArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: UploadArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
+    let config = crate::config::Config::load().context("加载配置失败")?;
     let storage_type = config.storage_type();
 
     let local_path = Path::new(&args.local_path);
     if !local_path.exists() {
         error!("文件不存在: {}", args.local_path);
-        return Err(ClientError::FileNotFound);
+        return Err(ClientError::FileNotFound.into());
     }
 
     let file_name = local_path
@@ -92,7 +93,10 @@ async fn upload_personal(
     let url = format!("{}/file/create", host);
 
     info!("计算文件哈希...");
-    let content_hash = crate::utils::crypto::calc_file_sha256(local_path.to_str().unwrap())?;
+    let local_path_str = local_path
+        .to_str()
+        .ok_or_else(|| ClientError::InvalidSourcePath)?;
+    let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
 
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
         "/".to_string()
@@ -216,6 +220,7 @@ async fn upload_personal(
             })
             .await?;
 
+            #[allow(clippy::needless_borrow)]
             if file_name_val.as_deref() != Some(&file_name) {
                 warn!(
                     "检测到文件名冲突: {} != {}",
@@ -227,6 +232,7 @@ async fn upload_personal(
                 let files =
                     crate::client::api::list_personal_files(&config, &parent_file_id).await?;
                 for file in &files {
+                    #[allow(clippy::needless_borrow)]
                     if file.name.as_deref() == Some(&file_name) {
                         step!("冲突处理: 先重命名旧文件避免冲突");
                         let old_name = format!(
@@ -648,17 +654,25 @@ async fn upload_file_to_url(
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             "Content-Type",
-            format!("text/plain;name={}", file_name).parse().unwrap(),
+            reqwest::header::HeaderValue::from_str(&format!("text/plain;name={}", file_name))
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
         );
-        headers.insert("contentSize", file_size.to_string().parse().unwrap());
+        headers.insert(
+            "contentSize",
+            reqwest::header::HeaderValue::from_str(&file_size.to_string())
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
+        );
         headers.insert(
             "range",
-            format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1)
-                .parse()
-                .unwrap(),
+            reqwest::header::HeaderValue::from_str(&format!("bytes={}-{}", i * part_size, i * part_size + read_size - 1))
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
         );
-        headers.insert("uploadtaskID", upload_task_id.parse().unwrap());
-        headers.insert("rangeType", "0".parse().unwrap());
+        headers.insert(
+            "uploadtaskID",
+            reqwest::header::HeaderValue::from_str(upload_task_id)
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
+        );
+        headers.insert("rangeType", reqwest::header::HeaderValue::from_static("0"));
 
         let resp = client
             .post(upload_url)

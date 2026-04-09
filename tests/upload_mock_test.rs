@@ -110,3 +110,29 @@ mod upload_mock_test {
         let _result4 = resolve_local_path("test.txt", &Some("downloads".to_string()));
     }
 }
+
+mod upload_part_size_tests {
+    use cloud139::commands::upload::get_part_size;
+
+    const MB: i64 = 1024 * 1024;
+    const GB: i64 = 1024 * MB;
+
+    #[test]
+    fn test_get_part_size_default_small_file() {
+        let size = get_part_size(10 * GB, 0);
+        assert_eq!(size, 100 * MB, "小文件默认分片应为 100MB");
+    }
+
+    #[test]
+    fn test_get_part_size_default_large_file() {
+        let size = get_part_size(31 * GB, 0);
+        assert_eq!(size, 512 * MB, "大文件默认分片应为 512MB");
+    }
+
+    #[test]
+    fn test_get_part_size_custom() {
+        let custom = 256 * MB;
+        let size = get_part_size(100 * GB, custom);
+        assert_eq!(size, custom, "自定义分片大小应原样返回");
+    }
+}

@@ -159,3 +159,26 @@ fn test_calc_file_sha256_nonexistent() {
     let result = calc_file_sha256("/nonexistent/file/path");
     assert!(result.is_err());
 }
+
+#[test]
+fn test_aes_ecb_decrypt_non_multiple_block_size() {
+    let key = b"0123456789abcdef";
+    let bad_ciphertext = vec![0u8; 15];
+    let result = aes_ecb_decrypt(&bad_ciphertext, key);
+    assert!(
+        result.is_err(),
+        "应当返回 Err，因为密文长度不是块大小的倍数"
+    );
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("15"), "错误信息应包含实际长度 15");
+}
+
+#[test]
+fn test_aes_cbc_roundtrip() {
+    let key = b"0123456789abcdef";
+    let iv = b"abcdef0123456789";
+    let plaintext = b"Hello, cloud139!";
+    let encrypted = aes_cbc_encrypt(plaintext, key, iv).expect("加密失败");
+    let decrypted = aes_cbc_decrypt(&encrypted, key, iv).expect("解密失败");
+    assert_eq!(decrypted, plaintext, "解密后应还原原始数据");
+}

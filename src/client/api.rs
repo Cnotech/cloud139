@@ -1,4 +1,7 @@
 use crate::client::ClientError;
+use crate::client::{
+    CLIENT_INFO, DEVICE_INFO, MCLOUD_CHANNEL, MCLOUD_CHANNEL_SRC, MCLOUD_CLIENT, MCLOUD_VERSION,
+};
 use crate::config::Config;
 use crate::models::QueryRoutePolicyResp;
 
@@ -54,40 +57,47 @@ pub async fn get_personal_cloud_host_with_client(
     let body_str = body.to_string();
     let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
-    let mut headers = reqwest::header::HeaderMap::new();
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    let mut headers = HeaderMap::new();
     headers.insert(
         "Accept",
-        "application/json, text/plain, */*".parse().unwrap(),
-    );
-    headers.insert(
-        "Authorization",
-        format!("Basic {}", config.authorization).parse().unwrap(),
+        HeaderValue::from_static("application/json, text/plain, */*"),
     );
     headers.insert(
         "Content-Type",
-        "application/json;charset=UTF-8".parse().unwrap(),
+        HeaderValue::from_static("application/json;charset=UTF-8"),
     );
-    headers.insert("mcloud-channel", "1000101".parse().unwrap());
-    headers.insert("mcloud-client", "10701".parse().unwrap());
+    headers.insert("mcloud-channel", HeaderValue::from_static(MCLOUD_CHANNEL));
+    headers.insert("mcloud-client", HeaderValue::from_static(MCLOUD_CLIENT));
+    headers.insert("mcloud-version", HeaderValue::from_static(MCLOUD_VERSION));
+    headers.insert("Origin", HeaderValue::from_static("https://yun.139.com"));
+    headers.insert("Referer", HeaderValue::from_static("https://yun.139.com/w/"));
+    headers.insert("x-DeviceInfo", HeaderValue::from_static(DEVICE_INFO));
+    headers.insert("x-huawei-channelSrc", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+    headers.insert("x-inner-ntwk", HeaderValue::from_static("2"));
+    headers.insert("x-m4c-caller", HeaderValue::from_static("PC"));
+    headers.insert("x-m4c-src", HeaderValue::from_static("10002"));
+    headers.insert("Inner-Hcy-Router-Https", HeaderValue::from_static("1"));
+
+    headers.insert(
+        "Authorization",
+        format!("Basic {}", config.authorization)
+            .parse()
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
+    );
     headers.insert(
         "mcloud-sign",
-        format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
-    );
-    headers.insert("mcloud-version", "7.14.0".parse().unwrap());
-    headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-    headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
-    headers.insert(
-        "x-DeviceInfo",
-        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+        format!("{},{},{}", ts, rand_str, sign)
             .parse()
-            .unwrap(),
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
     );
-    headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
-    headers.insert("x-inner-ntwk", "2".parse().unwrap());
-    headers.insert("x-m4c-caller", "PC".parse().unwrap());
-    headers.insert("x-m4c-src", "10002".parse().unwrap());
-    headers.insert("x-SvcType", "1".parse().unwrap());
-    headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
+    headers.insert(
+        "x-SvcType",
+        "1"
+            .parse()
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
+    );
 
     let resp = client.post(url).headers(headers).json(&body).send().await?;
 
@@ -227,49 +237,57 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
 
     let client = &http_client.client;
 
-    let mut headers = reqwest::header::HeaderMap::new();
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    let mut headers = HeaderMap::new();
     headers.insert(
         "Accept",
-        "application/json, text/plain, */*".parse().unwrap(),
+        HeaderValue::from_static("application/json, text/plain, */*"),
     );
-    headers.insert(
-        "Authorization",
-        format!("Basic {}", config.authorization).parse().unwrap(),
-    );
-    headers.insert("Caller", "web".parse().unwrap());
-    headers.insert("CMS-DEVICE", "default".parse().unwrap());
-    headers.insert("mcloud-channel", "1000101".parse().unwrap());
-    headers.insert("mcloud-client", "10701".parse().unwrap());
-    headers.insert("mcloud-route", "001".parse().unwrap());
-    headers.insert(
-        "mcloud-sign",
-        format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
-    );
-    headers.insert("mcloud-version", "7.14.0".parse().unwrap());
+    headers.insert("Caller", HeaderValue::from_static("web"));
+    headers.insert("CMS-DEVICE", HeaderValue::from_static("default"));
+    headers.insert("mcloud-channel", HeaderValue::from_static(MCLOUD_CHANNEL));
+    headers.insert("mcloud-client", HeaderValue::from_static(MCLOUD_CLIENT));
+    headers.insert("mcloud-route", HeaderValue::from_static("001"));
+    headers.insert("mcloud-version", HeaderValue::from_static(MCLOUD_VERSION));
     headers.insert(
         "x-DeviceInfo",
-        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
-            .parse()
-            .unwrap(),
+        HeaderValue::from_static(DEVICE_INFO),
     );
-    headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
-    headers.insert("x-inner-ntwk", "2".parse().unwrap());
-    headers.insert("x-m4c-caller", "PC".parse().unwrap());
-    headers.insert("x-m4c-src", "10002".parse().unwrap());
-    headers.insert("x-SvcType", svctype.parse().unwrap());
-    headers.insert("x-yun-api-version", "v1".parse().unwrap());
-    headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
-    headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
+    headers.insert("x-huawei-channelSrc", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+    headers.insert("x-inner-ntwk", HeaderValue::from_static("2"));
+    headers.insert("x-m4c-caller", HeaderValue::from_static("PC"));
+    headers.insert("x-m4c-src", HeaderValue::from_static("10002"));
+    headers.insert("x-yun-api-version", HeaderValue::from_static("v1"));
+    headers.insert("x-yun-app-channel", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+    headers.insert("x-yun-channel-source", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
     headers.insert(
         "x-yun-client-info",
-        "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||"
-            .parse()
-            .unwrap(),
+        HeaderValue::from_static(CLIENT_INFO),
     );
-    headers.insert("x-yun-module-type", "100".parse().unwrap());
-    headers.insert("x-yun-svc-type", "1".parse().unwrap());
-    headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-    headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
+    headers.insert("x-yun-module-type", HeaderValue::from_static("100"));
+    headers.insert("x-yun-svc-type", HeaderValue::from_static("1"));
+    headers.insert("Origin", HeaderValue::from_static("https://yun.139.com"));
+    headers.insert("Referer", HeaderValue::from_static("https://yun.139.com/w/"));
+
+    headers.insert(
+        "Authorization",
+        format!("Basic {}", config.authorization)
+            .parse()
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
+    );
+    headers.insert(
+        "mcloud-sign",
+        format!("{},{},{}", ts, rand_str, sign)
+            .parse()
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
+    );
+    headers.insert(
+        "x-SvcType",
+        svctype
+            .parse()
+            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
+    );
 
     let resp = client.post(url).headers(headers).json(&body).send().await?;
 
@@ -441,19 +459,16 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         })
         .unwrap_or_default();
 
-    if path.is_empty() {
-        if let Some(catalog_list) = resp
+    if path.is_empty()
+        && let Some(catalog_list) = resp
             .pointer("/data/cloudCatalogList")
             .and_then(|v| v.as_array())
-        {
-            if let Some(first) = catalog_list.first() {
-                if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
-                    let p = p.trim_start_matches("root:/");
-                    let p = p.trim_start_matches("root:");
-                    return Ok(p.to_string());
-                }
-            }
-        }
+            && let Some(first) = catalog_list.first()
+            && let Some(p) = first.get("path").and_then(|v| v.as_str())
+    {
+        let p = p.trim_start_matches("root:/");
+        let p = p.trim_start_matches("root:");
+        return Ok(p.to_string());
     }
 
     Ok(path)
@@ -484,21 +499,18 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
     if let Some(parent_catalog_id) = resp
         .pointer("/data/getGroupContentResult/parentCatalogID")
         .and_then(|v| v.as_str())
+        && !parent_catalog_id.is_empty()
     {
-        if !parent_catalog_id.is_empty() {
-            return Ok(parent_catalog_id.to_string());
-        }
+        return Ok(parent_catalog_id.to_string());
     }
 
     if let Some(catalog_list) = resp
         .pointer("/data/getGroupContentResult/catalogList")
         .and_then(|v| v.as_array())
+        && let Some(first) = catalog_list.first()
+        && let Some(p) = first.get("path").and_then(|v| v.as_str())
     {
-        if let Some(first) = catalog_list.first() {
-            if let Some(p) = first.get("path").and_then(|v| v.as_str()) {
-                return Ok(p.to_string());
-            }
-        }
+        return Ok(p.to_string());
     }
 
     Err(ClientError::Other(

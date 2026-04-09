@@ -1,4 +1,3 @@
-use crate::client::ClientError;
 use crate::info;
 use crate::success;
 use clap::Parser;
@@ -25,7 +24,7 @@ pub struct LoginArgs {
     pub cloud_id: Option<String>,
 }
 
-pub async fn execute(args: LoginArgs) -> Result<(), ClientError> {
+pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
     info!("正在验证 Token ...");
 
     let token = args

@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use cloud139::client::api::get_personal_cloud_host_with_client;
 use cloud139::client::StorageType;
 use cloud139::config::Config;
 
@@ -58,4 +59,17 @@ async fn test_personal_api_request_storage_type_group() {
         StorageType::Group => "3",
     };
     assert_eq!(svctype, "3");
+}
+
+#[tokio::test]
+async fn test_get_personal_cloud_host_cached() {
+    let mut config = Config {
+        personal_cloud_host: Some("cached-host.example.com".to_string()),
+        ..Default::default()
+    };
+    let http_client = cloud139::client::api::HttpClientWrapper::new();
+    let host = get_personal_cloud_host_with_client(&mut config, &http_client).await;
+
+    assert!(host.is_ok());
+    assert_eq!(host.unwrap(), "cached-host.example.com");
 }

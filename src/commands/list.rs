@@ -5,6 +5,7 @@ use crate::models::{
 };
 use crate::utils::pad_with_width;
 use crate::{error, success};
+use anyhow::Context;
 use chrono::NaiveDateTime;
 use clap::Parser;
 use serde::Serialize;
@@ -45,13 +46,13 @@ struct JsonFileItem {
     modified: String,
 }
 
-pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
+pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
     let path = if args.path.is_empty() || args.path == "/" {
         "/".to_string()
     } else {
         args.path.trim().to_string()
     };
-    let mut config = crate::config::Config::load().map_err(ClientError::Config)?;
+    let mut config = crate::config::Config::load().context("加载配置失败")?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -101,14 +102,14 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
                 if !resp.base.success {
                     let msg = resp.base.message.as_deref().unwrap_or("未知错误");
                     error!("获取文件列表失败: {}", msg);
-                    return Err(ClientError::Api(msg.to_string()));
+                    return Err(ClientError::Api(msg.to_string()).into());
                 }
 
                 let data = match resp.data {
                     Some(d) => d,
                     None => {
                         error!("获取文件列表失败: 无数据");
-                        return Err(ClientError::Api("获取文件列表失败: 无数据".to_string()));
+                        return Err(ClientError::Api("获取文件列表失败: 无数据".to_string()).into());
                     }
                 };
 
@@ -202,7 +203,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             if resp.data.result.result_code != "0" {
                 let msg = resp.data.result.result_desc.unwrap_or_default();
                 error!("获取文件列表失败: {}", msg);
-                return Err(ClientError::Api(msg));
+                return Err(ClientError::Api(msg).into());
             }
 
             if catalog_id == "0" && !resp.data.path.is_empty() {
@@ -218,8 +219,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for cat in &resp.data.cloud_catalog_list {
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "d",
+                    "d {} {:>15} {:<20}",
                     pad_with_width(&cat.catalog_name, 38),
                     "-",
                     cat.last_update_time
@@ -235,8 +235,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             for content in &resp.data.cloud_content_list {
                 let size = format_size(content.content_size);
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "-",
+                    "- {} {:>15} {:<20}",
                     pad_with_width(&content.content_name, 38),
                     size,
                     content.last_update_time
@@ -306,7 +305,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             if resp.data.result.result_code != "0" {
                 let msg = resp.data.result.result_desc.unwrap_or_default();
                 error!("获取文件列表失败: {}", msg);
-                return Err(ClientError::Api(msg));
+                return Err(ClientError::Api(msg).into());
             }
 
             let mut all_items = Vec::new();
@@ -317,8 +316,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
 
             for cat in &resp.data.get_group_content_result.catalog_list {
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "d",
+                    "d {} {:>15} {:<20}",
                     pad_with_width(&cat.catalog_name, 38),
                     "-",
                     cat.update_time
@@ -334,8 +332,7 @@ pub async fn execute(args: ListArgs) -> Result<(), ClientError> {
             for content in &resp.data.get_group_content_result.content_list {
                 let size = format_size(content.content_size);
                 println!(
-                    "{} {} {:>15} {:<20}",
-                    "-",
+                    "- {} {:>15} {:<20}",
                     pad_with_width(&content.content_name, 38),
                     size,
                     content.update_time

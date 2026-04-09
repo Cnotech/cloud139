@@ -1,6 +1,7 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
 use crate::{error, success, warn};
+use anyhow::Context;
 use clap::Parser;
 use crate::info;
 
@@ -19,8 +20,8 @@ pub struct CpArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: CpArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
+    let config = crate::config::Config::load().context("加载配置失败")?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -192,25 +193,24 @@ async fn cp_group(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
     }

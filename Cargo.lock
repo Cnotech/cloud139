@@ -330,6 +330,7 @@ version = "2.0.0"
 dependencies = [
  "aes",
  "aes-gcm",
+ "anyhow",
  "async-trait",
  "base64",
  "cbc",

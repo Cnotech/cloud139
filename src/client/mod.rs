@@ -2,12 +2,20 @@ pub mod api;
 pub mod api_trait;
 pub mod auth;
 
+use reqwest::header::HeaderValue;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::info;
 
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
+
+pub const MCLOUD_VERSION: &str = "7.14.0";
+pub const MCLOUD_CLIENT: &str = "10701";
+pub const MCLOUD_CHANNEL: &str = "1000101";
+pub const MCLOUD_CHANNEL_SRC: &str = "10000034";
+pub const DEVICE_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||";
+pub const CLIENT_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
 
 #[derive(Error, Debug)]
 pub enum ClientError {
@@ -51,6 +59,8 @@ pub enum ClientError {
     InvalidFilePath,
     #[error("操作被取消")]
     OperationCancelled,
+    #[error("无效的请求头: {0}")]
+    InvalidHeader(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,7 +109,7 @@ impl Client {
         let http_client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()
-            .unwrap();
+            .expect("Failed to build HTTP client");
 
         Self {
             config,
@@ -137,7 +147,7 @@ impl Client {
         let body_str = body.to_string();
         let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
-        let headers = self.build_headers(&ts, &rand_str, &sign);
+        let headers = self.build_headers(&ts, &rand_str, &sign)?;
 
         let resp = self
             .http_client
@@ -151,57 +161,62 @@ impl Client {
         Ok(result)
     }
 
-    fn build_headers(&self, ts: &str, rand_str: &str, sign: &str) -> reqwest::header::HeaderMap {
-        let mut headers = reqwest::header::HeaderMap::new();
+    fn build_headers(
+        &self,
+        ts: &str,
+        rand_str: &str,
+        sign: &str,
+    ) -> Result<reqwest::header::HeaderMap, ClientError> {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let mut headers = HeaderMap::new();
+
         headers.insert(
             "Accept",
-            "application/json, text/plain, */*".parse().unwrap(),
+            HeaderValue::from_static("application/json, text/plain, */*"),
         );
-        headers.insert("Caller", "web".parse().unwrap());
-        headers.insert("CMS-DEVICE", "default".parse().unwrap());
+        headers.insert("Caller", HeaderValue::from_static("web"));
+        headers.insert("CMS-DEVICE", HeaderValue::from_static("default"));
+        headers.insert("mcloud-channel", HeaderValue::from_static(MCLOUD_CHANNEL));
+        headers.insert("mcloud-client", HeaderValue::from_static(MCLOUD_CLIENT));
+        headers.insert("mcloud-route", HeaderValue::from_static("001"));
+        headers.insert("mcloud-version", HeaderValue::from_static(MCLOUD_VERSION));
+        headers.insert("Origin", HeaderValue::from_static("https://yun.139.com"));
+        headers.insert("Referer", HeaderValue::from_static("https://yun.139.com/w/"));
+        headers.insert("x-DeviceInfo", HeaderValue::from_static(DEVICE_INFO));
+        headers.insert("x-huawei-channelSrc", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+        headers.insert("x-inner-ntwk", HeaderValue::from_static("2"));
+        headers.insert("x-m4c-caller", HeaderValue::from_static("PC"));
+        headers.insert("x-m4c-src", HeaderValue::from_static("10002"));
+        headers.insert("x-yun-api-version", HeaderValue::from_static("v1"));
+        headers.insert("x-yun-app-channel", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+        headers.insert("x-yun-channel-source", HeaderValue::from_static(MCLOUD_CHANNEL_SRC));
+        headers.insert("x-yun-client-info", HeaderValue::from_static(CLIENT_INFO));
+        headers.insert("x-yun-module-type", HeaderValue::from_static("100"));
+        headers.insert("x-yun-svc-type", HeaderValue::from_static("1"));
+        headers.insert("Inner-Hcy-Router-Https", HeaderValue::from_static("1"));
+
         headers.insert(
             "Authorization",
             format!("Basic {}", self.config.authorization)
                 .parse()
-                .unwrap(),
+                .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
         );
-        headers.insert("mcloud-channel", "1000101".parse().unwrap());
-        headers.insert("mcloud-client", "10701".parse().unwrap());
-        headers.insert("mcloud-route", "001".parse().unwrap());
         headers.insert(
             "mcloud-sign",
-            format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
-        );
-        headers.insert("mcloud-version", "7.14.0".parse().unwrap());
-        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-        headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
-        headers.insert(
-            "x-DeviceInfo",
-            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
+            format!("{},{},{}", ts, rand_str, sign)
                 .parse()
-                .unwrap(),
+                .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
         );
-        headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
-        headers.insert("x-inner-ntwk", "2".parse().unwrap());
-        headers.insert("x-m4c-caller", "PC".parse().unwrap());
-        headers.insert("x-m4c-src", "10002".parse().unwrap());
         headers.insert(
             "x-SvcType",
-            self.config.storage_type().svc_type().parse().unwrap(),
-        );
-        headers.insert("x-yun-api-version", "v1".parse().unwrap());
-        headers.insert("x-yun-app-channel", "10000034".parse().unwrap());
-        headers.insert("x-yun-channel-source", "10000034".parse().unwrap());
-        headers.insert(
-            "x-yun-client-info",
-            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||"
+            self.config
+                .storage_type()
+                .svc_type()
                 .parse()
-                .unwrap(),
+                .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
         );
-        headers.insert("x-yun-module-type", "100".parse().unwrap());
-        headers.insert("x-yun-svc-type", "1".parse().unwrap());
-        headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
-        headers
+
+        Ok(headers)
     }
 }
 
@@ -262,7 +277,7 @@ impl Client {
             pathname
         );
 
-        let headers = self.build_and_album_headers();
+        let headers = self.build_and_album_headers()?;
 
         let key1 = hex::decode(KEY_HEX_1).map_err(|e| ClientError::Other(e.to_string()))?;
 
@@ -316,41 +331,40 @@ impl Client {
         let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
 
         let mut headers = reqwest::header::HeaderMap::new();
+
         headers.insert(
             "Accept",
-            "application/json, text/plain, */*".parse().unwrap(),
+            reqwest::header::HeaderValue::from_static("application/json, text/plain, */*"),
         );
         headers.insert(
             "Authorization",
-            format!("Basic {}", self.config.authorization)
-                .parse()
-                .unwrap(),
+            reqwest::header::HeaderValue::from_str(&format!("Basic {}", self.config.authorization))
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
         );
         headers.insert(
             "Content-Type",
-            "application/json;charset=UTF-8".parse().unwrap(),
+            reqwest::header::HeaderValue::from_static("application/json;charset=UTF-8"),
         );
-        headers.insert("mcloud-channel", "1000101".parse().unwrap());
-        headers.insert("mcloud-client", "10701".parse().unwrap());
+        headers.insert("mcloud-channel", reqwest::header::HeaderValue::from_static("1000101"));
+        headers.insert("mcloud-client", reqwest::header::HeaderValue::from_static("10701"));
         headers.insert(
             "mcloud-sign",
-            format!("{},{},{}", ts, rand_str, sign).parse().unwrap(),
+            reqwest::header::HeaderValue::from_str(&format!("{},{},{}", ts, rand_str, sign))
+                .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
         );
-        headers.insert("mcloud-version", "7.14.0".parse().unwrap());
-        headers.insert("Origin", "https://yun.139.com".parse().unwrap());
-        headers.insert("Referer", "https://yun.139.com/w/".parse().unwrap());
+        headers.insert("mcloud-version", reqwest::header::HeaderValue::from_static("7.14.0"));
+        headers.insert("Origin", reqwest::header::HeaderValue::from_static("https://yun.139.com"));
+        headers.insert("Referer", reqwest::header::HeaderValue::from_static("https://yun.139.com/w/"));
         headers.insert(
             "x-DeviceInfo",
-            "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"
-                .parse()
-                .unwrap(),
+            reqwest::header::HeaderValue::from_static("||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||"),
         );
-        headers.insert("x-huawei-channelSrc", "10000034".parse().unwrap());
-        headers.insert("x-inner-ntwk", "2".parse().unwrap());
-        headers.insert("x-m4c-caller", "PC".parse().unwrap());
-        headers.insert("x-m4c-src", "10002".parse().unwrap());
-        headers.insert("x-SvcType", "2".parse().unwrap());
-        headers.insert("Inner-Hcy-Router-Https", "1".parse().unwrap());
+        headers.insert("x-huawei-channelSrc", reqwest::header::HeaderValue::from_static("10000034"));
+        headers.insert("x-inner-ntwk", reqwest::header::HeaderValue::from_static("2"));
+        headers.insert("x-m4c-caller", reqwest::header::HeaderValue::from_static("PC"));
+        headers.insert("x-m4c-src", reqwest::header::HeaderValue::from_static("10002"));
+        headers.insert("x-SvcType", reqwest::header::HeaderValue::from_static("2"));
+        headers.insert("Inner-Hcy-Router-Https", reqwest::header::HeaderValue::from_static("1"));
 
         let resp = self
             .http_client
@@ -364,28 +378,27 @@ impl Client {
         Ok(result)
     }
 
-    fn build_and_album_headers(&self) -> reqwest::header::HeaderMap {
+    fn build_and_album_headers(&self) -> Result<reqwest::header::HeaderMap, ClientError> {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("Host", "group.yun.139.com".parse().unwrap());
-        headers.insert(
-            "authorization",
-            format!("Basic {}", self.config.authorization)
-                .parse()
-                .unwrap(),
-        );
-        headers.insert("x-svctype", "2".parse().unwrap());
-        headers.insert("hcy-cool-flag", "1".parse().unwrap());
-        headers.insert("api-version", "v2".parse().unwrap());
-        headers.insert("x-huawei-channelsrc", "10246600".parse().unwrap());
-        headers.insert("x-sdk-channelsrc", "".parse().unwrap());
-        headers.insert("x-mm-source", "0".parse().unwrap());
-        headers.insert("x-deviceinfo", "1|127.0.0.1|1|12.3.2|Xiaomi|23116PN5BC||02-00-00-00-00-00|android 15|1440x3200|android|zh||||032|0|".parse().unwrap());
+        headers.insert("Host", HeaderValue::from_static("group.yun.139.com"));
+        let auth_value = format!("Basic {}", self.config.authorization);
+        let auth_header: reqwest::header::HeaderValue = auth_value
+            .parse()
+            .map_err(|e: reqwest::header::InvalidHeaderValue| ClientError::InvalidHeader(e.to_string()))?;
+        headers.insert("authorization", auth_header);
+        headers.insert("x-svctype", HeaderValue::from_static("2"));
+        headers.insert("hcy-cool-flag", HeaderValue::from_static("1"));
+        headers.insert("api-version", HeaderValue::from_static("v2"));
+        headers.insert("x-huawei-channelsrc", HeaderValue::from_static("10246600"));
+        headers.insert("x-sdk-channelsrc", HeaderValue::from_static(""));
+        headers.insert("x-mm-source", HeaderValue::from_static("0"));
+        headers.insert("x-deviceinfo", HeaderValue::from_static("1|127.0.0.1|1|12.3.2|Xiaomi|23116PN5BC||02-00-00-00-00-00|android 15|1440x3200|android|zh||||032|0|"));
         headers.insert(
             "content-type",
-            "application/json; charset=utf-8".parse().unwrap(),
+            HeaderValue::from_static("application/json; charset=utf-8"),
         );
-        headers.insert("user-agent", "okhttp/4.11.0".parse().unwrap());
-        headers.insert("accept-encoding", "gzip".parse().unwrap());
-        headers
+        headers.insert("user-agent", HeaderValue::from_static("okhttp/4.11.0"));
+        headers.insert("accept-encoding", HeaderValue::from_static("gzip"));
+        Ok(headers)
     }
 }

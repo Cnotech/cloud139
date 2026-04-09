@@ -1,6 +1,7 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::DownloadUrlResp;
 use crate::{error, info, step, success};
+use anyhow::Context;
 use clap::Parser;
 use std::path::Path;
 
@@ -23,10 +24,10 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
                 || ends_with_slash
                 || (!path.contains('.')
                     && !path.ends_with(".txt")
-                    && !path_obj.extension().is_some())
+                    && path_obj.extension().is_none())
             {
                 let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                let file_name = parts.first().copied().unwrap_or_else(|| remote_path);
+                let file_name = parts.first().copied().unwrap_or(remote_path);
                 if file_name.is_empty() || file_name == remote_path {
                     format!("{}/download", path)
                 } else {
@@ -38,7 +39,7 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
         }
         _ => {
             let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            let file_name = parts.first().copied().unwrap_or_else(|| remote_path);
+            let file_name = parts.first().copied().unwrap_or(remote_path);
             if file_name.is_empty() || file_name == remote_path {
                 "download".to_string()
             } else {
@@ -48,56 +49,19 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
     }
 }
 
-pub async fn execute(args: DownloadArgs) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
+    let config = crate::config::Config::load().context("加载配置失败")?;
     let storage_type = config.storage_type();
 
     let remote_path = &args.remote_path;
-    let local_path = match &args.local_path {
-        Some(path) if !path.is_empty() => {
-            let ends_with_slash = path.ends_with('/');
-            let path = path.trim_end_matches('/');
-            let path_obj = Path::new(path);
-            if path_obj.is_dir()
-                || ends_with_slash
-                || (!path.contains('.')
-                    && !path.ends_with(".txt")
-                    && !path_obj.extension().is_some())
-            {
-                let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-                let file_name = parts
-                    .first()
-                    .copied()
-                    .unwrap_or_else(|| remote_path.as_str());
-                if file_name.is_empty() || file_name == remote_path {
-                    format!("{}/download", path)
-                } else {
-                    format!("{}/{}", path, file_name)
-                }
-            } else {
-                path.to_string()
-            }
-        }
-        _ => {
-            let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            let file_name = parts
-                .first()
-                .copied()
-                .unwrap_or_else(|| remote_path.as_str());
-            if file_name.is_empty() || file_name == remote_path {
-                "download".to_string()
-            } else {
-                file_name.to_string()
-            }
-        }
-    };
+    let local_path = resolve_local_path(remote_path, &args.local_path);
 
     match storage_type {
         StorageType::PersonalNew => {
             let file_id = crate::client::api::get_file_id_by_path(&config, remote_path).await?;
             if file_id.is_empty() {
                 error!("无效的文件路径");
-                return Err(ClientError::InvalidFilePath);
+                return Err(ClientError::InvalidFilePath.into());
             }
             download_personal(&config, remote_path, &file_id, &local_path).await?;
         }
@@ -152,19 +116,16 @@ async fn download_personal(
     )
     .await?;
 
-    if let Some(items) = list_resp.data.map(|d| d.items) {
-        if let Some(item) = items
+    if let Some(items) = list_resp.data.map(|d| d.items)
+        && let Some(item) = items
             .iter()
             .find(|item| item.name.as_deref() == Some(file_name))
-        {
-            if item.file_type.as_deref() == Some("1")
-                || item.file_type.as_deref() == Some("folder")
-                || item.file_type.as_deref() == Some("dir")
-            {
-                error!("不支持下载目录，请使用 ls 命令查看目录内容");
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
-        }
+        && (item.file_type.as_deref() == Some("1")
+            || item.file_type.as_deref() == Some("folder")
+            || item.file_type.as_deref() == Some("dir"))
+    {
+        error!("不支持下载目录，请使用 ls 命令查看目录内容");
+        return Err(ClientError::UnsupportedDownloadDirectory);
     }
 
     let url = format!("{}/file/getDownloadUrl", host);
@@ -194,11 +155,11 @@ async fn download_personal(
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
         let file_name = resp.data.file_name.unwrap_or_else(|| {
-            let parts: Vec<&str> = remote_path.trim_start_matches('/').rsplit('/').collect();
-            parts
-                .first()
-                .copied()
-                .unwrap_or_else(|| remote_path)
+            remote_path
+                .trim_start_matches('/')
+                .rsplit('/')
+                .next()
+                .unwrap_or(remote_path)
                 .to_string()
         });
         let file_path = local_path_obj.join(&file_name);
@@ -304,23 +265,22 @@ async fn download_family(
         }
     }
 
-    if found_id.is_none() {
-        if let Some(content_list) = resp
+    if found_id.is_none()
+        && let Some(content_list) = resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    found_path = resp
-                        .pointer("/data/path")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                found_path = resp
+                    .pointer("/data/path")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                break;
             }
         }
     }
@@ -422,23 +382,22 @@ async fn download_group(
         }
     }
 
-    if found_id.is_none() {
-        if let Some(content_list) = resp
+    if found_id.is_none()
+        && let Some(content_list) = resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    found_path = resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                found_path = resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                break;
             }
         }
     }

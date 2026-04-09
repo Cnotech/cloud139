@@ -1,6 +1,6 @@
-use digest::Digest;
-use std::error::Error;
 use aes::cipher::generic_array::GenericArray;
+use anyhow::{anyhow, Result};
+use digest::Digest;
 
 pub fn sha1_hash(data: &str) -> String {
     let mut hasher = sha1::Sha1::new();
@@ -14,7 +14,7 @@ pub fn md5_hash(data: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
     use aes::Aes128;
     use cbc::{
         cipher::{BlockEncryptMut, KeyIvInit},
@@ -50,11 +50,7 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
     Ok(ciphertext)
 }
 
-pub fn aes_cbc_decrypt(
-    ciphertext: &[u8],
-    key: &[u8],
-    iv: &[u8],
-) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
     use aes::Aes128;
     use cbc::{
         cipher::{BlockDecryptMut, KeyIvInit},
@@ -87,15 +83,23 @@ pub fn aes_cbc_decrypt(
     Ok(plaintext)
 }
 
-pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>> {
     use aes::cipher::{BlockDecryptMut, KeyInit};
 
-    let mut cipher = aes::Aes128::new(key.into());
     let block_size = 16;
 
-    if !ciphertext.len().is_multiple_of(block_size) {
-        return Err("ciphertext is not a multiple of the block size".into());
+    if ciphertext.is_empty() {
+        return Err(anyhow!("ciphertext is empty"));
     }
+
+    if ciphertext.len() < block_size || !ciphertext.len().is_multiple_of(block_size) {
+        return Err(anyhow!(
+            "ciphertext length {} is not a multiple of block size 16",
+            ciphertext.len()
+        ));
+    }
+
+    let mut cipher = aes::Aes128::new(key.into());
 
     let mut result = ciphertext.to_vec();
     let blocks = result.chunks_mut(block_size);
@@ -121,17 +125,21 @@ pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     result
 }
 
-pub fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>> {
     if data.is_empty() {
-        return Err("Empty data".into());
+        return Err(anyhow!("pkcs7_unpad: input data is empty"));
     }
     let padding = data[data.len() - 1] as usize;
     if padding > data.len() || padding == 0 {
-        return Err("Invalid padding".into());
+        return Err(anyhow!("pkcs7_unpad: invalid padding"));
     }
     for i in 0..padding {
         if data[data.len() - 1 - i] != padding as u8 {
-            return Err("Invalid padding".into());
+            return Err(anyhow!(
+                "pkcs7_unpad: invalid padding byte {} at position {}",
+                data[data.len() - 1 - i],
+                data.len() - 1 - i
+            ));
         }
     }
     Ok(data[..data.len() - padding].to_vec())

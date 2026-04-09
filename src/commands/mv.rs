@@ -1,6 +1,7 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchMoveResp;
 use crate::{error, success, warn};
+use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -15,18 +16,18 @@ pub struct MvArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: MvArgs) -> Result<(), ClientError> {
+pub async fn execute(args: MvArgs) -> anyhow::Result<()> {
     if args.source.is_empty() {
         error!("错误: 请指定至少一个源文件");
-        return Err(ClientError::NoSourceFiles);
+        return Err(ClientError::NoSourceFiles.into());
     }
 
     if args.source.iter().any(|s| s == "/") {
         error!("错误: 不能移动根目录");
-        return Err(ClientError::CannotOperateOnRoot);
+        return Err(ClientError::CannotOperateOnRoot.into());
     }
 
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+    let config = crate::config::Config::load().context("Failed to load config")?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -210,25 +211,24 @@ async fn mv_family(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/path")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
     }
@@ -365,25 +365,24 @@ async fn mv_group(
         }
     }
 
-    if !is_dir && found_id.is_empty() {
-        if let Some(content_list) = list_resp
+    if !is_dir && found_id.is_empty()
+        && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())
-        {
-            for content in content_list {
-                if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
-                    found_id = content
-                        .get("contentID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    found_path = list_resp
-                        .pointer("/data/getGroupContentResult/parentCatalogID")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    break;
-                }
+    {
+        for content in content_list {
+            if content.get("contentName").and_then(|v| v.as_str()) == Some(&file_name) {
+                found_id = content
+                    .get("contentID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                found_path = list_resp
+                    .pointer("/data/getGroupContentResult/parentCatalogID")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                break;
             }
         }
     }

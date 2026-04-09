@@ -71,3 +71,35 @@ mod download_mock_test {
         });
     }
 }
+
+mod download_path_tests {
+    use cloud139::commands::download::resolve_local_path;
+
+    #[test]
+    fn test_resolve_local_path_with_directory() {
+        let result = resolve_local_path("/remote/path/file.txt", &Some("/local/dir/".to_string()));
+        assert!(result.ends_with("file.txt"));
+        assert!(result.starts_with("/local/dir/"));
+    }
+
+    #[test]
+    fn test_resolve_local_path_no_local_path() {
+        let result = resolve_local_path("/remote/path/myfile.zip", &None);
+        assert_eq!(result, "myfile.zip");
+    }
+
+    #[test]
+    fn test_resolve_local_path_explicit_file() {
+        let result = resolve_local_path(
+            "/remote/path/original.txt",
+            &Some("/local/renamed.txt".to_string()),
+        );
+        assert_eq!(result, "/local/renamed.txt");
+    }
+
+    #[test]
+    fn test_resolve_local_path_empty_remote() {
+        let result = resolve_local_path("", &None);
+        assert_eq!(result, "download");
+    }
+}
