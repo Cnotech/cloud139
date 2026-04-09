@@ -1,6 +1,5 @@
 use crate::commands::download::DownloadArgs as OldDownloadArgs;
 use clap::Parser;
-use std::convert::From;
 
 #[derive(Parser, Debug, Clone)]
 pub struct DownloadArgs {

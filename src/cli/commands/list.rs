@@ -1,6 +1,4 @@
-use crate::commands::list::ListArgs as OldListArgs;
 use clap::Parser;
-use std::convert::From;
 
 #[derive(Parser, Debug, Clone)]
 pub struct ListArgs {
@@ -15,15 +13,4 @@ pub struct ListArgs {
 
     #[arg(short, long, help = "将JSON输出到指定文件")]
     pub output: Option<String>,
-}
-
-impl From<ListArgs> for OldListArgs {
-    fn from(args: ListArgs) -> Self {
-        OldListArgs {
-            path: args.path,
-            page: args.page,
-            page_size: args.page_size,
-            output: args.output,
-        }
-    }
 }

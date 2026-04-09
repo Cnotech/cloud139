@@ -9,7 +9,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     let result = match cli.command {
-        Commands::Ls(args) => cloud139::commands::list::execute(args.into()).await,
+        Commands::Ls(args) => cloud139::commands::list::execute(args).await,
         Commands::Upload(args) => cloud139::commands::upload::execute(args.into()).await,
         Commands::Download(args) => cloud139::commands::download::execute(args.into()).await,
     };
