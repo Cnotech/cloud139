@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::cli::commands::{download, list, upload};
+use crate::cli::commands::{cp, delete, download, list, login, mkdir, mv, rename, upload};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
@@ -16,7 +16,22 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// 登录账号
+    Login(login::LoginArgs),
+    /// 列出文件
     Ls(list::ListArgs),
+    /// 上传文件
     Upload(upload::UploadArgs),
+    /// 下载文件
     Download(download::DownloadArgs),
+    /// 删除文件
+    Rm(delete::DeleteArgs),
+    /// 创建目录
+    Mkdir(mkdir::MkdirArgs),
+    /// 移动文件
+    Mv(mv::MvArgs),
+    /// 复制文件
+    Cp(cp::CpArgs),
+    /// 重命名文件
+    Rename(rename::RenameArgs),
 }

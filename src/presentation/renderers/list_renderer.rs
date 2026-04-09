@@ -38,6 +38,10 @@ pub fn render_terminal(result: &ListResult) {
 #[derive(Serialize)]
 pub struct JsonListOutput {
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<i32>,
     pub total: i32,
     pub items: Vec<JsonFileItem>,
 }
@@ -52,6 +56,14 @@ pub struct JsonFileItem {
 }
 
 pub fn to_json(result: &ListResult) -> anyhow::Result<String> {
+    to_json_with_pagination(result, None, None)
+}
+
+pub fn to_json_with_pagination(
+    result: &ListResult,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> anyhow::Result<String> {
     let items = result
         .items
         .iter()
@@ -68,6 +80,8 @@ pub fn to_json(result: &ListResult) -> anyhow::Result<String> {
 
     let output = JsonListOutput {
         path: result.path.clone(),
+        page,
+        page_size,
         total: result.total,
         items,
     };

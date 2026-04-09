@@ -1,6 +1,7 @@
 use crate::commands::download::DownloadArgs as OldDownloadArgs;
 use crate::commands::upload::UploadArgs as OldUploadArgs;
 use clap::Parser;
+use std::convert::From;
 
 #[derive(Parser, Debug, Clone)]
 pub struct UploadArgs {

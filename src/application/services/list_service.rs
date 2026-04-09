@@ -2,6 +2,7 @@ use crate::cli::commands::list::ListArgs as CliListArgs;
 use crate::client::{Client, StorageType};
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;
+use chrono::NaiveDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListResult {
@@ -99,13 +100,13 @@ async fn list_personal(
                 EntryKind::File
             };
 
-            let modified = item
-                .updated_at
-                .as_deref()
-                .or(item.update_date.as_deref())
-                .or(item.last_modified.as_deref())
-                .unwrap_or_default()
-                .to_string();
+            let modified = parse_personal_time(
+                item.updated_at
+                    .as_deref()
+                    .or(item.update_date.as_deref())
+                    .or(item.last_modified.as_deref())
+                    .unwrap_or_default(),
+            );
 
             all_items.push(FileItem {
                 name: item.name.clone().unwrap_or_default(),
@@ -160,6 +161,13 @@ async fn list_family(
     if resp.data.result.result_code != "0" {
         let msg = resp.data.result.result_desc.unwrap_or_default();
         return Err(crate::client::ClientError::Api(msg).into());
+    }
+
+    // 家庭云根目录时缓存 path
+    let mut config = config.clone();
+    if catalog_id == "0" && !resp.data.path.is_empty() {
+        config.root_folder_id = Some(resp.data.path.clone());
+        let _ = config.save();
     }
 
     let mut all_items = Vec::new();
@@ -261,4 +269,17 @@ async fn list_group(
         total: resp.data.get_group_content_result.node_count,
         items: all_items,
     })
+}
+
+fn parse_personal_time(time_str: &str) -> String {
+    if time_str.is_empty() {
+        return String::new();
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(time_str) {
+        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+    if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%dT%H:%M:%S%.f") {
+        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+    }
+    time_str.to_string()
 }
