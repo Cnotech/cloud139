@@ -19,6 +19,9 @@ pub struct LoginArgs {
         help = "存储类型: personal_new, family, group"
     )]
     pub storage_type: String,
+
+    #[arg(short, long, help = "云盘ID (家庭云/群组云时需要)")]
+    pub cloud_id: Option<String>,
 }
 
 impl From<LoginArgs> for OldLoginArgs {
@@ -26,7 +29,7 @@ impl From<LoginArgs> for OldLoginArgs {
         OldLoginArgs {
             token: args.token,
             storage_type: args.storage_type,
-            cloud_id: None,
+            cloud_id: args.cloud_id,
         }
     }
 }

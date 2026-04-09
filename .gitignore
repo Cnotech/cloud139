@@ -10,3 +10,5 @@
 /node_modules
 /bot-database.json
 /docs/superpowers
+/review_tmp_target
+/target_review*
