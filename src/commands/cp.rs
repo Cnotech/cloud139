@@ -1,4 +1,4 @@
-use crate::client::endpoints::{family, group};
+use crate::client::endpoints::group;
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
 use crate::{error, success, warn};

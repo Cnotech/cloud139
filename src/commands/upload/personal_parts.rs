@@ -1,5 +1,4 @@
 use crate::client::{ClientError, StorageType};
-use std::io::Seek;
 
 pub async fn get_upload_urls(
     config: &crate::config::Config,

@@ -190,7 +190,7 @@ fn get_content_type(path: &std::path::Path) -> String {
     .to_string()
 }
 
-struct UploadPartsParams<'a> {
+pub(super) struct UploadPartsParams<'a> {
     config: &'a crate::config::Config,
     host: &'a str,
     local_path: &'a std::path::Path,
@@ -201,7 +201,7 @@ struct UploadPartsParams<'a> {
     part_size: i64,
 }
 
-pub async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
+pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
     let config = params.config;
     let host = params.host;
     let local_path = params.local_path;
@@ -214,7 +214,7 @@ pub async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientErr
     let mut file = std::fs::File::open(local_path)?;
     let part_count = (file_size + part_size - 1) / part_size;
 
-    let mut upload_urls =
+    let upload_urls =
         super::personal_parts::get_upload_urls(config, host, file_id, upload_id, part_count, part_size, file_size).await?;
 
     for i in 0..part_count {

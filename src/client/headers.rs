@@ -4,12 +4,7 @@ use crate::client::{
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 
-pub fn build_route_headers(
-    authorization: &str,
-    ts: &str,
-    rand_str: &str,
-    sign: &str,
-) -> Result<HeaderMap, ClientError> {
+fn build_base_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
 
     headers.insert(
@@ -37,6 +32,17 @@ pub fn build_route_headers(
     headers.insert("x-m4c-caller", HeaderValue::from_static("PC"));
     headers.insert("x-m4c-src", HeaderValue::from_static("10002"));
     headers.insert("Inner-Hcy-Router-Https", HeaderValue::from_static("1"));
+
+    headers
+}
+
+pub fn build_route_headers(
+    authorization: &str,
+    ts: &str,
+    rand_str: &str,
+    sign: &str,
+) -> Result<HeaderMap, ClientError> {
+    let mut headers = build_base_headers();
 
     headers.insert(
         "Authorization",
@@ -140,39 +146,13 @@ pub fn build_group_signed_headers(
     sign: &str,
     svc_type: &str,
 ) -> Result<HeaderMap, ClientError> {
-    let mut headers = HeaderMap::new();
+    let mut headers = build_base_headers();
 
-    headers.insert(
-        "Accept",
-        HeaderValue::from_static("application/json, text/plain, */*"),
-    );
-    headers.insert(
-        "Content-Type",
-        HeaderValue::from_static("application/json;charset=UTF-8"),
-    );
-    headers.insert("mcloud-channel", HeaderValue::from_static(MCLOUD_CHANNEL));
-    headers.insert("mcloud-client", HeaderValue::from_static(MCLOUD_CLIENT));
-    headers.insert("mcloud-version", HeaderValue::from_static(MCLOUD_VERSION));
-    headers.insert("Origin", HeaderValue::from_static("https://yun.139.com"));
-    headers.insert(
-        "Referer",
-        HeaderValue::from_static("https://yun.139.com/w/"),
-    );
-    headers.insert("x-DeviceInfo", HeaderValue::from_static(DEVICE_INFO));
-    headers.insert(
-        "x-huawei-channelSrc",
-        HeaderValue::from_static(MCLOUD_CHANNEL_SRC),
-    );
-    headers.insert("x-inner-ntwk", HeaderValue::from_static("2"));
-    headers.insert("x-m4c-caller", HeaderValue::from_static("PC"));
-    headers.insert("x-m4c-src", HeaderValue::from_static("10002"));
     headers.insert(
         "x-SvcType",
         HeaderValue::from_str(svc_type)
             .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
     );
-    headers.insert("Inner-Hcy-Router-Https", HeaderValue::from_static("1"));
-
     headers.insert(
         "Authorization",
         format!("Basic {}", authorization)
