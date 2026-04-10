@@ -3,7 +3,7 @@ use crate::cli::commands::list::ListArgs as CliListArgs;
 use crate::client::{Client, StorageType};
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;
-use chrono::NaiveDateTime;
+use crate::utils::parse_personal_time;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListResult {
@@ -272,15 +272,3 @@ async fn list_group(
     })
 }
 
-fn parse_personal_time(time_str: &str) -> String {
-    if time_str.is_empty() {
-        return String::new();
-    }
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(time_str) {
-        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
-    }
-    if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, "%Y-%m-%dT%H:%M:%S%.f") {
-        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
-    }
-    time_str.to_string()
-}

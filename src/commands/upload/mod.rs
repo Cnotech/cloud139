@@ -21,6 +21,18 @@ pub struct UploadArgs {
     pub force: bool,
 }
 
+/// 上传分片参数
+pub struct UploadPartParams<'a> {
+    pub upload_url: &'a str,
+    pub upload_task_id: &'a str,
+    pub buffer: &'a [u8],
+    pub part_number: i64,
+    pub part_offset: i64,
+    pub read_size: i64,
+    pub file_name: &'a str,
+    pub total_size: i64,
+}
+
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();

@@ -1,5 +1,6 @@
 use crate::client::endpoints::family;
 use crate::client::ClientError;
+use crate::commands::upload::UploadPartParams;
 use crate::{info, step, success};
 use std::io::{Read, Seek};
 
@@ -114,52 +115,52 @@ async fn upload_file(
         let part_number = i + 1;
         step!("上传分片 {}/{}", part_number, part_count);
 
-        upload_part(upload_url, upload_task_id, &buffer[..bytes_read], part_number, part_size, read_size, file_name, file_size)
-            .await?;
+        upload_part(&UploadPartParams {
+            upload_url,
+            upload_task_id,
+            buffer: &buffer[..bytes_read],
+            part_number,
+            part_offset: part_size,
+            read_size,
+            file_name,
+            total_size: file_size,
+        })
+        .await?;
     }
 
     Ok(())
 }
 
-async fn upload_part(
-    upload_url: &str,
-    upload_task_id: &str,
-    buffer: &[u8],
-    part_number: i64,
-    part_offset: i64,
-    read_size: i64,
-    file_name: &str,
-    total_size: i64,
-) -> Result<(), ClientError> {
+async fn upload_part(params: &UploadPartParams<'_>) -> Result<(), ClientError> {
     let client = reqwest::Client::new();
 
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         "Content-Type",
-        reqwest::header::HeaderValue::from_str(&format!("text/plain;name={}", file_name))
+        reqwest::header::HeaderValue::from_str(&format!("text/plain;name={}", params.file_name))
             .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
     );
     headers.insert(
         "contentSize",
-        reqwest::header::HeaderValue::from_str(&total_size.to_string())
+        reqwest::header::HeaderValue::from_str(&params.total_size.to_string())
             .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
     );
     headers.insert(
         "range",
-        reqwest::header::HeaderValue::from_str(&format!("bytes={}-{}", part_offset, part_offset + read_size - 1))
+        reqwest::header::HeaderValue::from_str(&format!("bytes={}-{}", params.part_offset, params.part_offset + params.read_size - 1))
             .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
     );
     headers.insert(
         "uploadtaskID",
-        reqwest::header::HeaderValue::from_str(upload_task_id)
+        reqwest::header::HeaderValue::from_str(params.upload_task_id)
             .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
     );
     headers.insert("rangeType", reqwest::header::HeaderValue::from_static("0"));
 
-    let resp = client.post(upload_url).headers(headers).body(buffer.to_vec()).send().await?;
+    let resp = client.post(params.upload_url).headers(headers).body(params.buffer.to_vec()).send().await?;
 
     if !resp.status().is_success() {
-        return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp.status())));
+        return Err(ClientError::Api(format!("分片 {} 上传失败: {}", params.part_number, resp.status())));
     }
 
     Ok(())
