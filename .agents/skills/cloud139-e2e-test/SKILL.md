@@ -48,7 +48,7 @@ cargo build --release
 ./target/release/cloud139.exe login --token <token> --storage-type personal_new
 ```
 
-检查并删除根目录下的遗留测试文件（如 README.md, Cargo.lock 等）：
+检查并删除**云端**根目录下的遗留测试文件（如 README.md, Cargo.lock 等）：
 ```bash
 ./target/release/cloud139.exe ls /
 # 如果存在遗留测试文件，执行删除
@@ -250,21 +250,37 @@ rm -rf cloud139_e2e_download_test
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 9.1 | `./target/release/cloud139.exe rm /README_copy.md --yes` | 移到回收站 |
-| 9.2 | `./target/release/cloud139.exe ls /` | README_copy.md 已删除 |
+| 9.0 | `echo "test" > test_delete.txt && ./target/release/cloud139.exe upload test_delete.txt /e2e_test_xxx/` | 准备删除测试文件 |
+| 9.1 | `./target/release/cloud139.exe rm /e2e_test_xxx/test_delete.txt --yes` | 移到回收站 |
+| 9.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | test_delete.txt 已删除 |
 | 9.3 | `./target/release/cloud139.exe rm /not_exist.txt --yes` | **边界**：文件不存在 |
 | 9.4 | `./target/release/cloud139.exe rm /Cargo.toml` | 不带 --yes 应提示确认 |
 | 9.5 | `./target/release/cloud139.exe rm / --yes` | **边界**：不能删除根目录 |
 
 ### 4. 清理
 
-测试完成后清理测试数据：
+> ⚠️ **重要警告**：清理时**绝对不要删除本地的项目核心文件**（如 `Cargo.toml`、`README.md`）。下载测试会在当前目录覆盖这些文件，但这是正常行为，不需要清理。需要清理的是**云端**的测试文件。
+
+测试完成后清理**云端**的测试数据：
 ```bash
 ./target/release/cloud139.exe rm /e2e_test_xxx --yes
 ./target/release/cloud139.exe rm /README.md --yes
 ./target/release/cloud139.exe rm /Cargo.toml --yes
 ./target/release/cloud139.exe rm /e2e_random_{timestamp}.bin --yes
 ```
+
+清理**本地**的测试临时文件（仅限测试过程中生成的临时文件）：
+```bash
+rm -rf cloud139_e2e_download_test
+rm -rf non-exist-dir-1 non-exist-dir-2
+rm -f e2e_random_*.bin
+rm -f test_delete.txt
+```
+
+**注意**：以下文件是本地项目核心文件，**绝对不能删除**：
+- `Cargo.toml` - Rust 项目配置文件
+- `README.md` - 项目说明文档
+- `Cargo.lock` - 依赖锁定文件
 
 ### 5. 生成报告
 
