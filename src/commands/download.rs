@@ -1,7 +1,7 @@
+use crate::client::endpoints::{family, group};
 use crate::client::{ClientError, StorageType};
 use crate::models::DownloadUrlResp;
 use crate::{error, info, step, success};
-use anyhow::Context;
 use clap::Parser;
 use std::path::Path;
 
@@ -50,7 +50,7 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
 }
 
 pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     let remote_path = &args.remote_path;
@@ -229,7 +229,7 @@ async fn download_family(
             .unwrap_or_else(|| "0".to_string())
     };
 
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    let url = family::orchestration::QUERY_CONTENT_LIST;
 
     let body = serde_json::json!({
         "catalogID": parent_path,
@@ -345,7 +345,7 @@ async fn download_group(
         "0".to_string()
     };
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let body = serde_json::json!({
         "groupID": config.cloud_id,

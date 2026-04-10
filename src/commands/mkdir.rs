@@ -1,7 +1,6 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
 use crate::{error, info, success, warn};
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -16,7 +15,7 @@ pub struct MkdirArgs {
 pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {
     let (parent, name) = parse_path(&args.path)?;
 
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     match storage_type {

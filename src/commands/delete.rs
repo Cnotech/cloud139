@@ -1,7 +1,7 @@
+use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchTrashResp;
 use crate::{error, info, success, warn};
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -27,7 +27,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
         return Err(ClientError::ConfirmationRequired.into());
     }
 
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -93,7 +93,7 @@ async fn delete_family(
     let (catalog_list, content_list, _) = get_family_file_info(config, path).await?;
 
     let task_type = if permanent { 3 } else { 2 };
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
+    let url = family::orchestration::CREATE_BATCH_OPR_TASK;
 
     let body = serde_json::json!({
         "catalogList": catalog_list,
@@ -151,7 +151,7 @@ async fn get_family_file_info(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    let url = family::orchestration::QUERY_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "catalogID": catalog_id,
@@ -220,7 +220,7 @@ async fn delete_group(
         return Err(ClientError::CannotOperateOnRoot);
     }
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let parent_path = std::path::Path::new(path);
     let parent_dir = parent_path
@@ -304,7 +304,7 @@ async fn delete_group(
     }
 
     let task_type = if permanent { 3 } else { 2 };
-    let delete_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
+    let delete_url = group::orchestration::CREATE_BATCH_OPR_TASK;
 
     let full_path = if is_dir {
         found_path.clone()

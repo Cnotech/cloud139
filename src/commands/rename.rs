@@ -1,6 +1,6 @@
+use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::{error, success};
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -20,7 +20,7 @@ pub fn validate_rename_path(source: &str) -> Result<(), String> {
 }
 
 pub async fn execute(args: RenameArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -103,7 +103,7 @@ async fn rename_family(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    let url = family::orchestration::QUERY_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "catalogID": catalog_id,
@@ -168,8 +168,7 @@ async fn rename_family(
         return Err(ClientError::UnsupportedFamilyRenameFolder);
     }
 
-    let url =
-        "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
+    let url = family::orchestration::MODIFY_CONTENT_INFO;
 
     let body = serde_json::json!({
         "contentID": found_id,
@@ -220,7 +219,7 @@ async fn rename_group(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
@@ -289,7 +288,7 @@ async fn rename_group(
     }
 
     if is_dir {
-        let url = "https://yun.139.com/orchestration/group-rebuild/catalog/v1.0/modifyGroupCatalog";
+        let url = group::orchestration::MODIFY_GROUP_CATALOG;
 
         let body = serde_json::json!({
             "groupID": config.cloud_id,
@@ -316,7 +315,7 @@ async fn rename_group(
             return Err(ClientError::Api(format!("{:?}", resp)));
         }
     } else {
-        let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/modifyGroupContent";
+        let url = group::orchestration::MODIFY_GROUP_CONTENT;
 
         let body = serde_json::json!({
             "groupID": config.cloud_id,

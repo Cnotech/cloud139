@@ -1,3 +1,4 @@
+use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
 use crate::client::ClientError;
 use crate::config::Config;
 use serde::Deserialize;
@@ -76,7 +77,7 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         .as_ref()
         .ok_or(ClientError::TokenExpired)?;
 
-    let url = "https://aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do";
+    let url = AUTH_TOKEN_REFRESH_URL;
 
     let body = format!(
         r#"<root><token>{}</token><account>{}</account><clienttype>656</clienttype></root>"#,

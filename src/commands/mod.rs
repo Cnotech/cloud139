@@ -1,5 +1,6 @@
 pub mod cp;
 pub mod delete;
+pub mod dispatch;
 pub mod download;
 pub mod list;
 pub mod login;

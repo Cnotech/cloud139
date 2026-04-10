@@ -1,7 +1,7 @@
+use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchMoveResp;
 use crate::{error, success, warn};
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -27,7 +27,7 @@ pub async fn execute(args: MvArgs) -> anyhow::Result<()> {
         return Err(ClientError::CannotOperateOnRoot.into());
     }
 
-    let config = crate::config::Config::load().context("Failed to load config")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -173,7 +173,7 @@ async fn mv_family(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    let url = family::orchestration::QUERY_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "catalogID": catalog_id,
@@ -324,7 +324,7 @@ async fn mv_group(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
@@ -399,7 +399,7 @@ async fn mv_group(
         format!("root:/{}", target)
     };
 
-    let move_url = "https://yun.139.com/orchestration/group-rebuild/task/v1.0/createBatchOprTask";
+    let move_url = group::orchestration::CREATE_BATCH_OPR_TASK;
 
     let full_source_path = if found_path.is_empty() {
         format!("root:/{}", found_id)

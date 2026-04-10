@@ -15,11 +15,10 @@ pub fn parse_personal_time(time_str: &str) -> String {
 }
 
 use crate::presentation::renderers::list_renderer;
-use anyhow::Context;
 use std::fs;
 
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let result = crate::application::services::list(&config, &args).await?;
     list_renderer::render_terminal(&result);
 

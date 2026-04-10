@@ -1,3 +1,4 @@
+use crate::client::endpoints::{family, group};
 use crate::cli::commands::list::ListArgs as CliListArgs;
 use crate::client::{Client, StorageType};
 use crate::domain::file_item::{EntryKind, FileItem};
@@ -135,7 +136,7 @@ async fn list_family(
     page: i32,
     page_size: i32,
 ) -> anyhow::Result<ListResult> {
-    let url = "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
+    let url = family::orchestration::QUERY_CONTENT_LIST;
 
     let catalog_id = if path == "/" || path.is_empty() {
         "0".to_string()
@@ -203,7 +204,7 @@ async fn list_group(
     page: i32,
     page_size: i32,
 ) -> anyhow::Result<ListResult> {
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let catalog_id = if path == "/" || path.is_empty() {
         "0".to_string()

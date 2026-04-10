@@ -1,7 +1,7 @@
+use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchCopyResp;
 use crate::{error, success, warn};
-use anyhow::Context;
 use clap::Parser;
 use crate::info;
 
@@ -21,7 +21,7 @@ pub struct CpArgs {
 }
 
 pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load().context("加载配置失败")?;
+    let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -153,7 +153,7 @@ async fn cp_group(
         parent_dir.clone()
     };
 
-    let url = "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
+    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
 
     let list_body = serde_json::json!({
         "groupID": config.cloud_id,
