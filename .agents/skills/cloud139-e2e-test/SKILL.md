@@ -27,11 +27,11 @@ metadata:
 
 ### 2. 环境准备
 
-> ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请使用 PowerShell 执行命令。
+> ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请在 Git Bash 中调用 PowerShell 执行命令。
 
 **示例**：
 ```powershell
-# 正确方式：使用 PowerShell
+# 正确方式：调用 PowerShell
 powershell -Command "cd 'D:\Desktop\Projects\cloud139'; .\target\release\cloud139.exe ls /"
 
 # 错误方式：直接执行（Git Bash 会将 / 解析为 Windows 路径）
@@ -47,6 +47,10 @@ cargo build --release
 ```bash
 ./target/release/cloud139.exe login --token <token> --storage-type personal_new
 ```
+
+> ℹ️ **登录后置校验**：`login` 命令在保存配置后会自动执行一次 `ls /` 验证 Token 实际可用性。
+> - 若成功，输出 `Token 验证成功!`
+> - 若失败，会输出警告提示 Token 可能已过期，并以退出码 1 终止，**不会**保存配置
 
 检查并删除**云端**根目录下的遗留测试文件（如 README.md, Cargo.lock 等）：
 ```bash
@@ -74,6 +78,19 @@ cargo build --release
 > 注：部分命令的 `--force` 参数会覆盖某些限制，此时即使有警告也可能返回 0（取决于具体实现）
 
 ### 4. 测试执行顺序
+
+#### 阶段 0: 登录测试 (login)
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 0.1 | `./target/release/cloud139.exe login --token <expired_or_invalid_token>` | **边界**：`ls /` 校验失败，输出 Token 可能已过期的警告，退出码为 1 |
+| 0.2 | `./target/release/cloud139.exe login --token <valid_token>` | 登录成功：内部自动执行 `ls /`，输出 `Token 验证成功!`，退出码为 0 |
+
+> **步骤 0.1 说明**：可以通过篡改有效 token 的最后几位字符来模拟无效 token。预期输出包含：
+> ```
+> ⚠ ls / 执行失败，Token 可能已过期或无效: ...
+> ⚠ 请重新获取 Token 后再次登录
+> ```
 
 #### 阶段 1: 列表测试 (ls)
 
