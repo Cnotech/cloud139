@@ -11,7 +11,7 @@ pub async fn login(
     storage_type: &str,
     cloud_id: Option<&str>,
 ) -> Result<Config, ClientError> {
-    info!("Validating token...");
+    info!("正在解析 Token ...");
 
     let (account, token_info, expire_time) = parse_token(token)?;
 
