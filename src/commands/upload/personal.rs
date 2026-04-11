@@ -342,7 +342,7 @@ async fn handle_name_conflict(
         }
 
         for file in &files {
-            if file.file_id.as_ref() == Some(&file_id_val.to_string()) {
+            if file.file_id.as_deref() == Some(file_id_val) {
                 step!("冲突处理: 重命名新文件");
                 let rename_url = format!("{}/file/update", host);
                 let rename_body = serde_json::json!({
