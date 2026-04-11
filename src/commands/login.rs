@@ -47,6 +47,8 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
     };
     if let Err(e) = crate::application::services::list(&config, &list_args).await {
         warn!("ls / 执行失败: {}", e);
+        // 验证失败，删除已写入的配置文件（含子调用中缓存触发的写入）
+        let _ = std::fs::remove_file(crate::config::Config::config_path());
         return Err(anyhow::anyhow!("Token 校验失败，可能已过期: {}", e));
     }
 
