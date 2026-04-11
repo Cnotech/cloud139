@@ -14,6 +14,7 @@
 - 文件移动
 - 文件复制
 - 文件重命名
+- 目录同步
 
 ## 快速开始
 
@@ -84,6 +85,40 @@ cloud139 cp /remote/source/file.txt /remote/destination
 # 重命名
 # rename [远程文件路径] [新文件名]
 cloud139 rename /remote/oldname.txt newname.txt
+```
+
+### sync
+
+同步本地目录和云端目录（仅支持个人云）。
+
+```bash
+cloud139 sync <SRC> <DEST> [OPTIONS]
+```
+
+**参数说明：**
+
+| 参数 | 简写 | 说明 |
+|------|------|------|
+| 源路径 | - | 本地路径或云端路径（cloud:/path） |
+| 目标路径 | - | 本地路径或云端路径 |
+| --recursive | -r | 递归同步子目录 |
+| --dry-run | -n | 演习模式，只输出操作计划 |
+| --delete | - | 删除目标中源没有的文件 |
+| --checksum | - | 用 SHA-1 校验和做对比 |
+| --exclude | - | 排除匹配的路径，可多次指定 |
+| --jobs | -j | 并发传输数量上限，默认4 |
+
+**示例：**
+
+```bash
+# 本地到云端同步
+cloud139 sync ./backup cloud:/backup -r --delete -j 8
+
+# 云端到本地同步（先预览）
+cloud139 sync cloud:/photos ./photos -r -n
+
+# 排除特定文件
+cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
 ```
 
 ## 全局选项

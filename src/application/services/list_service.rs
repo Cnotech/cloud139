@@ -1,5 +1,5 @@
-use crate::client::endpoints::{family, group};
 use crate::cli::commands::list::ListArgs as CliListArgs;
+use crate::client::endpoints::{family, group};
 use crate::client::{Client, StorageType};
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;
@@ -87,10 +87,10 @@ async fn list_personal(
         let data = match resp.data {
             Some(d) => d,
             None => {
-                return Err(
-                    crate::client::ClientError::Api("获取文件列表失败: 无数据".to_string())
-                        .into(),
-                );
+                return Err(crate::client::ClientError::Api(
+                    "获取文件列表失败: 无数据".to_string(),
+                )
+                .into());
             }
         };
 
@@ -271,4 +271,3 @@ async fn list_group(
         items: all_items,
     })
 }
-

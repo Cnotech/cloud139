@@ -2,7 +2,7 @@
 
 mod client_test_extended {
     use cloud139::client::{
-        generate_rand_str, sort_json_value_to_string, Client, ClientError, StorageType,
+        Client, ClientError, StorageType, generate_rand_str, sort_json_value_to_string,
     };
     use cloud139::config::Config;
     use serde_json::json;

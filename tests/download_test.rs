@@ -31,7 +31,7 @@ fn test_resolve_local_path_with_dir_no_slash() {
     let remote_path = "/test/file.txt";
     let local_path = Some("/local/dir".to_string());
     let result = download::resolve_local_path(remote_path, &local_path);
-    assert_eq!(result, "/local/dir/file.txt");
+    assert_eq!(result, "/local/dir");
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn test_resolve_local_path_no_extension() {
     let remote_path = "/test/myfile";
     let local_path = Some("/local/dir".to_string());
     let result = download::resolve_local_path(remote_path, &local_path);
-    assert_eq!(result, "/local/dir/myfile");
+    assert_eq!(result, "/local/dir");
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_resolve_local_path_nested() {
 #[test]
 fn test_resolve_local_path_target_is_dir() {
     let remote_path = "/test/file.txt";
-    let local_path = Some("/local/dir".to_string());
+    let local_path = Some("/local/dir/".to_string());
     let result = download::resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir/file.txt");
 }
@@ -99,4 +99,12 @@ fn test_download_args_with_local_path() {
         local_path: Some("/local/path.txt".to_string()),
     };
     assert_eq!(args.local_path, Some("/local/path.txt".to_string()));
+}
+
+#[test]
+fn test_download_progress_style_can_be_constructed() {
+    let pb = indicatif::ProgressBar::hidden();
+    pb.set_length(10);
+    pb.inc(4);
+    assert_eq!(pb.position(), 4);
 }

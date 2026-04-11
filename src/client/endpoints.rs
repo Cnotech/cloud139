@@ -14,12 +14,9 @@ pub mod family {
             "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.0/getFileDownLoadURL";
         pub const QUERY_CONTENT_LIST: &str =
             "https://yun.139.com/orchestration/familyCloud-rebuild/content/v1.2/queryContentList";
-        pub const MODIFY_CONTENT_INFO: &str =
-            "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
-        pub const CREATE_BATCH_OPR_TASK: &str =
-            "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
-        pub const CREATE_CLOUD_DOC: &str =
-            "https://yun.139.com/orchestration/familyCloud-rebuild/cloudCatalog/v1.0/createCloudDoc";
+        pub const MODIFY_CONTENT_INFO: &str = "https://yun.139.com/orchestration/familyCloud-rebuild/photoContent/v1.0/modifyContentInfo";
+        pub const CREATE_BATCH_OPR_TASK: &str = "https://yun.139.com/orchestration/familyCloud-rebuild/batchOprTask/v1.0/createBatchOprTask";
+        pub const CREATE_CLOUD_DOC: &str = "https://yun.139.com/orchestration/familyCloud-rebuild/cloudCatalog/v1.0/createCloudDoc";
     }
 }
 
@@ -29,8 +26,7 @@ pub mod group {
     pub mod orchestration {
         pub const GET_FILE_UPLOAD_URL: &str =
             "https://yun.139.com/orchestration/group-rebuild/content/v1.0/getGroupFileUploadURL";
-        pub const GET_FILE_DOWNLOAD_URL: &str =
-            "https://yun.139.com/orchestration/group-rebuild/groupManage/v1.0/getGroupFileDownLoadURL";
+        pub const GET_FILE_DOWNLOAD_URL: &str = "https://yun.139.com/orchestration/group-rebuild/groupManage/v1.0/getGroupFileDownLoadURL";
         pub const QUERY_GROUP_CONTENT_LIST: &str =
             "https://yun.139.com/orchestration/group-rebuild/content/v1.0/queryGroupContentList";
         pub const QUERY_GROUP_CATALOG: &str =

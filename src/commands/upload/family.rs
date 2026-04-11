@@ -1,7 +1,8 @@
-use crate::client::endpoints::family;
 use crate::client::ClientError;
+use crate::client::endpoints::family;
 use crate::commands::upload::UploadPartParams;
 use crate::{info, step, success};
+use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
 pub async fn upload(
@@ -10,12 +11,17 @@ pub async fn upload(
     remote_path: &str,
     file_name: &str,
     file_size: i64,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let client = crate::client::Client::new(config.clone());
     let url = family::orchestration::GET_FILE_UPLOAD_URL;
 
     let upload_path = resolve_upload_path(config, remote_path);
-    let report_size = if config.report_real_size { file_size } else { 0 };
+    let report_size = if config.report_real_size {
+        file_size
+    } else {
+        0
+    };
 
     let body = serde_json::json!({
         "catalogType": 3,
@@ -47,7 +53,15 @@ pub async fn upload(
     let upload_task_id = extract_upload_task_id(&resp)?;
 
     info!("开始上传文件到家庭云...");
-    upload_file(local_path, upload_url, upload_task_id, file_size, file_name).await?;
+    upload_file(
+        local_path,
+        upload_url,
+        upload_task_id,
+        file_size,
+        file_name,
+        pb,
+    )
+    .await?;
 
     success!("上传完成!");
     Ok(())
@@ -90,6 +104,7 @@ async fn upload_file(
     upload_task_id: &str,
     file_size: i64,
     file_name: &str,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let part_size = crate::commands::upload::get_part_size(file_size, 0);
     let part_count = (file_size + part_size - 1) / part_size;
@@ -126,6 +141,14 @@ async fn upload_file(
             total_size: file_size,
         })
         .await?;
+
+        if let Some(pb) = &pb {
+            pb.inc(bytes_read as u64);
+        }
+    }
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
     }
 
     Ok(())
@@ -147,8 +170,12 @@ async fn upload_part(params: &UploadPartParams<'_>) -> Result<(), ClientError> {
     );
     headers.insert(
         "range",
-        reqwest::header::HeaderValue::from_str(&format!("bytes={}-{}", params.part_offset, params.part_offset + params.read_size - 1))
-            .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
+        reqwest::header::HeaderValue::from_str(&format!(
+            "bytes={}-{}",
+            params.part_offset,
+            params.part_offset + params.read_size - 1
+        ))
+        .map_err(|e| ClientError::InvalidHeader(e.to_string()))?,
     );
     headers.insert(
         "uploadtaskID",
@@ -157,10 +184,19 @@ async fn upload_part(params: &UploadPartParams<'_>) -> Result<(), ClientError> {
     );
     headers.insert("rangeType", reqwest::header::HeaderValue::from_static("0"));
 
-    let resp = client.post(params.upload_url).headers(headers).body(params.buffer.to_vec()).send().await?;
+    let resp = client
+        .post(params.upload_url)
+        .headers(headers)
+        .body(params.buffer.to_vec())
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
-        return Err(ClientError::Api(format!("分片 {} 上传失败: {}", params.part_number, resp.status())));
+        return Err(ClientError::Api(format!(
+            "分片 {} 上传失败: {}",
+            params.part_number,
+            resp.status()
+        )));
     }
 
     Ok(())

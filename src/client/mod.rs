@@ -6,13 +6,13 @@ pub mod error;
 pub mod headers;
 pub mod storage_type;
 
+use crate::client::endpoints::group;
+pub use crate::info;
+pub use crate::utils::rand::{generate_rand_str, sort_json_value_to_string};
 pub use endpoints::family;
 pub use error::ClientError;
-pub use storage_type::StorageType;
-pub use crate::info;
 use serde::Deserialize;
-use crate::client::endpoints::group;
-pub use crate::utils::rand::{generate_rand_str, sort_json_value_to_string};
+pub use storage_type::StorageType;
 
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
 
@@ -105,10 +105,7 @@ impl Client {
         pathname: &str,
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
-        let url = format!(
-            "{}{}",
-            family::ALBUM_BASE_URL, pathname
-        );
+        let url = format!("{}{}", family::ALBUM_BASE_URL, pathname);
 
         let headers = self.build_and_album_headers()?;
 
@@ -189,9 +186,12 @@ impl Client {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Host", HeaderValue::from_static("group.yun.139.com"));
         let auth_value = format!("Basic {}", self.config.authorization);
-        let auth_header: reqwest::header::HeaderValue = auth_value
-            .parse()
-            .map_err(|e: reqwest::header::InvalidHeaderValue| ClientError::InvalidHeader(e.to_string()))?;
+        let auth_header: reqwest::header::HeaderValue =
+            auth_value
+                .parse()
+                .map_err(|e: reqwest::header::InvalidHeaderValue| {
+                    ClientError::InvalidHeader(e.to_string())
+                })?;
         headers.insert("authorization", auth_header);
         headers.insert("x-svctype", HeaderValue::from_static("2"));
         headers.insert("hcy-cool-flag", HeaderValue::from_static("1"));

@@ -20,15 +20,20 @@ async fn main() -> anyhow::Result<()> {
         Commands::Mv(args) => cloud139::commands::mv::execute(args.into()).await,
         Commands::Cp(args) => cloud139::commands::cp::execute(args.into()).await,
         Commands::Rename(args) => cloud139::commands::rename::execute(args.into()).await,
+        Commands::Sync(args) => cloud139::commands::sync::execute(args.into()).await,
     };
 
     if let Err(err) = result {
-        if let Some(client_err) = err.downcast_ref::<ClientError>() {
+        if let Some(exit) = err.downcast_ref::<cloud139::commands::sync::CommandExit>() {
+            error!("{}", exit);
+            std::process::exit(exit.code());
+        } else if let Some(client_err) = err.downcast_ref::<ClientError>() {
             error!("{}", format_error(client_err));
+            std::process::exit(1);
         } else {
             error!("{}", err);
+            std::process::exit(1);
         }
-        std::process::exit(1);
     }
 
     Ok(())

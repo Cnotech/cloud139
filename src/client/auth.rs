@@ -1,10 +1,8 @@
-use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
 use crate::client::ClientError;
+use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
 use crate::config::Config;
+use crate::{info, warn};
 use serde::Deserialize;
-use crate::{info,warn};
-
-
 
 pub async fn login(
     token: &str,

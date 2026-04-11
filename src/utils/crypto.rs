@@ -1,5 +1,5 @@
 use aes::cipher::generic_array::GenericArray;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use digest::Digest;
 
 pub fn sha1_hash(data: &str) -> String {
@@ -17,8 +17,8 @@ pub fn md5_hash(data: &str) -> String {
 pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
     use aes::Aes128;
     use cbc::{
-        cipher::{BlockEncryptMut, KeyIvInit},
         Encryptor,
+        cipher::{BlockEncryptMut, KeyIvInit},
     };
 
     type Aes128Cbc = Encryptor<Aes128>;
@@ -53,8 +53,8 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
 pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
     use aes::Aes128;
     use cbc::{
-        cipher::{BlockDecryptMut, KeyIvInit},
         Decryptor,
+        cipher::{BlockDecryptMut, KeyIvInit},
     };
 
     type Aes128Cbc = Decryptor<Aes128>;

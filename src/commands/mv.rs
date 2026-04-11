@@ -211,7 +211,8 @@ async fn mv_family(
         }
     }
 
-    if !is_dir && found_id.is_empty()
+    if !is_dir
+        && found_id.is_empty()
         && let Some(content_list) = list_resp
             .pointer("/data/cloudContentList")
             .and_then(|v| v.as_array())
@@ -365,7 +366,8 @@ async fn mv_group(
         }
     }
 
-    if !is_dir && found_id.is_empty()
+    if !is_dir
+        && found_id.is_empty()
         && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())

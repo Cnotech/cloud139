@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
 mod api_extended_test {
-    use cloud139::client::api::{
-        check_file_exists_with_client, get_parent_id, get_personal_cloud_host_with_client,
-        list_personal_files_with_client, parse_path_segments, HttpClientWrapper,
-    };
     use cloud139::client::StorageType;
+    use cloud139::client::api::{
+        HttpClientWrapper, check_file_exists_with_client, get_parent_id,
+        get_personal_cloud_host_with_client, list_personal_files_with_client, parse_path_segments,
+    };
     use cloud139::config::Config;
     use cloud139::models::*;
 

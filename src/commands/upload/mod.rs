@@ -1,4 +1,6 @@
 use clap::Parser;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::io::IsTerminal;
 
 use crate::client::StorageType;
 
@@ -33,6 +35,20 @@ pub struct UploadPartParams<'a> {
     pub total_size: i64,
 }
 
+fn make_upload_progress(file_name: &str, file_size: u64) -> Option<ProgressBar> {
+    if !std::io::stderr().is_terminal() {
+        return None;
+    }
+    let pb = ProgressBar::new(file_size);
+    let style = ProgressStyle::with_template(
+        "{msg} {bar:24.cyan/blue} {bytes}/{total_bytes} {bytes_per_sec} {eta}",
+    )
+    .unwrap_or_else(|_| ProgressStyle::default_bar());
+    pb.set_style(style);
+    pb.set_message(file_name.to_string());
+    Some(pb)
+}
+
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     let config = crate::commands::dispatch::load_config()?;
     let storage_type = config.storage_type();
@@ -59,22 +75,33 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
 
     crate::info!(
         "上传文件: {} -> {}/{}",
-        args.local_path, remote_dir, file_name
+        args.local_path,
+        remote_dir,
+        file_name
     );
     crate::info!("文件大小: {} bytes", file_size);
 
+    let pb = make_upload_progress(file_name, file_size as u64);
+
     match storage_type {
-        StorageType::PersonalNew => personal::upload(
-            &config,
-            local_path,
-            &remote_dir,
-            file_name,
-            file_size,
-            args.force,
-        )
-        .await?,
-        StorageType::Family => family::upload(&config, local_path, &remote_dir, file_name, file_size).await?,
-        StorageType::Group => group::upload(&config, local_path, &remote_dir, file_name, file_size).await?,
+        StorageType::PersonalNew => {
+            personal::upload(
+                &config,
+                local_path,
+                &remote_dir,
+                file_name,
+                file_size,
+                args.force,
+                pb,
+            )
+            .await?
+        }
+        StorageType::Family => {
+            family::upload(&config, local_path, &remote_dir, file_name, file_size, pb).await?
+        }
+        StorageType::Group => {
+            group::upload(&config, local_path, &remote_dir, file_name, file_size, pb).await?
+        }
     }
 
     Ok(())

@@ -5,11 +5,7 @@ use crate::models::BatchTrashResp;
 use anyhow::Result;
 
 /// 删除文件服务
-pub async fn delete(
-    config: &Config,
-    path: &str,
-    permanent: bool,
-) -> Result<()> {
+pub async fn delete(config: &Config, path: &str, permanent: bool) -> Result<()> {
     let storage_type = config.storage_type();
 
     match storage_type {
@@ -22,11 +18,7 @@ pub async fn delete(
 }
 
 /// 删除个人云文件
-async fn delete_personal(
-    config: &Config,
-    path: &str,
-    _permanent: bool,
-) -> Result<(), ClientError> {
+async fn delete_personal(config: &Config, path: &str, _permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
         return Err(ClientError::CannotOperateOnRoot);
     }
@@ -58,11 +50,7 @@ async fn delete_personal(
 }
 
 /// 删除家庭云文件
-async fn delete_family(
-    config: &Config,
-    path: &str,
-    permanent: bool,
-) -> Result<(), ClientError> {
+async fn delete_family(config: &Config, path: &str, permanent: bool) -> Result<(), ClientError> {
     let (catalog_list, content_list, _) = get_family_file_info(config, path).await?;
 
     let task_type = if permanent { 3 } else { 2 };
@@ -178,11 +166,7 @@ async fn get_family_file_info(
 }
 
 /// 删除群组云文件
-async fn delete_group(
-    config: &Config,
-    path: &str,
-    permanent: bool,
-) -> Result<(), ClientError> {
+async fn delete_group(config: &Config, path: &str, permanent: bool) -> Result<(), ClientError> {
     if path == "/" || path.is_empty() {
         return Err(ClientError::CannotOperateOnRoot);
     }
@@ -243,7 +227,8 @@ async fn delete_group(
         }
     }
 
-    if !is_dir && found_id.is_empty()
+    if !is_dir
+        && found_id.is_empty()
         && let Some(content_list) = list_resp
             .pointer("/data/getGroupContentResult/contentList")
             .and_then(|v| v.as_array())

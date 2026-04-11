@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::cli::commands::{cp, delete, download, list, login, mkdir, mv, rename, upload};
+use crate::cli::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
@@ -34,4 +34,6 @@ pub enum Commands {
     Cp(cp::CpArgs),
     /// 重命名文件
     Rename(rename::RenameArgs),
+    /// 同步本地目录和云端目录
+    Sync(sync::SyncArgs),
 }

@@ -3,6 +3,7 @@ use crate::client::{ClientError, StorageType};
 use crate::config::Config;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
+use indicatif::ProgressBar;
 use std::path::Path;
 
 /// 下载文件服务
@@ -10,6 +11,7 @@ pub async fn download(
     config: &Config,
     remote_path: &str,
     local_path: &str,
+    pb: Option<ProgressBar>,
 ) -> Result<()> {
     let storage_type = config.storage_type();
 
@@ -19,13 +21,13 @@ pub async fn download(
             if file_id.is_empty() {
                 return Err(ClientError::InvalidFilePath.into());
             }
-            download_personal(config, remote_path, &file_id, local_path).await?;
+            download_personal(config, remote_path, &file_id, local_path, pb).await?;
         }
         StorageType::Family => {
-            download_family(config, remote_path, local_path).await?;
+            download_family(config, remote_path, local_path, pb).await?;
         }
         StorageType::Group => {
-            download_group(config, remote_path, local_path).await?;
+            download_group(config, remote_path, local_path, pb).await?;
         }
     }
 
@@ -38,6 +40,7 @@ async fn download_personal(
     remote_path: &str,
     file_id: &str,
     local_path: &str,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -117,16 +120,20 @@ async fn download_personal(
                 .to_string()
         });
         let file_path = local_path_obj.join(&file_name);
-        download_file(&download_url, &file_path).await?;
+        download_file(&download_url, &file_path, pb.clone()).await?;
     } else {
-        download_file(&download_url, local_path_obj).await?;
+        download_file(&download_url, local_path_obj, pb).await?;
     }
 
     Ok(())
 }
 
 /// 下载文件到本地
-async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> {
+async fn download_file(
+    url: &str,
+    local_path: &Path,
+    pb: Option<ProgressBar>,
+) -> Result<(), ClientError> {
     let client = reqwest::Client::new();
     let response = client.get(url).send().await?;
 
@@ -135,9 +142,11 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
     }
 
     let total_size = response.content_length();
+    if let (Some(pb), Some(total)) = (&pb, total_size) {
+        pb.set_length(total);
+    }
 
     let mut file = std::fs::File::create(local_path)?;
-    let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
 
     use futures_util::StreamExt;
@@ -145,15 +154,13 @@ async fn download_file(url: &str, local_path: &Path) -> Result<(), ClientError> 
         let chunk = chunk?;
         use std::io::Write;
         file.write_all(&chunk)?;
-        downloaded += chunk.len() as u64;
-        if let Some(total) = total_size {
-            print!(
-                "\r下载进度: {}/{} ({:.1}%)",
-                downloaded,
-                total,
-                downloaded as f64 / total as f64 * 100.0
-            );
+        if let Some(pb) = &pb {
+            pb.inc(chunk.len() as u64);
         }
+    }
+
+    if let Some(pb) = pb {
+        pb.finish_and_clear();
     }
 
     Ok(())
@@ -164,6 +171,7 @@ async fn download_family(
     config: &Config,
     remote_path: &str,
     local_path: &str,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
@@ -266,9 +274,9 @@ async fn download_family(
     let local_path_obj = std::path::Path::new(local_path);
     if local_path_obj.is_dir() {
         let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path).await?;
+        download_file(&download_url, &file_path, pb.clone()).await?;
     } else {
-        download_file(&download_url, local_path_obj).await?;
+        download_file(&download_url, local_path_obj, pb).await?;
     }
 
     Ok(())
@@ -279,6 +287,7 @@ async fn download_group(
     config: &Config,
     remote_path: &str,
     local_path: &str,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
     if parts.is_empty() {
@@ -379,9 +388,9 @@ async fn download_group(
     let local_path_obj = std::path::Path::new(local_path);
     if local_path_obj.is_dir() {
         let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path).await?;
+        download_file(&download_url, &file_path, pb.clone()).await?;
     } else {
-        download_file(&download_url, local_path_obj).await?;
+        download_file(&download_url, local_path_obj, pb).await?;
     }
 
     Ok(())

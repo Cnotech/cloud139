@@ -17,7 +17,7 @@ pub trait ApiClient: Send + Sync {
     ) -> Result<T, ClientError>;
 
     async fn get_file_id_by_path(&self, config: &Config, path: &str)
-        -> Result<String, ClientError>;
+    -> Result<String, ClientError>;
 
     async fn check_file_exists(
         &self,

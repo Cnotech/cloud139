@@ -1,5 +1,5 @@
 use crate::client::{
-    ClientError, CLIENT_INFO, DEVICE_INFO, MCLOUD_CHANNEL, MCLOUD_CHANNEL_SRC, MCLOUD_CLIENT,
+    CLIENT_INFO, ClientError, DEVICE_INFO, MCLOUD_CHANNEL, MCLOUD_CHANNEL_SRC, MCLOUD_CLIENT,
     MCLOUD_VERSION,
 };
 use reqwest::header::{HeaderMap, HeaderValue};

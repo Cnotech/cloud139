@@ -1,6 +1,7 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
 use crate::{error, info, step, success, warn};
+use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
 pub async fn upload(
@@ -10,12 +11,14 @@ pub async fn upload(
     file_name: &str,
     file_size: i64,
     force: bool,
+    pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
-    let (parent_file_id, content_hash) = prepare_upload(config.clone(), local_path, remote_path).await?;
+    let (parent_file_id, content_hash) =
+        prepare_upload(config.clone(), local_path, remote_path).await?;
 
     if !force {
         check_file_exists(&config, &parent_file_id, file_name).await?;
@@ -33,6 +36,9 @@ pub async fn upload(
     .await?;
 
     if init_resp.data.is_none() {
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
+        }
         success!("上传完成: {}", file_name);
         return Ok(());
     }
@@ -46,7 +52,13 @@ pub async fn upload(
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
             warn!("服务器未返回分片信息");
-            success!("上传完成: {}", data.file_name.unwrap_or_else(|| file_name.to_string()));
+            if let Some(pb) = &pb {
+                pb.finish_and_clear();
+            }
+            success!(
+                "上传完成: {}",
+                data.file_name.unwrap_or_else(|| file_name.to_string())
+            );
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
@@ -60,16 +72,34 @@ pub async fn upload(
                 file_id: &file_id_val,
                 file_size,
                 content_hash: &content_hash,
-                part_size: crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size),
+                part_size: crate::commands::upload::get_part_size(
+                    file_size,
+                    config.custom_upload_part_size,
+                ),
+                pb: pb.clone(),
             })
             .await?;
 
-            handle_name_conflict(&config, &host, &parent_file_id, &file_id_val, file_name, &file_name_val).await?;
+            handle_name_conflict(
+                &config,
+                &host,
+                &parent_file_id,
+                &file_id_val,
+                file_name,
+                &file_name_val,
+            )
+            .await?;
 
+            if let Some(pb) = &pb {
+                pb.finish_and_clear();
+            }
             success!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
         }
     } else {
         warn!("服务器未返回分片信息");
+        if let Some(pb) = &pb {
+            pb.finish_and_clear();
+        }
         success!("上传完成: {}", file_name);
     }
 
@@ -96,7 +126,11 @@ async fn prepare_upload(
     Ok((parent_file_id, content_hash))
 }
 
-async fn check_file_exists(config: &crate::config::Config, parent_file_id: &str, file_name: &str) -> Result<(), ClientError> {
+async fn check_file_exists(
+    config: &crate::config::Config,
+    parent_file_id: &str,
+    file_name: &str,
+) -> Result<(), ClientError> {
     let exists = crate::client::api::check_file_exists(config, parent_file_id, file_name).await?;
     if exists {
         warn!("云端已存在「{}」，如果继续则云端会自动覆盖", file_name);
@@ -115,7 +149,8 @@ async fn init_upload(
     parent_file_id: &str,
     content_hash: &str,
 ) -> Result<PersonalUploadResp, ClientError> {
-    let part_size = crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
+    let part_size =
+        crate::commands::upload::get_part_size(file_size, config.custom_upload_part_size);
     let part_count = (file_size + part_size - 1) / part_size;
 
     let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100))
@@ -152,7 +187,8 @@ async fn init_upload(
     });
 
     let resp: PersonalUploadResp =
-        crate::client::api::personal_api_request(config, url, body, StorageType::PersonalNew).await?;
+        crate::client::api::personal_api_request(config, url, body, StorageType::PersonalNew)
+            .await?;
 
     if !resp.base.success {
         return Err(ClientError::Api(format!(
@@ -199,6 +235,7 @@ pub(super) struct UploadPartsParams<'a> {
     file_size: i64,
     content_hash: &'a str,
     part_size: i64,
+    pb: Option<ProgressBar>,
 }
 
 pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
@@ -214,8 +251,10 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     let mut file = std::fs::File::open(local_path)?;
     let part_count = (file_size + part_size - 1) / part_size;
 
-    let upload_urls =
-        super::personal_parts::get_upload_urls(config, host, file_id, upload_id, part_count, part_size, file_size).await?;
+    let upload_urls = super::personal_parts::get_upload_urls(
+        config, host, file_id, upload_id, part_count, part_size, file_size,
+    )
+    .await?;
 
     for i in 0..part_count {
         file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
@@ -236,7 +275,12 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         let part_number = (i + 1) as i32;
         step!("上传分片 {}/{}", part_number, part_count);
 
-        super::personal_parts::upload_single_part(&upload_urls, part_number, &buffer[..bytes_read]).await?;
+        super::personal_parts::upload_single_part(&upload_urls, part_number, &buffer[..bytes_read])
+            .await?;
+
+        if let Some(pb) = &params.pb {
+            pb.inc(bytes_read as u64);
+        }
     }
 
     super::personal_parts::confirm_upload(config, host, file_id, upload_id, content_hash).await

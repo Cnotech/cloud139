@@ -76,3 +76,12 @@ fn test_get_part_size_small_file() {
         100 * 1024 * 1024
     );
 }
+
+#[test]
+fn test_upload_progress_bar_can_track_uploaded_bytes() {
+    let pb = indicatif::ProgressBar::hidden();
+    pb.set_length(5);
+    pb.inc(2);
+    pb.inc(3);
+    assert_eq!(pb.position(), 5);
+}

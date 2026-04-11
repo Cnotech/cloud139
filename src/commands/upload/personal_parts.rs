@@ -44,7 +44,8 @@ pub async fn get_upload_urls(
         });
 
         let resp_json: serde_json::Value =
-            crate::client::api::personal_api_request(config, &url, body, StorageType::PersonalNew).await?;
+            crate::client::api::personal_api_request(config, &url, body, StorageType::PersonalNew)
+                .await?;
 
         if let Some(part_infos) = resp_json
             .get("data")
@@ -92,7 +93,10 @@ pub async fn upload_single_part(
     .map_err(|e| ClientError::Api(format!("上传任务失败: {}", e)))?;
 
     if resp_code != 200 {
-        return Err(ClientError::Api(format!("分片 {} 上传失败: {}", part_number, resp_code)));
+        return Err(ClientError::Api(format!(
+            "分片 {} 上传失败: {}",
+            part_number, resp_code
+        )));
     }
 
     Ok(())

@@ -1,7 +1,7 @@
+use crate::client::ClientError;
 use crate::client::endpoints::ROUTE_POLICY_URL;
 use crate::client::endpoints::{family, group};
 use crate::client::headers::{build_route_headers, build_signed_headers};
-use crate::client::ClientError;
 use crate::config::Config;
 use crate::models::QueryRoutePolicyResp;
 use crate::utils::generate_rand_str;
@@ -133,7 +133,10 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
                 current_parent_id = id;
             }
             None => {
-                return Err(ClientError::Api(format!("File or directory not found: {}", part)));
+                return Err(ClientError::Api(format!(
+                    "File or directory not found: {}",
+                    part
+                )));
             }
         }
     }
@@ -229,27 +232,43 @@ pub async fn list_personal_files_with_client(
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
 
-    let body = serde_json::json!({
-        "imageThumbnailStyleList": ["Small", "Large"],
-        "orderBy": "updated_at",
-        "orderDirection": "DESC",
-        "pageInfo": {
-            "pageCursor": "",
-            "pageSize": 100
-        },
-        "parentFileId": parent_file_id
-    });
+    let mut all_items = Vec::new();
+    let mut next_cursor = String::new();
 
-    let resp: crate::models::PersonalListResp = personal_api_request_with_client(
-        &config,
-        &url,
-        body,
-        crate::client::StorageType::PersonalNew,
-        http_client,
-    )
-    .await?;
+    loop {
+        let body = serde_json::json!({
+            "imageThumbnailStyleList": ["Small", "Large"],
+            "orderBy": "updated_at",
+            "orderDirection": "DESC",
+            "pageInfo": {
+                "pageCursor": next_cursor,
+                "pageSize": 100
+            },
+            "parentFileId": parent_file_id
+        });
 
-    Ok(resp.data.map(|d| d.items).unwrap_or_default())
+        let resp: crate::models::PersonalListResp = personal_api_request_with_client(
+            &config,
+            &url,
+            body,
+            crate::client::StorageType::PersonalNew,
+            http_client,
+        )
+        .await?;
+
+        match resp.data {
+            Some(data) => {
+                all_items.extend(data.items);
+                next_cursor = data.next_page_cursor.unwrap_or_default();
+                if next_cursor.is_empty() {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+
+    Ok(all_items)
 }
 
 pub async fn get_family_download_link(
@@ -304,7 +323,8 @@ pub async fn get_group_download_link(
         }
     });
 
-    let resp: serde_json::Value = client.api_request_post(group::orchestration::GET_FILE_DOWNLOAD_URL, body)
+    let resp: serde_json::Value = client
+        .api_request_post(group::orchestration::GET_FILE_DOWNLOAD_URL, body)
         .await?;
 
     let url = resp
@@ -354,8 +374,8 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         && let Some(catalog_list) = resp
             .pointer("/data/cloudCatalogList")
             .and_then(|v| v.as_array())
-            && let Some(first) = catalog_list.first()
-            && let Some(p) = first.get("path").and_then(|v| v.as_str())
+        && let Some(first) = catalog_list.first()
+        && let Some(p) = first.get("path").and_then(|v| v.as_str())
     {
         let p = p.trim_start_matches("root:/");
         let p = p.trim_start_matches("root:");

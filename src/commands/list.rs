@@ -11,7 +11,8 @@ pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
     list_renderer::render_terminal(&result);
 
     if let Some(output) = &args.output {
-        let json = list_renderer::to_json_with_pagination(&result, Some(args.page), Some(args.page_size))?;
+        let json =
+            list_renderer::to_json_with_pagination(&result, Some(args.page), Some(args.page_size))?;
         fs::write(output, json)?;
     }
     Ok(())
