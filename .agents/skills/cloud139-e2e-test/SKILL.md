@@ -83,7 +83,7 @@ cargo build --release
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 0.1 | `./target/release/cloud139.exe login --token <expired_or_invalid_token>` | **边界**：`ls /` 校验失败，输出 Token 可能已过期的警告，退出码为 1 |
+| 0.1 | `./target/release/cloud139.exe login --token <expired_or_invalid_token>` | **边界**：`ls /` 校验失败，输出 Token 可能已过期的警告，退出码为 1，配置文件被删除 |
 | 0.2 | `./target/release/cloud139.exe login --token <valid_token>` | 登录成功：内部自动执行 `ls /`，输出 `Token 验证成功!`，退出码为 0 |
 
 > **步骤 0.1 说明**：可以通过篡改有效 token 的最后几位字符来模拟无效 token。预期输出包含：
