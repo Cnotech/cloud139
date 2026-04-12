@@ -1,6 +1,5 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{error, warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
@@ -49,6 +48,16 @@ fn pb_warn(msg: &str, pb: &Option<ProgressBar>) {
         }
     }
 }
+
+fn pb_error(msg: &str, pb: &Option<ProgressBar>) {
+    match pb {
+        None => crate::error!("{}", msg),
+        Some(pb) => {
+            // 错误始终显示，不受 is_debug() 控制
+            pb.println(format!("\x1b[31merror\x1b[0m {}", msg));
+        }
+    }
+}
 // ────────────────────────────────────────────────────────────────────────────
 
 pub async fn upload(
@@ -69,7 +78,7 @@ pub async fn upload(
         prepare_upload(config.clone(), local_path, remote_path).await?;
 
     if !force {
-        check_file_exists(&config, &parent_file_id, file_name).await?;
+        check_file_exists(&config, &parent_file_id, file_name, &pb).await?;
     }
 
     let init_resp = init_upload(
@@ -84,10 +93,10 @@ pub async fn upload(
     .await?;
 
     if init_resp.data.is_none() {
+        pb_success(&format!("上传完成: {}", file_name), &pb);
         if let Some(ref pb_bar) = pb {
             pb_bar.finish_and_clear();
         }
-        pb_success(&format!("上传完成: {}", file_name), &pb);
         return Ok(());
     }
 
@@ -103,9 +112,6 @@ pub async fn upload(
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
             pb_warn("服务器未返回分片信息", &pb);
-            if let Some(ref pb_bar) = pb {
-                pb_bar.finish_and_clear();
-            }
             pb_success(
                 &format!(
                     "上传完成: {}",
@@ -113,6 +119,9 @@ pub async fn upload(
                 ),
                 &pb,
             );
+            if let Some(ref pb_bar) = pb {
+                pb_bar.finish_and_clear();
+            }
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
@@ -145,20 +154,20 @@ pub async fn upload(
             )
             .await?;
 
-            if let Some(ref pb_bar) = pb {
-                pb_bar.finish_and_clear();
-            }
             pb_success(
                 &format!("上传完成: {}", file_name_val.as_deref().unwrap_or("")),
                 &pb,
             );
+            if let Some(ref pb_bar) = pb {
+                pb_bar.finish_and_clear();
+            }
         }
     } else {
         pb_warn("服务器未返回分片信息", &pb);
+        pb_success(&format!("上传完成: {}", file_name), &pb);
         if let Some(ref pb_bar) = pb {
             pb_bar.finish_and_clear();
         }
-        pb_success(&format!("上传完成: {}", file_name), &pb);
     }
 
     Ok(())
@@ -188,11 +197,15 @@ async fn check_file_exists(
     config: &crate::config::Config,
     parent_file_id: &str,
     file_name: &str,
+    pb: &Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let exists = crate::client::api::check_file_exists(config, parent_file_id, file_name).await?;
     if exists {
-        warn!("云端已存在「{}」，如果继续则云端会自动覆盖", file_name);
-        error!("请使用 --force 参数确认继续");
+        pb_warn(
+            &format!("云端已存在「{}」，如果继续则云端会自动覆盖", file_name),
+            pb,
+        );
+        pb_error("请使用 --force 参数确认继续", pb);
         return Err(ClientError::ForceRequired);
     }
     Ok(())
