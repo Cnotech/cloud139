@@ -1,8 +1,55 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{error, info, step, success, warn};
+use crate::{error, warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
+
+// ── pb-aware 日志辅助 ────────────────────────────────────────────────────────
+// pb = None  → 独立 upload 命令，使用现有宏直接打印
+// pb = Some  → sync 模式，用 pb.println() 保证输出在进度条上方
+//   is_debug() = false → 只打印 warn/error，抑制 info/step/success
+//   is_debug() = true  → 所有日志通过 pb.println() 输出
+
+fn pb_info(msg: &str, pb: &Option<ProgressBar>) {
+    match pb {
+        None => crate::info!("{}", msg),
+        Some(pb) if crate::utils::logger::is_debug() => {
+            pb.println(format!("\x1b[36minfo\x1b[0m {}", msg));
+        }
+        _ => {}
+    }
+}
+
+fn pb_step(msg: &str, pb: &Option<ProgressBar>) {
+    match pb {
+        None => crate::step!("{}", msg),
+        Some(pb) if crate::utils::logger::is_debug() => {
+            pb.println(format!("\x1b[34mstep\x1b[0m {}", msg));
+        }
+        _ => {}
+    }
+}
+
+fn pb_success(msg: &str, pb: &Option<ProgressBar>) {
+    match pb {
+        None => crate::success!("{}", msg),
+        Some(pb) if crate::utils::logger::is_debug() => {
+            pb.println(format!("\x1b[32msuccess\x1b[0m {}", msg));
+        }
+        _ => {}
+    }
+}
+
+fn pb_warn(msg: &str, pb: &Option<ProgressBar>) {
+    match pb {
+        None => crate::warn!("{}", msg),
+        Some(pb) => {
+            // 警告始终显示，不受 is_debug() 控制
+            pb.println(format!("\x1b[33mwarn\x1b[0m {}", msg));
+        }
+    }
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 pub async fn upload(
     config: &crate::config::Config,
@@ -17,6 +64,7 @@ pub async fn upload(
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
+    pb_info("计算文件哈希...", &pb);
     let (parent_file_id, content_hash) =
         prepare_upload(config.clone(), local_path, remote_path).await?;
 
@@ -36,34 +84,40 @@ pub async fn upload(
     .await?;
 
     if init_resp.data.is_none() {
-        if let Some(pb) = pb {
-            pb.finish_and_clear();
+        if let Some(ref pb_bar) = pb {
+            pb_bar.finish_and_clear();
         }
-        success!("上传完成: {}", file_name);
+        pb_success(&format!("上传完成: {}", file_name), &pb);
         return Ok(());
     }
 
     let data = init_resp.data.unwrap();
 
     if data.exist.unwrap_or(false) {
-        warn!("文件已存在: {}", data.file_name.as_deref().unwrap_or(""));
+        pb_warn(
+            &format!("文件已存在: {}", data.file_name.as_deref().unwrap_or("")),
+            &pb,
+        );
     }
 
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
-            warn!("服务器未返回分片信息");
-            if let Some(pb) = &pb {
-                pb.finish_and_clear();
+            pb_warn("服务器未返回分片信息", &pb);
+            if let Some(ref pb_bar) = pb {
+                pb_bar.finish_and_clear();
             }
-            success!(
-                "上传完成: {}",
-                data.file_name.unwrap_or_else(|| file_name.to_string())
+            pb_success(
+                &format!(
+                    "上传完成: {}",
+                    data.file_name.unwrap_or_else(|| file_name.to_string())
+                ),
+                &pb,
             );
         } else {
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
 
-            step!("开始分片上传...");
+            pb_step("开始分片上传...", &pb);
             upload_parts(UploadPartsParams {
                 config: &config,
                 host: &host,
@@ -87,20 +141,24 @@ pub async fn upload(
                 &file_id_val,
                 file_name,
                 &file_name_val,
+                &pb,
             )
             .await?;
 
-            if let Some(pb) = &pb {
-                pb.finish_and_clear();
+            if let Some(ref pb_bar) = pb {
+                pb_bar.finish_and_clear();
             }
-            success!("上传完成: {}", file_name_val.as_deref().unwrap_or(""));
+            pb_success(
+                &format!("上传完成: {}", file_name_val.as_deref().unwrap_or("")),
+                &pb,
+            );
         }
     } else {
-        warn!("服务器未返回分片信息");
-        if let Some(pb) = &pb {
-            pb.finish_and_clear();
+        pb_warn("服务器未返回分片信息", &pb);
+        if let Some(ref pb_bar) = pb {
+            pb_bar.finish_and_clear();
         }
-        success!("上传完成: {}", file_name);
+        pb_success(&format!("上传完成: {}", file_name), &pb);
     }
 
     Ok(())
@@ -111,7 +169,7 @@ async fn prepare_upload(
     local_path: &std::path::Path,
     remote_path: &str,
 ) -> Result<(String, String), ClientError> {
-    info!("计算文件哈希...");
+    // info!("计算文件哈希...") 已移到调用处（upload 函数），由 pb-aware 辅助函数控制
     let local_path_str = local_path
         .to_str()
         .ok_or_else(|| ClientError::InvalidSourcePath)?;
@@ -273,7 +331,10 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         }
 
         let part_number = (i + 1) as i32;
-        step!("上传分片 {}/{}", part_number, part_count);
+        pb_step(
+            &format!("上传分片 {}/{}", part_number, part_count),
+            &params.pb,
+        );
 
         super::personal_parts::upload_single_part(&upload_urls, part_number, &buffer[..bytes_read])
             .await?;
@@ -293,12 +354,16 @@ async fn handle_name_conflict(
     file_id_val: &str,
     file_name: &str,
     file_name_val: &Option<String>,
+    pb: &Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     if file_name_val.as_deref() != Some(file_name) {
-        warn!(
-            "检测到文件名冲突: {} != {}",
-            file_name_val.as_deref().unwrap_or(""),
-            file_name
+        pb_warn(
+            &format!(
+                "检测到文件名冲突: {} != {}",
+                file_name_val.as_deref().unwrap_or(""),
+                file_name
+            ),
+            pb,
         );
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
@@ -306,7 +371,7 @@ async fn handle_name_conflict(
         for file in &files {
             #[allow(clippy::needless_borrow)]
             if file.name.as_deref() == Some(&file_name) {
-                step!("冲突处理: 先重命名旧文件避免冲突");
+                pb_step("冲突处理: 先重命名旧文件避免冲突", pb);
                 let old_name = format!(
                     "{}_{}",
                     file_name,
@@ -325,7 +390,7 @@ async fn handle_name_conflict(
                     StorageType::PersonalNew,
                 )
                 .await?;
-                step!("冲突处理: 删除旧文件");
+                pb_step("冲突处理: 删除旧文件", pb);
                 let del_url = format!("{}/recyclebin/batchTrash", host);
                 let del_body = serde_json::json!({
                     "fileIds": [file.file_id.as_ref().unwrap_or(&String::new())]
@@ -343,7 +408,7 @@ async fn handle_name_conflict(
 
         for file in &files {
             if file.file_id.as_deref() == Some(file_id_val) {
-                step!("冲突处理: 重命名新文件");
+                pb_step("冲突处理: 重命名新文件", pb);
                 let rename_url = format!("{}/file/update", host);
                 let rename_body = serde_json::json!({
                     "fileId": file_id_val,
