@@ -4,7 +4,7 @@
 /nul
 /cloud139.toml
 /output.json
-/cloud139_e2e_download_test
+/cloud139_e2e*
 /tarpaulin-report.html
 /cobertura.xml
 /node_modules

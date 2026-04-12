@@ -274,6 +274,117 @@ rm -rf cloud139_e2e_download_test
 | 9.4 | `./target/release/cloud139.exe rm /Cargo.toml` | 不带 --yes 应提示确认 |
 | 9.5 | `./target/release/cloud139.exe rm / --yes` | **边界**：不能删除根目录 |
 
+#### 阶段 10: 同步测试 (sync)
+
+> **sync 命令说明**：`sync` 命令参考 rsync 语义，支持本地与云端之间的单向同步。同步方向完全由 SRC/DEST 参数位置决定。
+> - 本地 → 云端：`sync ./local cloud:/remote`
+> - 云端 → 本地：`sync cloud:/remote ./local`
+> - 云端路径以 `cloud:` 前缀标识，之后直接跟云端路径（如 `cloud:/backup`）
+
+##### 阶段 10 环境准备
+
+```bash
+# 创建本地同步测试目录结构
+mkdir -p cloud139_e2e_sync_src/subdir
+echo "file1 content" > cloud139_e2e_sync_src/file1.txt
+echo "file2 content" > cloud139_e2e_sync_src/file2.txt
+echo "sub content"   > cloud139_e2e_sync_src/subdir/sub.txt
+
+# 创建云端目标目录
+./target/release/cloud139.exe mkdir /e2e_test_xxx/sync_target
+
+# 创建本地下载目标目录（供云端→本地测试使用）
+mkdir -p cloud139_e2e_sync_dst
+```
+
+##### 10.1 基础上传同步（本地 → 云端）
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.1.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target` | **边界**：不带 `-r`，根目录无文件可同步（子目录被跳过），输出 `同步完成: 0 个文件传输` |
+| 10.1.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 首次全量同步，应传输 file1.txt、file2.txt、subdir/sub.txt，输出 3 个文件传输 |
+| 10.1.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 云端应有 file1.txt、file2.txt；应有 subdir 目录 |
+| 10.1.4 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target/subdir` | 云端 subdir 应有 sub.txt |
+| 10.1.5 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | **增量同步**：文件未变化，应全部 Skip，输出 `0 个文件传输, 3 个跳过` |
+
+##### 10.2 --dry-run 演习模式
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.2.1 | 修改本地文件：`echo "modified" > cloud139_e2e_sync_src/file1.txt` | 准备 |
+| 10.2.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -n` | 演习模式：输出操作计划（包含 `(DRY RUN)` 前缀），不实际传输；退出码为 0 |
+| 10.2.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端 file1.txt **未被修改**（dry-run 不应产生实际变更） |
+
+##### 10.3 增量同步（内容变化）
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.3.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | file1.txt 已修改，应只传输 1 个文件，其余 2 个 Skip；输出 `1 个文件传输, 2 个跳过` |
+
+##### 10.4 --delete 删除多余文件
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.4.1 | 删除本地文件：`rm cloud139_e2e_sync_src/file2.txt` | 准备 |
+| 10.4.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 不带 --delete：file2.txt 仍保留在云端；输出 `0 个文件传输, 2 个跳过` |
+| 10.4.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete -n` | dry-run 下应显示 `*deleting` 标记，不实际删除 |
+| 10.4.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete` | 实际删除：云端 file2.txt 应被移除 |
+| 10.4.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端已无 file2.txt |
+
+##### 10.5 --exclude 排除规则
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.5.1 | 准备：`echo "secret" > cloud139_e2e_sync_src/.env && echo "build" > cloud139_e2e_sync_src/output.log` | 准备排除测试文件 |
+| 10.5.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --exclude "*.log" --exclude ".env"` | `.env` 和 `output.log` 应被跳过，不传输到云端 |
+| 10.5.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端无 `.env`、无 `output.log` |
+| 10.5.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --exclude "subdir"` | 排除整个子目录 |
+| 10.5.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证 subdir 目录及其内容未被同步 |
+
+##### 10.6 --checksum 精确对比
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.6.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --checksum` | 使用哈希对比，内容未变的文件应全部 Skip；观察终端输出，显示警告（需扫描 checksum 耗时） |
+
+##### 10.7 --jobs 并发控制
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.7.1 | 准备多文件：`for i in $(seq 1 8); do echo "content $i" > cloud139_e2e_sync_src/batch_$i.txt; done` | 准备 8 个文件 |
+| 10.7.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 2` | 限制 2 并发，8 个新文件全部上传成功；退出码为 0 |
+| 10.7.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 8` | 8 并发，全部 Skip（已存在）；退出码为 0 |
+
+##### 10.8 云端 → 本地（下载方向）
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.8.1 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 首次全量下载，云端所有文件下载到本地 |
+| 10.8.2 | `ls ./cloud139_e2e_sync_dst/` | 验证本地有 file1.txt、subdir/ 等 |
+| 10.8.3 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | **增量**：无变化，全部 Skip |
+| 10.8.4 | 修改本地文件：`echo "local modified" > ./cloud139_e2e_sync_dst/file1.txt` | 准备 |
+| 10.8.5 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 云端 file1.txt 覆盖本地被修改版本；输出 `1 个文件传输` |
+
+##### 10.9 路径参数错误处理（边界）
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 10.9.1 | `./target/release/cloud139.exe sync ./local1 ./local2 -r` | **边界**：两端均为本地路径，应立即报错，退出码 2，提示使用 `cp`/`mv` 等系统工具 |
+| 10.9.2 | `./target/release/cloud139.exe sync cloud:/src cloud:/dst -r` | **边界**：两端均为云端路径，应立即报错，退出码 2 |
+| 10.9.3 | `./target/release/cloud139.exe sync ./not_exist_src cloud:/e2e_test_xxx/sync_target -r` | **边界**：本地源目录不存在，扫描失败，退出码 2 |
+| 10.9.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/not_exist_remote_dir -r` | **边界**：云端目标目录不存在，扫描/创建失败，退出码 2 |
+
+##### 阶段 10 清理
+
+```bash
+# 删除本地临时目录
+rm -rf cloud139_e2e_sync_src
+rm -rf cloud139_e2e_sync_dst
+rm -f cloud139_e2e_sync_src/.env cloud139_e2e_sync_src/output.log  # 已在 rm -rf 中处理
+
+# 删除云端 sync 测试目录（在阶段 4 总清理中统一删除 e2e_test_xxx）
+```
+
 ### 4. 清理
 
 > ⚠️ **重要警告**：清理时**绝对不要删除本地的项目核心文件**（如 `Cargo.toml`、`README.md`）。下载测试会在当前目录覆盖这些文件，但这是正常行为，不需要清理。需要清理的是**云端**的测试文件。
@@ -292,6 +403,9 @@ rm -rf cloud139_e2e_download_test
 rm -rf non-exist-dir-1 non-exist-dir-2
 rm -f e2e_random_*.bin
 rm -f test_delete.txt
+# sync 测试产生的临时目录
+rm -rf cloud139_e2e_sync_src
+rm -rf cloud139_e2e_sync_dst
 ```
 
 **注意**：以下文件是本地项目核心文件，**绝对不能删除**：

@@ -87,7 +87,7 @@ pub fn compute_diff(
     for path in paths {
         match (source_by_path.get(path), target_by_path.get(path)) {
             (Some(src), Some(dst)) => {
-                if let Some(change) = change_kind(src, dst, options.checksum) {
+                if let Some(change) = change_kind(src, dst, options.checksum, options.direction) {
                     actions.push(transfer_action(src, &options, change));
                 } else {
                     actions.push(SyncAction::Skip {
@@ -107,17 +107,39 @@ pub fn compute_diff(
     actions
 }
 
-fn change_kind(source: &FileEntry, target: &FileEntry, checksum: bool) -> Option<ChangeKind> {
+fn change_kind(
+    source: &FileEntry,
+    target: &FileEntry,
+    checksum: bool,
+    direction: SyncDirection,
+) -> Option<ChangeKind> {
+    if source.size != target.size {
+        return Some(ChangeKind::SizeOrTime);
+    }
+
+    // LocalToCloud: cloud mtime reflects upload time, not the local file's
+    // original mtime, so mtime comparison is unreliable. Compare sizes only,
+    // unless both sides have checksums and checksum mode is enabled.
+    if direction == SyncDirection::LocalToCloud {
+        if checksum && let (Some(s), Some(t)) = (&source.checksum, &target.checksum) {
+            return if s != t {
+                Some(ChangeKind::Checksum)
+            } else {
+                None
+            };
+        }
+        // One or both checksums missing; mtime is unreliable for
+        // LocalToCloud. Fall back to size-only comparison.
+        return None;
+    }
+
+    // CloudToLocal (or generic): compare checksums when both sides have them.
     if checksum && let (Some(s), Some(t)) = (&source.checksum, &target.checksum) {
         return if s != t {
             Some(ChangeKind::Checksum)
         } else {
             None
         };
-    }
-
-    if source.size != target.size {
-        return Some(ChangeKind::SizeOrTime);
     }
 
     match (source.mtime, target.mtime) {
@@ -143,6 +165,7 @@ fn transfer_action(entry: &FileEntry, options: &SyncDiffOptions, change: ChangeK
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
             size: entry.size,
             change,
+            cloud_mtime: entry.mtime,
         },
     }
 }

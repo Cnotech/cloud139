@@ -231,6 +231,7 @@ async fn execute_one_action(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
+            crate::application::services::delete(config, remote_abs, true).await.ok();
             crate::commands::upload::personal::upload(
                 config,
                 local_abs,
@@ -245,6 +246,7 @@ async fn execute_one_action(
         SyncAction::Download {
             remote_abs,
             local_abs,
+            cloud_mtime,
             ..
         } => {
             if let Some(parent) = local_abs.parent() {
@@ -257,6 +259,10 @@ async fn execute_one_action(
                 pb,
             )
             .await?;
+            if let Some(mtime) = cloud_mtime {
+                let file_time = filetime::FileTime::from_unix_time(*mtime, 0);
+                filetime::set_file_mtime(local_abs, file_time)?;
+            }
         }
         SyncAction::Delete {
             target, target_abs, ..
@@ -305,8 +311,7 @@ async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -
         "parentFileId": parent_file_id,
         "name": name,
         "description": "",
-        "type": "folder",
-        "fileRenameMode": "force_rename"
+        "type": "folder"
     });
 
     let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(

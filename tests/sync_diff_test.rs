@@ -1,5 +1,5 @@
 use cloud139::application::services::sync_service::{
-    SyncDiffOptions, compute_diff, format_action_line,
+    compute_diff, format_action_line, SyncDiffOptions,
 };
 use cloud139::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncTarget};
 
@@ -201,6 +201,94 @@ fn test_checksum_mode_falls_back_to_size_mtime_when_one_side_none() {
 }
 
 #[test]
+fn test_local_to_cloud_skips_on_equal_size_ignores_mtime() {
+    let actions = compute_diff(
+        &[entry("file.txt", 42, 100, None)],
+        &[entry("file.txt", 42, 999, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert_eq!(
+        actions,
+        vec![SyncAction::Skip {
+            rel_path: "file.txt".to_string()
+        }]
+    );
+}
+
+#[test]
+fn test_local_to_cloud_detects_size_change() {
+    let actions = compute_diff(
+        &[entry("file.txt", 100, 100, None)],
+        &[entry("file.txt", 42, 100, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert_eq!(actions.len(), 1);
+    assert!(matches!(
+        &actions[0],
+        SyncAction::Upload { rel_path, change: ChangeKind::SizeOrTime, .. }
+        if rel_path == "file.txt"
+    ));
+}
+
+#[test]
+fn test_cloud_to_local_detects_mtime_change() {
+    let actions = compute_diff(
+        &[entry("file.txt", 42, 100, None)],
+        &[entry("file.txt", 42, 105, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::CloudToLocal,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert_eq!(actions.len(), 1);
+    assert!(matches!(
+        &actions[0],
+        SyncAction::Download { rel_path, change: ChangeKind::SizeOrTime, .. }
+        if rel_path == "file.txt"
+    ));
+}
+
+#[test]
+fn test_cloud_to_local_skips_on_equal_size_and_mtime() {
+    let actions = compute_diff(
+        &[entry("file.txt", 42, 100, None)],
+        &[entry("file.txt", 42, 101, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::CloudToLocal,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert_eq!(
+        actions,
+        vec![SyncAction::Skip {
+            rel_path: "file.txt".to_string()
+        }]
+    );
+}
+
+#[test]
 fn test_checksum_mode_falls_back_detects_size_change() {
     let actions = compute_diff(
         &[entry("file.txt", 100, 100, Some("abc123"))],
@@ -228,7 +316,7 @@ fn test_checksum_mode_falls_back_detects_mtime_change() {
         &[entry("file.txt", 42, 100, Some("abc123"))],
         &[entry("file.txt", 42, 105, None)],
         SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
+            direction: SyncDirection::CloudToLocal,
             delete: false,
             checksum: true,
             local_root: std::path::PathBuf::from("local"),
@@ -239,7 +327,7 @@ fn test_checksum_mode_falls_back_detects_mtime_change() {
     assert_eq!(actions.len(), 1);
     assert!(matches!(
         &actions[0],
-        SyncAction::Upload { rel_path, change: ChangeKind::SizeOrTime, .. }
+        SyncAction::Download { rel_path, change: ChangeKind::SizeOrTime, .. }
         if rel_path == "file.txt"
     ));
 }

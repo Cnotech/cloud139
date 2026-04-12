@@ -48,6 +48,7 @@ pub enum SyncAction {
         local_abs: PathBuf,
         size: u64,
         change: ChangeKind,
+        cloud_mtime: Option<i64>,
     },
     Delete {
         rel_path: String,
