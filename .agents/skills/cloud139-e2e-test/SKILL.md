@@ -280,6 +280,7 @@ rm -rf cloud139_e2e_download_test
 > - 本地 → 云端：`sync ./local cloud:/remote`
 > - 云端 → 本地：`sync cloud:/remote ./local`
 > - 云端路径以 `cloud:` 前缀标识，之后直接跟云端路径（如 `cloud:/backup`）
+> - **执行顺序要求**：阶段 10 的各子步骤应串行执行；不要对同一个云端目标目录并发执行多条 `sync` 命令，否则会互相污染结果（例如触发云端自动重命名）
 
 ##### 阶段 10 环境准备
 
@@ -301,8 +302,8 @@ mkdir -p cloud139_e2e_sync_dst
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 10.1.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target` | **边界**：不带 `-r`，根目录无文件可同步（子目录被跳过），输出 `同步完成: 0 个文件传输` |
-| 10.1.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 首次全量同步，应传输 file1.txt、file2.txt、subdir/sub.txt，输出 3 个文件传输 |
+| 10.1.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target` | 不带 `-r` 时仅同步源目录根下文件，子目录被跳过；按当前准备数据，应传输 `file1.txt`、`file2.txt` 共 2 个文件 |
+| 10.1.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 在 10.1.1 之后递归同步，应补传 `subdir/sub.txt` 1 个文件；若跳过 10.1.1 直接执行，则会首次全量同步 3 个文件 |
 | 10.1.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 云端应有 file1.txt、file2.txt；应有 subdir 目录 |
 | 10.1.4 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target/subdir` | 云端 subdir 应有 sub.txt |
 | 10.1.5 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | **增量同步**：文件未变化，应全部 Skip，输出 `0 个文件传输, 3 个跳过` |
@@ -329,7 +330,7 @@ mkdir -p cloud139_e2e_sync_dst
 | 10.4.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 不带 --delete：file2.txt 仍保留在云端；输出 `0 个文件传输, 2 个跳过` |
 | 10.4.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete -n` | dry-run 下应显示 `*deleting` 标记，不实际删除 |
 | 10.4.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete` | 实际删除：云端 file2.txt 应被移除 |
-| 10.4.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端已无 file2.txt |
+| 10.4.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端最终已无 file2.txt；若删除后立即 `ls` 仍短暂可见，等待片刻后重试一次，或执行 `rm /e2e_test_xxx/sync_target/file2.txt --yes` 应返回“文件不存在” |
 
 ##### 10.5 --exclude 排除规则
 
