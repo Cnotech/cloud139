@@ -10,6 +10,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let cli = Cli::parse();
+    cloud139::utils::logger::init_verbose(&cli.verbose);
     let result = match cli.command {
         Commands::Login(args) => cloud139::commands::login::execute(args.into()).await,
         Commands::Ls(args) => cloud139::commands::list::execute(args).await,
