@@ -307,6 +307,12 @@ async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -
         }
     };
 
+    // 先检查目录是否已存在，避免云端因重名自动添加时间戳后缀
+    let exists = crate::client::api::check_file_exists(&config, &parent_file_id, &name).await?;
+    if exists {
+        return Ok(());
+    }
+
     let body = serde_json::json!({
         "parentFileId": parent_file_id,
         "name": name,
