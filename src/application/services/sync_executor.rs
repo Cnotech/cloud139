@@ -42,10 +42,11 @@ pub async fn execute_sync_actions(
         let pb = make_action_progress(&multiprogress, action, options.progress);
         let action = action.clone();
         let dir_cache = dir_cache.clone();
+        let mp = multiprogress.clone();
 
         futures.push(tokio::spawn(async move {
             if let SyncAction::Upload { remote_abs, .. } = &action
-                && let Err(e) = ensure_upload_parent_dir(&config, remote_abs, &dir_cache).await
+                && let Err(e) = ensure_upload_parent_dir(&config, remote_abs, &dir_cache, &mp).await
             {
                 drop(permit);
                 return (action, Err(e));
@@ -66,16 +67,18 @@ pub async fn execute_sync_actions(
         match result {
             Ok((action, Ok(()))) => {
                 if options.print_actions {
-                    eprintln!("{}", format_action_line(&action, false));
+                    multiprogress.println(format_action_line(&action, false)).ok();
                 }
                 merge_summary(&mut summary, summary_for_success(&action));
             }
             Ok((action, Err(err))) => {
-                eprintln!("同步失败: {}: {}", action_rel_path(&action), err);
+                multiprogress
+                    .println(format!("同步失败: {}: {}", action_rel_path(&action), err))
+                    .ok();
                 summary.failed += 1;
             }
             Err(e) if e.is_panic() => {
-                eprintln!("同步任务异常终止");
+                multiprogress.println("同步任务异常终止").ok();
                 summary.failed += 1;
             }
             Err(_) => {
@@ -98,6 +101,7 @@ async fn ensure_upload_parent_dir(
     config: &crate::config::Config,
     remote_abs: &str,
     cache: &Arc<Mutex<HashSet<String>>>,
+    mp: &MultiProgress,
 ) -> Result<()> {
     let parent = remote_parent(remote_abs);
     if parent == "/" {
@@ -135,7 +139,7 @@ async fn ensure_upload_parent_dir(
         if needs_create && let Err(e) = ensure_personal_cloud_dir(config, &dir).await {
             let mut cache_guard = cache.lock().await;
             cache_guard.remove(&dir);
-            eprintln!("创建云端目录失败: {}", e);
+            mp.println(format!("创建云端目录失败: {}", e)).ok();
             return Err(e);
         }
     }
