@@ -19,13 +19,13 @@ pub struct SyncArgs {
     #[arg(help = "目标路径，本地路径或 cloud:/remote/path")]
     pub dest: String,
 
-    #[arg(short = 'r', long, help = "递归同步子目录")]
+    #[arg(short = 'r', long, help = "递归同步子目录，空目录也会同步")]
     pub recursive: bool,
 
     #[arg(short = 'n', long, help = "演习模式，只输出操作计划")]
     pub dry_run: bool,
 
-    #[arg(long, help = "删除目标中源没有的文件")]
+    #[arg(long, help = "删除目标中源没有的文件或空目录")]
     pub delete: bool,
 
     #[arg(long, help = "优先用校验和（个人云为 SHA-256）替代大小和修改时间做对比")]

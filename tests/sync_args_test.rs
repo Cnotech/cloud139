@@ -145,3 +145,15 @@ fn test_sync_help_mentions_sha256_checksum() {
     let help = SyncArgs::command().render_long_help().to_string();
     assert!(help.contains("SHA-256"));
 }
+
+#[test]
+fn test_sync_help_recursive_mentions_empty_dirs() {
+    let help = SyncArgs::command().render_long_help().to_string();
+    assert!(help.contains("空目录也会同步"));
+}
+
+#[test]
+fn test_sync_help_delete_mentions_empty_dirs() {
+    let help = SyncArgs::command().render_long_help().to_string();
+    assert!(help.contains("或空目录"));
+}
