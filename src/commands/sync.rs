@@ -161,8 +161,12 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 
 fn print_summary(summary: &SyncSummary) {
     eprintln!(
-        "同步完成: {} 个文件传输, {} 个跳过, {} 个失败",
-        summary.transferred, summary.skipped, summary.failed
+        "同步完成: {} 个文件传输, {} 个目录创建, {} 个删除, {} 个跳过, {} 个失败",
+        summary.transferred,
+        summary.created_dirs,
+        summary.deleted,
+        summary.skipped,
+        summary.failed
     );
     eprintln!(
         "transferred {} bytes in {} files",

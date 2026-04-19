@@ -283,8 +283,10 @@ async fn execute_one_action(
         } => match target {
             SyncTarget::Local => {
                 let path = Path::new(target_abs);
-                if path.exists() {
+                if path.is_file() {
                     tokio::fs::remove_file(path).await?;
+                } else if path.is_dir() {
+                    tokio::fs::remove_dir(path).await?;
                 }
             }
             SyncTarget::Cloud => {

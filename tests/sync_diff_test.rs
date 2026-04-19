@@ -1,7 +1,7 @@
 use cloud139::application::services::sync_service::{
     compute_diff, format_action_line, SyncDiffOptions,
 };
-use cloud139::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncTarget};
+use cloud139::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget};
 
 fn entry(path: &str, size: u64, mtime: i64, checksum: Option<&str>) -> FileEntry {
     FileEntry {
@@ -9,6 +9,7 @@ fn entry(path: &str, size: u64, mtime: i64, checksum: Option<&str>) -> FileEntry
         size,
         mtime: Some(mtime),
         checksum: checksum.map(str::to_string),
+        kind: SyncEntryKind::File,
     }
 }
 
@@ -18,6 +19,7 @@ fn entry_no_mtime(path: &str, size: u64, checksum: Option<&str>) -> FileEntry {
         size,
         mtime: None,
         checksum: checksum.map(str::to_string),
+        kind: SyncEntryKind::File,
     }
 }
 
@@ -27,6 +29,7 @@ fn dir_entry(path: &str) -> FileEntry {
         size: 0,
         mtime: None,
         checksum: None,
+        kind: SyncEntryKind::Directory,
     }
 }
 

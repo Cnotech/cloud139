@@ -1,4 +1,6 @@
-use crate::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncTarget};
+use crate::domain::{
+    ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
+};
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -93,7 +95,13 @@ pub fn compute_diff(
                     });
                 }
             }
+            (Some(src), None) if src.kind == SyncEntryKind::Directory => {
+                actions.push(create_dir_action(src, &options));
+            }
             (Some(src), None) => actions.push(transfer_action(src, &options, ChangeKind::New)),
+            (None, Some(dst)) if options.delete && dst.kind == SyncEntryKind::Directory => {
+                actions.push(delete_action(dst, &options));
+            }
             (None, Some(dst)) if options.delete => actions.push(delete_action(dst, &options)),
             (None, Some(_dst)) => actions.push(SyncAction::Skip {
                 rel_path: (*path).to_string(),
@@ -101,6 +109,15 @@ pub fn compute_diff(
             (None, None) => {}
         }
     }
+
+    actions.sort_by_key(|action| match action {
+        SyncAction::CreateDir { rel_path, .. } => (0, rel_path.matches('/').count(), rel_path.clone()),
+        SyncAction::Upload { rel_path, .. } | SyncAction::Download { rel_path, .. } => {
+            (1, rel_path.matches('/').count(), rel_path.clone())
+        }
+        SyncAction::Skip { rel_path } => (2, rel_path.matches('/').count(), rel_path.clone()),
+        SyncAction::Delete { rel_path, .. } => (3, usize::MAX - rel_path.matches('/').count(), rel_path.clone()),
+    });
 
     actions
 }
@@ -191,6 +208,23 @@ fn delete_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction {
     }
 }
 
+fn create_dir_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction {
+    match options.direction {
+        SyncDirection::LocalToCloud => SyncAction::CreateDir {
+            rel_path: entry.rel_path.clone(),
+            target: SyncTarget::Cloud,
+            target_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
+        },
+        SyncDirection::CloudToLocal => SyncAction::CreateDir {
+            rel_path: entry.rel_path.clone(),
+            target: SyncTarget::Local,
+            target_abs: rel_to_local(&options.local_root, &entry.rel_path)
+                .to_string_lossy()
+                .to_string(),
+        },
+    }
+}
+
 pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
     let prefix = if dry_run { "(DRY RUN) " } else { "" };
     match action {
@@ -202,7 +236,7 @@ pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
         } => {
             format!("{}{} {}", prefix, change_marker(*change), rel_path)
         }
-        SyncAction::CreateDir { rel_path, .. } => format!("{}cd          {}", prefix, rel_path),
+        SyncAction::CreateDir { rel_path, .. } => format!("{}cd+++++++++ {}", prefix, rel_path),
         SyncAction::Delete { rel_path, .. } => format!("{}*deleting   {}", prefix, rel_path),
         SyncAction::Skip { rel_path } => format!("{}skipping    {}", prefix, rel_path),
     }
@@ -270,6 +304,17 @@ fn scan_local_dir(
         let metadata = entry.metadata()?;
         if metadata.is_dir() {
             if options.recursive {
+                items.push(FileEntry {
+                    rel_path: rel_path.clone(),
+                    size: 0,
+                    mtime: metadata
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                        .map(|duration| duration.as_secs() as i64),
+                    checksum: None,
+                    kind: SyncEntryKind::Directory,
+                });
                 scan_local_dir(root, &path, options, patterns, items)?;
             }
             continue;
@@ -300,6 +345,7 @@ fn file_entry_from_local(path: &Path, rel_path: String, checksum: bool) -> Resul
         } else {
             None
         },
+        kind: SyncEntryKind::File,
     })
 }
 
@@ -384,6 +430,7 @@ pub fn personal_item_to_file_entry(
         size: item.size.unwrap_or(0).max(0) as u64,
         mtime: parse_cloud_mtime(item),
         checksum,
+        kind: SyncEntryKind::File,
     })
 }
 
@@ -515,6 +562,13 @@ fn scan_cloud_personal_dir_inner<'a>(
                     if options.recursive {
                         let child_id = item.file_id.clone().unwrap_or_default();
                         if !child_id.is_empty() {
+                            items.push(FileEntry {
+                                rel_path: rel_path.clone(),
+                                size: 0,
+                                mtime: parse_cloud_mtime(&item),
+                                checksum: None,
+                                kind: SyncEntryKind::Directory,
+                            });
                             scan_cloud_personal_dir(
                                 config,
                                 host,

@@ -12,12 +12,19 @@ pub enum SyncDirection {
     CloudToLocal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncEntryKind {
+    File,
+    Directory,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileEntry {
     pub rel_path: String,
     pub size: u64,
     pub mtime: Option<i64>,
     pub checksum: Option<String>,
+    pub kind: SyncEntryKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
