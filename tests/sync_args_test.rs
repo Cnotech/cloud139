@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use cloud139::application::services::sync_service::{parse_sync_endpoint, resolve_sync_direction};
 use cloud139::cli::app::{Cli, Commands};
 use cloud139::cli::commands::sync::SyncArgs;
@@ -138,4 +138,10 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
     assert!(args.recursive);
     assert!(args.dry_run);
     assert_eq!(args.jobs, 4);
+}
+
+#[test]
+fn test_sync_help_mentions_sha256_checksum() {
+    let help = SyncArgs::command().render_long_help().to_string();
+    assert!(help.contains("SHA-256"));
 }

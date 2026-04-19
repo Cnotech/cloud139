@@ -28,7 +28,7 @@ pub struct SyncArgs {
     #[arg(long, help = "删除目标中源没有的文件")]
     pub delete: bool,
 
-    #[arg(long, help = "用 SHA-1 校验和替代大小和修改时间做对比")]
+    #[arg(long, help = "优先用校验和（个人云为 SHA-256）替代大小和修改时间做对比")]
     pub checksum: bool,
 
     #[arg(long, value_name = "PAT", help = "排除匹配的路径，可多次指定")]

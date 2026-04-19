@@ -85,9 +85,11 @@ cloud139 sync ./data cloud:/data -r --checksum
 
 | 参数 | 简写 | 默认值 | 说明 |
 |------|------|--------|------|
-| --recursive | -r | false | 递归同步子目录 |
+| --recursive | -r | false | 递归同步子目录，空目录也会同步 |
 | --dry-run | -n | false | 演习模式，只输出操作计划 |
-| --delete | - | false | 删除目标中源没有的文件 |
-| --checksum | - | false | 用 SHA-1 校验和替代大小和修改时间做对比 |
+| --delete | - | false | 删除目标中源没有的文件或空目录 |
+| --checksum | - | false | 优先用校验和做对比；个人云场景下使用 SHA-256，缺失时回退到大小和时间 |
 | --exclude | - | [] | 排除匹配的路径，可多次指定 |
 | --jobs | -j | 4 | 并发传输数量上限 |
+
+当 `--checksum` 启用但云端条目缺少 checksum 时，命令会输出警告并回退到大小/时间比对；这不会中断同步。

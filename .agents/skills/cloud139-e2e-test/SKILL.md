@@ -307,6 +307,7 @@ mkdir -p cloud139_e2e_sync_dst
 | 10.1.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 云端应有 file1.txt、file2.txt；应有 subdir 目录 |
 | 10.1.4 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target/subdir` | 云端 subdir 应有 sub.txt |
 | 10.1.5 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | **增量同步**：文件未变化，应全部 Skip，输出 `0 个文件传输, 3 个跳过` |
+| 10.1.6 | 在源目录下创建空目录 `empty_dir` 后执行 `sync ... -r` | 云端应出现空目录 `empty_dir` |
 
 ##### 10.2 --dry-run 演习模式
 
@@ -332,6 +333,9 @@ mkdir -p cloud139_e2e_sync_dst
 | 10.4.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete` | 实际删除：云端 file2.txt 应被移除 |
 | 10.4.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端最终已无 file2.txt；若删除后立即 `ls` 仍短暂可见，等待片刻后重试一次，或执行 `rm /e2e_test_xxx/sync_target/file2.txt --yes` 应返回“文件不存在” |
 
+
+| 10.4.6 | 删除本地空目录 `empty_dir` 后执行 `sync ... -r --delete` | 云端空目录应被删除 |
+
 ##### 10.5 --exclude 排除规则
 
 | 步骤 | 命令 | 验证点 |
@@ -347,6 +351,7 @@ mkdir -p cloud139_e2e_sync_dst
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
 | 10.6.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --checksum` | 使用哈希对比，内容未变的文件应全部 Skip；观察终端输出，显示警告（需扫描 checksum 耗时） |
+| 10.6.2 | 准备一个"同大小不同内容"的文件后执行 `sync ... -r --checksum` | 应识别为变化并传输，而不是 Skip |
 
 ##### 10.7 --jobs 并发控制
 
