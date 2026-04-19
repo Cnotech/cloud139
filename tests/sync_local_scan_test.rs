@@ -120,3 +120,33 @@ fn test_scan_local_recursive_keeps_empty_directories() {
     assert!(items.iter().any(|item| item.rel_path == "empty" && item.kind == SyncEntryKind::Directory));
     assert!(items.iter().any(|item| item.rel_path == "empty/sub" && item.kind == SyncEntryKind::Directory));
 }
+
+#[test]
+fn test_scan_local_excludes_empty_directories_with_glob() {
+    // When target/** is excluded, the "target" directory itself should also be excluded
+    // even if it's empty (no files under it match, but the dir node would still appear)
+    let dir = tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("target")).unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    write_file(&dir.path().join("src/main.rs"), b"fn main() {}");
+
+    let items = scan_local(
+        dir.path(),
+        SyncScanOptions {
+            recursive: true,
+            checksum: false,
+            exclude: vec!["target/**".to_string()],
+        },
+    )
+    .unwrap();
+
+    // "target" directory should NOT appear in results
+    assert!(
+        !items.iter().any(|item| item.rel_path == "target"),
+        "Empty 'target' directory should be excluded when 'target/**' pattern is used, got: {:?}",
+        items.iter().map(|i| &i.rel_path).collect::<Vec<_>>()
+    );
+
+    // "src" should still appear
+    assert!(items.iter().any(|item| item.rel_path == "src" && item.kind == SyncEntryKind::Directory));
+}

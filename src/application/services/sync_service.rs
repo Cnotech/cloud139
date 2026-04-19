@@ -86,6 +86,19 @@ pub fn compute_diff(
 
     for path in paths {
         match (source_by_path.get(path), target_by_path.get(path)) {
+            (Some(src), Some(dst)) if src.kind != dst.kind => {
+                // Type conflict: file vs directory - always treat as change
+                match src.kind {
+                    SyncEntryKind::Directory => {
+                        // Source is directory, target is file -> create dir (file will be overwritten)
+                        actions.push(create_dir_action(src, &options));
+                    }
+                    SyncEntryKind::File => {
+                        // Source is file, target is directory -> upload file
+                        actions.push(transfer_action(src, &options, ChangeKind::New));
+                    }
+                }
+            }
             (Some(src), Some(dst)) => {
                 if let Some(change) = change_kind(src, dst, options.checksum, options.direction) {
                     actions.push(transfer_action(src, &options, change));
@@ -304,18 +317,30 @@ fn scan_local_dir(
         let metadata = entry.metadata()?;
         if metadata.is_dir() {
             if options.recursive {
-                items.push(FileEntry {
-                    rel_path: rel_path.clone(),
-                    size: 0,
-                    mtime: metadata
-                        .modified()
-                        .ok()
-                        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                        .map(|duration| duration.as_secs() as i64),
-                    checksum: None,
-                    kind: SyncEntryKind::Directory,
-                });
+                // Remember position before scanning children
+                let items_before = items.len();
                 scan_local_dir(root, &path, options, patterns, items)?;
+
+                // Add directory if:
+                // 1. It has non-excluded children (items.len() > items_before), OR
+                // 2. It's truly empty (no entries at all)
+                let is_truly_empty = dir_is_truly_empty(&path)?;
+                if items.len() > items_before || is_truly_empty {
+                    items.insert(
+                        items_before,
+                        FileEntry {
+                            rel_path: rel_path.clone(),
+                            size: 0,
+                            mtime: metadata
+                                .modified()
+                                .ok()
+                                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                                .map(|duration| duration.as_secs() as i64),
+                            checksum: None,
+                            kind: SyncEntryKind::Directory,
+                        },
+                    );
+                }
             }
             continue;
         }
@@ -326,6 +351,12 @@ fn scan_local_dir(
     }
 
     Ok(())
+}
+
+fn dir_is_truly_empty(dir: &Path) -> Result<bool> {
+    // Check if directory has any entries at all (regardless of exclusion)
+    let mut entries = fs::read_dir(dir)?;
+    Ok(entries.next().is_none())
 }
 
 fn file_entry_from_local(path: &Path, rel_path: String, checksum: bool) -> Result<FileEntry> {
@@ -364,9 +395,21 @@ fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
         require_literal_separator: true,
         require_literal_leading_dot: false,
     };
-    patterns
-        .iter()
-        .any(|pattern| pattern.matches_with(rel_path, options))
+    patterns.iter().any(|pattern| {
+        // Direct match
+        if pattern.matches_with(rel_path, options) {
+            return true;
+        }
+        // Also check if pattern like "dir/**" matches "dir" (the directory itself)
+        // This ensures --exclude target/** also excludes the target directory
+        let pattern_str = pattern.as_str();
+        if let Some(prefix) = pattern_str.strip_suffix("/**")
+            && rel_path == prefix
+        {
+            return true;
+        }
+        false
+    })
 }
 
 fn to_forward_slash(path: &Path) -> String {

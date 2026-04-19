@@ -80,6 +80,54 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
 }
 
 #[test]
+fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
+    // Local has empty directory "conflict", cloud has 0-byte file "conflict"
+    // This should NOT be treated as skip - it's a type conflict
+    let actions = compute_diff(
+        &[dir_entry("conflict")],
+        &[entry("conflict", 0, 100, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    // Should create directory, not skip
+    assert!(
+        actions.iter().any(|a| matches!(a, SyncAction::CreateDir { rel_path, .. } if rel_path == "conflict")),
+        "Expected CreateDir action for local dir vs cloud file, got: {:?}",
+        actions
+    );
+}
+
+#[test]
+fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
+    // Local has 0-byte file "conflict", cloud has empty directory "conflict"
+    // This should NOT be treated as skip - it's a type conflict
+    let actions = compute_diff(
+        &[entry("conflict", 0, 100, None)],
+        &[dir_entry("conflict")],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    // Should upload file, not skip
+    assert!(
+        actions.iter().any(|a| matches!(a, SyncAction::Upload { rel_path, .. } if rel_path == "conflict")),
+        "Expected Upload action for local file vs cloud dir, got: {:?}",
+        actions
+    );
+}
+
+#[test]
 fn test_existing_directory_on_both_sides_produces_skip() {
     let actions = compute_diff(
         &[dir_entry("docs")],
