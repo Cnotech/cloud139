@@ -71,7 +71,7 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
     assert_eq!(
         actions,
         vec![SyncAction::Skip {
-            rel_path: "file.txt".to_string()
+            rel_path: "same.txt".to_string()
         }]
     );
 }

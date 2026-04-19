@@ -198,6 +198,7 @@ pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
         } => {
             format!("{}{} {}", prefix, change_marker(*change), rel_path)
         }
+        SyncAction::CreateDir { rel_path, .. } => format!("{}cd          {}", prefix, rel_path),
         SyncAction::Delete { rel_path, .. } => format!("{}*deleting   {}", prefix, rel_path),
         SyncAction::Skip { rel_path } => format!("{}skipping    {}", prefix, rel_path),
     }

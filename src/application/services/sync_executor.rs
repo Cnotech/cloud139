@@ -4,6 +4,7 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::time::Duration;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -168,6 +169,10 @@ fn summary_for_success(action: &SyncAction) -> SyncSummary {
             bytes: *size,
             ..SyncSummary::default()
         },
+        SyncAction::CreateDir { .. } => SyncSummary {
+            created_dirs: 1,
+            ..SyncSummary::default()
+        },
         SyncAction::Delete { .. } => SyncSummary {
             deleted: 1,
             ..SyncSummary::default()
@@ -183,6 +188,7 @@ fn merge_summary(total: &mut SyncSummary, next: SyncSummary) {
     total.transferred += next.transferred;
     total.skipped += next.skipped;
     total.deleted += next.deleted;
+    total.created_dirs += next.created_dirs;
     total.failed += next.failed;
     total.bytes += next.bytes;
 }
@@ -207,6 +213,9 @@ fn make_action_progress(
     .unwrap_or_else(|_| ProgressStyle::default_bar());
     pb.set_style(style);
     pb.set_message(action_rel_path(action));
+    // 启动后台定时重绘，确保进度条在 HTTP 请求等待期间也能平滑更新，
+    // 避免因 indicatif 节流机制导致进度条看起来从 0% 跳到完成。
+    pb.enable_steady_tick(Duration::from_millis(100));
     Some(pb)
 }
 
@@ -214,6 +223,7 @@ fn action_rel_path(action: &SyncAction) -> String {
     match action {
         SyncAction::Upload { rel_path, .. }
         | SyncAction::Download { rel_path, .. }
+        | SyncAction::CreateDir { rel_path, .. }
         | SyncAction::Delete { rel_path, .. }
         | SyncAction::Skip { rel_path } => rel_path.clone(),
     }
@@ -279,6 +289,14 @@ async fn execute_one_action(
             }
             SyncTarget::Cloud => {
                 crate::application::services::delete(config, target_abs, false).await?;
+            }
+        },
+        SyncAction::CreateDir { target, target_abs, .. } => match target {
+            SyncTarget::Cloud => {
+                ensure_personal_cloud_dir(config, target_abs).await?;
+            }
+            SyncTarget::Local => {
+                tokio::fs::create_dir_all(Path::new(target_abs)).await?;
             }
         },
         SyncAction::Skip { .. } => {}

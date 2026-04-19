@@ -50,6 +50,11 @@ pub enum SyncAction {
         change: ChangeKind,
         cloud_mtime: Option<i64>,
     },
+    CreateDir {
+        rel_path: String,
+        target: SyncTarget,
+        target_abs: String,
+    },
     Delete {
         rel_path: String,
         target: SyncTarget,
@@ -65,6 +70,7 @@ pub struct SyncSummary {
     pub transferred: usize,
     pub skipped: usize,
     pub deleted: usize,
+    pub created_dirs: usize,
     pub failed: usize,
     pub bytes: u64,
 }
