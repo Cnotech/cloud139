@@ -80,6 +80,28 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
 }
 
 #[test]
+fn test_existing_directory_on_both_sides_produces_skip() {
+    let actions = compute_diff(
+        &[dir_entry("docs")],
+        &[dir_entry("docs")],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert_eq!(
+        actions,
+        vec![SyncAction::Skip {
+            rel_path: "docs".to_string()
+        }]
+    );
+}
+
+#[test]
 fn test_compute_diff_creates_missing_directory_before_files() {
     let actions = compute_diff(
         &[dir_entry("empty"), entry("empty/file.txt", 4, 100, None)],
