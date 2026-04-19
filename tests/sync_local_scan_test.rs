@@ -75,7 +75,7 @@ fn test_scan_local_excludes_glob_patterns() {
 }
 
 #[test]
-fn test_scan_local_checksum_fills_sha1() {
+fn test_scan_local_checksum_fills_sha256() {
     let dir = tempdir().unwrap();
     write_file(&dir.path().join("hash.txt"), b"hello");
 
@@ -92,6 +92,25 @@ fn test_scan_local_checksum_fills_sha1() {
     assert_eq!(items.len(), 1);
     assert_eq!(
         items[0].checksum.as_deref(),
-        Some("aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d")
+        Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
     );
+}
+
+#[test]
+fn test_scan_local_recursive_keeps_empty_directories() {
+    let dir = tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("empty/sub")).unwrap();
+
+    let items = scan_local(
+        dir.path(),
+        SyncScanOptions {
+            recursive: true,
+            checksum: false,
+            exclude: vec![],
+        },
+    )
+    .unwrap();
+
+    assert!(items.iter().any(|item| item.rel_path == "empty"));
+    assert!(items.iter().any(|item| item.rel_path == "empty/sub"));
 }

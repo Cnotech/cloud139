@@ -21,6 +21,8 @@ fn item(
         update_date: None,
         last_modified: None,
         thumbnail_urls: None,
+        content_hash: None,
+        content_hash_algorithm: None,
     }
 }
 
@@ -115,4 +117,20 @@ fn test_personal_item_to_file_entry_checksum_always_none() {
     .unwrap();
 
     assert!(entry_without_checksum.checksum.is_none());
+}
+
+#[test]
+fn test_personal_item_to_file_entry_carries_sha256_checksum() {
+    let mut item = item("file.txt", Some(5), "file", Some("2024-01-01T00:00:00Z"));
+    item.content_hash = Some(
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_string(),
+    );
+    item.content_hash_algorithm = Some("SHA256".to_string());
+
+    let entry = personal_item_to_file_entry("docs", &item, true).unwrap();
+
+    assert_eq!(
+        entry.checksum.as_deref(),
+        Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+    );
 }

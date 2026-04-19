@@ -21,6 +21,15 @@ fn entry_no_mtime(path: &str, size: u64, checksum: Option<&str>) -> FileEntry {
     }
 }
 
+fn dir_entry(path: &str) -> FileEntry {
+    FileEntry {
+        rel_path: path.to_string(),
+        size: 0,
+        mtime: None,
+        checksum: None,
+    }
+}
+
 #[test]
 fn test_compute_diff_uploads_missing_target() {
     let actions = compute_diff(
@@ -62,9 +71,45 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
     assert_eq!(
         actions,
         vec![SyncAction::Skip {
-            rel_path: "same.txt".to_string()
+            rel_path: "file.txt".to_string()
         }]
     );
+}
+
+#[test]
+fn test_compute_diff_creates_missing_directory_before_files() {
+    let actions = compute_diff(
+        &[dir_entry("empty"), entry("empty/file.txt", 4, 100, None)],
+        &[],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: false,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert!(matches!(actions[0], SyncAction::CreateDir { ref rel_path, .. } if rel_path == "empty"));
+    assert!(matches!(actions[1], SyncAction::Upload { ref rel_path, .. } if rel_path == "empty/file.txt"));
+}
+
+#[test]
+fn test_compute_diff_deletes_empty_directory_after_children() {
+    let actions = compute_diff(
+        &[],
+        &[dir_entry("old"), entry("old/file.txt", 4, 100, None)],
+        SyncDiffOptions {
+            direction: SyncDirection::CloudToLocal,
+            delete: true,
+            checksum: false,
+            local_root: std::path::PathBuf::from("local"),
+            cloud_root: "/remote".to_string(),
+        },
+    );
+
+    assert!(matches!(actions[0], SyncAction::Delete { ref rel_path, .. } if rel_path == "old/file.txt"));
+    assert!(matches!(actions[1], SyncAction::Delete { ref rel_path, .. } if rel_path == "old"));
 }
 
 #[test]
