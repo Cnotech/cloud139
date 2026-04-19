@@ -383,6 +383,7 @@ dependencies = [
  "hex",
  "httpmock",
  "indicatif",
+ "log",
  "md-5",
  "mockall",
  "quick-xml",
