@@ -79,4 +79,8 @@ pub struct QueryFileData {
     pub name: String,
     #[serde(rename = "type")]
     pub file_type: String,
+    #[serde(rename = "contentHash", default)]
+    pub content_hash: Option<String>,
+    #[serde(rename = "contentHashAlgorithm", default)]
+    pub content_hash_algorithm: Option<String>,
 }

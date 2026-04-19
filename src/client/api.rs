@@ -426,6 +426,29 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
     ))
 }
 
+pub async fn get_personal_file_detail(
+    config: &Config,
+    file_id: &str,
+) -> Result<crate::models::QueryFileData, ClientError> {
+    let mut config = config.clone();
+    let host = get_personal_cloud_host(&mut config).await?;
+    let url = format!("{}/file/query", host);
+
+    let body = serde_json::json!({
+        "fileId": file_id
+    });
+
+    let resp: crate::models::QueryFileResp =
+        personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+
+    if !resp.base.success {
+        let msg = resp.base.message.unwrap_or_else(|| "获取文件详情失败".to_string());
+        return Err(ClientError::Api(msg));
+    }
+
+    Ok(resp.data)
+}
+
 pub async fn get_personal_download_link(
     config: &Config,
     file_id: &str,

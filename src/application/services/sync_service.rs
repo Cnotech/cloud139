@@ -1,10 +1,8 @@
 use crate::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncTarget};
 use anyhow::{Result, anyhow};
 use glob::Pattern;
-use sha1::{Digest, Sha1};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -292,7 +290,7 @@ fn file_entry_from_local(path: &Path, rel_path: String, checksum: bool) -> Resul
         size: metadata.len(),
         mtime,
         checksum: if checksum {
-            Some(sha1_file(path)?)
+            Some(sha256_file(path)?)
         } else {
             None
         },
@@ -326,20 +324,11 @@ fn to_forward_slash(path: &Path) -> String {
         .join("/")
 }
 
-fn sha1_file(path: &Path) -> Result<String> {
-    let mut file = fs::File::open(path)?;
-    let mut hasher = Sha1::new();
-    let mut buffer = [0u8; 64 * 1024];
-
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-
-    Ok(hex::encode(hasher.finalize()))
+fn sha256_file(path: &Path) -> Result<String> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow!("路径不是合法 UTF-8: {}", path.display()))?;
+    Ok(crate::utils::crypto::calc_file_sha256(path_str)?)
 }
 
 pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileItem) -> bool {
@@ -364,7 +353,7 @@ pub fn cloud_child_path(parent: &str, name: &str) -> String {
 pub fn personal_item_to_file_entry(
     rel_parent: &str,
     item: &crate::models::PersonalFileItem,
-    _checksum: bool,
+    checksum: bool,
 ) -> Result<FileEntry> {
     let name = item
         .name
@@ -376,11 +365,19 @@ pub fn personal_item_to_file_entry(
         format!("{}/{}", rel_parent.trim_matches('/'), name)
     };
 
+    let checksum = if checksum
+        && item.content_hash_algorithm.as_deref() == Some("SHA256")
+    {
+        item.content_hash.clone().map(|value| value.to_ascii_lowercase())
+    } else {
+        None
+    };
+
     Ok(FileEntry {
         rel_path,
         size: item.size.unwrap_or(0).max(0) as u64,
         mtime: parse_cloud_mtime(item),
-        checksum: None,
+        checksum,
     })
 }
 
@@ -526,11 +523,19 @@ fn scan_cloud_personal_dir_inner<'a>(
                         }
                     }
                 } else {
-                    items.push(personal_item_to_file_entry(
-                        rel_parent,
-                        &item,
-                        options.checksum,
-                    )?);
+                    let mut entry = personal_item_to_file_entry(rel_parent, &item, options.checksum)?;
+
+                    if options.checksum && entry.checksum.is_none()
+                        && let Some(file_id) = item.file_id.as_deref()
+                        && let Ok(detail) =
+                            crate::client::api::get_personal_file_detail(config, file_id).await
+                        && detail.content_hash_algorithm.as_deref() == Some("SHA256")
+                    {
+                        entry.checksum =
+                            detail.content_hash.map(|value| value.to_ascii_lowercase());
+                    }
+
+                    items.push(entry);
                 }
             }
 
