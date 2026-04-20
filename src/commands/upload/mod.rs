@@ -73,7 +73,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         args.remote_path.trim_end_matches('/').to_string()
     };
 
-    crate::info!(
+    crate::debug!(
         "上传文件: {} -> {}/{}",
         args.local_path,
         remote_dir,

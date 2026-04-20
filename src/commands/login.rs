@@ -1,3 +1,4 @@
+use crate::debug;
 use crate::info;
 use crate::success;
 use crate::warn;
@@ -53,7 +54,7 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
     }
 
     success!("Token 验证成功!");
-    info!("存储类型: {}", args.storage_type);
+    debug!("存储类型: {}", args.storage_type);
     success!("配置文件已保存到: ./cloud139.toml");
 
     Ok(())

@@ -1,9 +1,8 @@
 use crate::client::ClientError;
 use crate::client::endpoints::group;
 use crate::commands::upload::UploadPartParams;
-use crate::info;
+use crate::debug;
 use indicatif::ProgressBar;
-use log::debug;
 use std::io::{Read, Seek};
 
 pub async fn upload(
@@ -47,7 +46,7 @@ pub async fn upload(
     let upload_url = extract_upload_url(&resp)?;
     let upload_task_id = extract_upload_task_id(&resp)?;
 
-    info!("开始上传文件到群组云...");
+    debug!("开始上传文件到群组云, task_id={}", upload_task_id);
     upload_file(
         local_path,
         upload_url,

@@ -46,6 +46,13 @@ macro_rules! debug {
     };
 }
 
+#[macro_export]
+macro_rules! print {
+    ($($arg:tt)*) => {
+        println!("{}", format!($($arg)*))
+    };
+}
+
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
 
 pub fn init_verbose(level: &str) {

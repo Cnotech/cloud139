@@ -59,6 +59,7 @@ impl Client {
             let new_config = auth::refresh_token(&self.config).await?;
             new_config.save()?;
             self.config = new_config;
+            debug!("Token 刷新成功");
         }
         Ok(())
     }
@@ -75,6 +76,7 @@ impl Client {
 
         let headers = self.build_headers(&ts, &rand_str, &sign)?;
 
+        debug!("api_request_post: POST {}", url);
         let resp = self
             .http_client
             .post(url)
@@ -107,6 +109,7 @@ impl Client {
         pathname: &str,
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
+        debug!("and_album_request: POST {}", pathname);
         let url = format!("{}{}", family::ALBUM_BASE_URL, pathname);
 
         let headers = self.build_and_album_headers()?;
@@ -155,6 +158,7 @@ impl Client {
         pathname: &str,
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
+        debug!("isbo_post: POST {}", pathname);
         let url = format!("{}{}", group::MUTUAL_BASE_URL, pathname);
 
         let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();

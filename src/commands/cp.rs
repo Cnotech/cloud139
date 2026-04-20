@@ -50,6 +50,7 @@ async fn cp_personal(
         error!("错误: 无效的源文件路径");
         return Err(ClientError::InvalidSourcePath);
     }
+    debug!("cp_personal: source_id={}", source_id);
 
     let source_path = std::path::Path::new(source);
     let file_name = source_path
@@ -57,11 +58,12 @@ async fn cp_personal(
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    let target_id = if target == "/" || target.is_empty() {
+let target_id = if target == "/" || target.is_empty() {
         "/".to_string()
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };
+    debug!("cp_personal: target_id={}", target_id);
 
     if !force {
         let exists = crate::client::api::check_file_exists(config, &target_id, &file_name).await?;

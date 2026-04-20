@@ -1,6 +1,6 @@
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
-use crate::{error, success};
+use crate::{debug, error, success};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -53,6 +53,7 @@ async fn rename_personal(
         error!("错误: 无效的文件路径");
         return Err(ClientError::InvalidFilePath);
     }
+    debug!("rename_personal: file_id={}", file_id);
 
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -168,6 +169,8 @@ async fn rename_family(
         error!("错误: 家庭云不支持重命名文件夹");
         return Err(ClientError::UnsupportedFamilyRenameFolder);
     }
+
+    debug!("rename_family: found_id={}, is_dir={}", found_id, is_dir);
 
     let url = family::orchestration::MODIFY_CONTENT_INFO;
 
@@ -288,6 +291,8 @@ async fn rename_group(
         error!("错误: 文件不存在");
         return Err(ClientError::FileNotFound);
     }
+
+    debug!("rename_group: found_id={}, is_dir={}", found_id, is_dir);
 
     if is_dir {
         let url = group::orchestration::MODIFY_GROUP_CATALOG;

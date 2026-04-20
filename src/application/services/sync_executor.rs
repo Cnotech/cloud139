@@ -1,5 +1,6 @@
 use crate::application::services::sync_service::format_action_line;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
+use crate::debug;
 use crate::utils::logger::{mp_error, mp_step};
 use anyhow::Result;
 use futures_util::StreamExt;
@@ -30,6 +31,9 @@ pub async fn execute_sync_actions(
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
+    debug!("execute_sync_actions: {} 个动作, dry_run={}, jobs={}",
+        actions.iter().filter(|a| !matches!(a, SyncAction::Skip { .. })).count(),
+        options.dry_run, options.jobs);
     if options.dry_run {
         return Ok(summarize_actions(&actions));
     }

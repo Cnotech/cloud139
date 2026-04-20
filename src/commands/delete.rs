@@ -1,5 +1,5 @@
 use crate::client::ClientError;
-use crate::{info, success, warn};
+use crate::{debug, info, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -27,6 +27,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
 
     let config = crate::commands::dispatch::load_config()?;
 
+    debug!("delete: path={}, permanent={}", args.path, args.permanent);
     crate::application::services::delete(&config, &args.path, args.permanent).await?;
 
     if args.permanent {

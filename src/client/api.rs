@@ -3,6 +3,7 @@ use crate::client::endpoints::ROUTE_POLICY_URL;
 use crate::client::endpoints::{family, group};
 use crate::client::headers::{build_route_headers, build_signed_headers};
 use crate::config::Config;
+use crate::debug;
 use crate::models::QueryRoutePolicyResp;
 use crate::utils::generate_rand_str;
 
@@ -37,10 +38,12 @@ pub async fn get_personal_cloud_host_with_client(
     http_client: &HttpClientWrapper,
 ) -> Result<String, ClientError> {
     if let Some(ref host) = config.personal_cloud_host {
+        debug!("get_personal_cloud_host: 使用缓存 host={}", host);
         return Ok(host.clone());
     }
 
     let url = ROUTE_POLICY_URL;
+    debug!("get_personal_cloud_host: 请求 url={}", url);
 
     let body = serde_json::json!({
         "userInfo": {
@@ -72,6 +75,7 @@ pub async fn get_personal_cloud_host_with_client(
         .map(|p| p.https_url.unwrap_or_default())
         .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
 
+    debug!("get_personal_cloud_host: 解析到 host={}", host);
     config.personal_cloud_host = Some(host.clone());
     let _ = config.save();
 
@@ -80,9 +84,11 @@ pub async fn get_personal_cloud_host_with_client(
 
 pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
     if path.is_empty() || path == "/" {
+        debug!("get_file_id_by_path: 根路径返回空ID");
         return Ok(String::new());
     }
 
+    debug!("get_file_id_by_path: 解析路径={}", path);
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
 
@@ -128,6 +134,7 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         match target_id {
             Some(id) => {
                 if is_last {
+                    debug!("get_file_id_by_path: 路径解析成功 path={}, id={}", path, id);
                     return Ok(id);
                 }
                 current_parent_id = id;
@@ -191,6 +198,7 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
 
     let headers = build_signed_headers(&config.authorization, &ts, &rand_str, &sign, svctype)?;
 
+    debug!("personal_api_request: POST {} svctype={}", url, svctype);
     let resp = client.post(url).headers(headers).json(&body).send().await?;
 
     let result: T = resp.json().await?;
@@ -212,8 +220,11 @@ pub async fn check_file_exists_with_client(
     file_name: &str,
     http_client: &HttpClientWrapper,
 ) -> Result<bool, ClientError> {
+    debug!("check_file_exists: parent={}, name={}", parent_file_id, file_name);
     let files = list_personal_files_with_client(config, parent_file_id, http_client).await?;
-    Ok(files.iter().any(|f| f.name.as_deref() == Some(file_name)))
+    let exists = files.iter().any(|f| f.name.as_deref() == Some(file_name));
+    debug!("check_file_exists: result={}", exists);
+    Ok(exists)
 }
 
 pub async fn list_personal_files(
@@ -228,6 +239,7 @@ pub async fn list_personal_files_with_client(
     parent_file_id: &str,
     http_client: &HttpClientWrapper,
 ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+    debug!("list_personal_files: parent_file_id={}", parent_file_id);
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
@@ -261,10 +273,14 @@ pub async fn list_personal_files_with_client(
                 all_items.extend(data.items);
                 next_cursor = data.next_page_cursor.unwrap_or_default();
                 if next_cursor.is_empty() {
+                    debug!("list_personal_files: 获取 {} 个条目, 无更多页", all_items.len());
                     break;
                 }
             }
-            None => break,
+            None => {
+                debug!("list_personal_files: 响应无数据");
+                break;
+            }
         }
     }
 
@@ -300,6 +316,7 @@ pub async fn get_family_download_link(
         .unwrap_or("")
         .to_string();
 
+    debug!("get_family_download_link: content_id={}, url_len={}", content_id, url.len());
     Ok(url)
 }
 
@@ -333,6 +350,7 @@ pub async fn get_group_download_link(
         .unwrap_or("")
         .to_string();
 
+    debug!("get_group_download_link: content_id={}, url_len={}", content_id, url.len());
     Ok(url)
 }
 
@@ -370,6 +388,7 @@ pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError
         })
         .unwrap_or_default();
 
+    debug!("get_family_root_path: path={}", path);
     if path.is_empty()
         && let Some(catalog_list) = resp
             .pointer("/data/cloudCatalogList")
@@ -409,6 +428,7 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
         .and_then(|v| v.as_str())
         && !parent_catalog_id.is_empty()
     {
+        debug!("get_group_root_by_cloud_id: parentCatalogID={}", parent_catalog_id);
         return Ok(parent_catalog_id.to_string());
     }
 
@@ -430,6 +450,7 @@ pub async fn get_personal_file_detail(
     config: &Config,
     file_id: &str,
 ) -> Result<crate::models::QueryFileData, ClientError> {
+    debug!("get_personal_file_detail: file_id={}", file_id);
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/query", host);
@@ -453,6 +474,7 @@ pub async fn get_personal_download_link(
     config: &Config,
     file_id: &str,
 ) -> Result<String, ClientError> {
+    debug!("get_personal_download_link: file_id={}", file_id);
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/getDownloadUrl", host);
@@ -471,6 +493,7 @@ pub async fn get_personal_download_link(
         .to_string();
 
     if !cdn_url.is_empty() {
+        debug!("get_personal_download_link: 使用CDN链接, url_len={}", cdn_url.len());
         return Ok(cdn_url);
     }
 
@@ -480,5 +503,6 @@ pub async fn get_personal_download_link(
         .unwrap_or("")
         .to_string();
 
+    debug!("get_personal_download_link: 使用普通链接, url_len={}", url.len());
     Ok(url)
 }

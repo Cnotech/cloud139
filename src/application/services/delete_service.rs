@@ -1,12 +1,14 @@
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::config::Config;
+use crate::debug;
 use crate::models::BatchTrashResp;
 use anyhow::Result;
 
 /// 删除文件服务
 pub async fn delete(config: &Config, path: &str, permanent: bool) -> Result<()> {
     let storage_type = config.storage_type();
+    debug!("delete: path={}, permanent={}, storage={}", path, permanent, storage_type.as_str());
 
     match storage_type {
         StorageType::PersonalNew => delete_personal(config, path, permanent).await?,
@@ -27,6 +29,7 @@ async fn delete_personal(config: &Config, path: &str, _permanent: bool) -> Resul
     if file_id.is_empty() {
         return Err(ClientError::InvalidFilePath);
     }
+    debug!("delete_personal: file_id={}", file_id);
 
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;

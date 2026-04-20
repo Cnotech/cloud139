@@ -63,7 +63,7 @@ pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
     let remote_path = &args.remote_path;
     let local_path = resolve_local_path(remote_path, &args.local_path);
 
-    debug!("下载链接: {}", remote_path);
+    debug!("下载: remote={}, local={}", remote_path, local_path);
     step!("开始下载到: {:?}", local_path);
 
     let pb = make_download_progress(remote_path);

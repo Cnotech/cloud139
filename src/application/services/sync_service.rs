@@ -1,7 +1,7 @@
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
-use crate::warn;
+use crate::{debug, warn};
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -70,6 +70,8 @@ pub fn compute_diff(
     target: &[FileEntry],
     options: SyncDiffOptions,
 ) -> Vec<SyncAction> {
+    debug!("compute_diff: source={} entries, target={} entries, direction={:?}",
+        source.len(), target.len(), options.direction);
     let source_by_path: BTreeMap<&str, &FileEntry> = source
         .iter()
         .map(|item| (item.rel_path.as_str(), item))
@@ -133,6 +135,7 @@ pub fn compute_diff(
         SyncAction::Delete { rel_path, .. } => (3, usize::MAX - rel_path.matches('/').count(), rel_path.clone()),
     });
 
+    debug!("compute_diff: 生成 {} 个动作", actions.len());
     actions
 }
 

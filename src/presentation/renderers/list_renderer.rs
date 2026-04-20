@@ -1,5 +1,6 @@
 use crate::application::services::list_service::ListResult;
 use crate::domain::file_item::EntryKind;
+use crate::print;
 use serde::Serialize;
 
 pub fn format_size(size: i64) -> String {
@@ -15,9 +16,9 @@ pub fn format_size(size: i64) -> String {
 }
 
 pub fn render_terminal(result: &ListResult) {
-    println!("\n文件列表 ({}):", result.path);
-    println!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
-    println!("{}", "-".repeat(80));
+    print!("\n文件列表 ({}):", result.path);
+    print!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
+    print!("{}", "-".repeat(80));
 
     for item in &result.items {
         let marker = match item.kind {
@@ -25,7 +26,7 @@ pub fn render_terminal(result: &ListResult) {
             EntryKind::File => "-",
         };
 
-        println!(
+        print!(
             "{} {:<38} {:>15} {:<20}",
             marker,
             item.name,

@@ -118,6 +118,9 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         }
     }
 
+    debug!("sync: 方向={:?}, 源条目={}, 目标条目={}",
+        direction, source.len(), target.len());
+
     let actions = compute_diff(
         &source,
         &target,
@@ -182,8 +185,4 @@ fn print_summary(summary: &SyncSummary) {
     } else {
         success!("同步完成: {}", parts.join(", "));
     }
-    debug!(
-        "transferred {} bytes in {} files",
-        summary.bytes, summary.transferred
-    );
 }

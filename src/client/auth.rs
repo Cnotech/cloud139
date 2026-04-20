@@ -128,6 +128,8 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
         format!("pc:{}:{}", config.account, refresh_resp.access_token),
     );
 
+    debug!("Token 刷新成功, 新过期时间已设置");
+
     let mut new_config = config.clone();
     new_config.authorization = authorization;
     new_config.refresh_token = Some(refresh_resp.access_token);

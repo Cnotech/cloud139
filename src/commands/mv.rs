@@ -1,7 +1,7 @@
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::BatchMoveResp;
-use crate::{error, success, warn};
+use crate::{debug, error, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -83,6 +83,7 @@ async fn mv_personal(
             warn!("无效的源文件路径: {}", source);
             continue;
         }
+        debug!("mv_personal: source={}, id={}", source, source_id);
 
         let file_name = source_path
             .file_name()
@@ -102,6 +103,7 @@ async fn mv_personal(
     } else {
         crate::client::api::get_file_id_by_path(config, target).await?
     };
+    debug!("mv_personal: target_id={}", target_id);
 
     if !force {
         for file_name in &file_names {
@@ -238,6 +240,8 @@ async fn mv_family(
         error!("错误: 文件不存在");
         return Err(ClientError::FileNotFound);
     }
+
+    debug!("mv_family: found_id={}, is_dir={}", found_id, is_dir);
 
     let target = target.trim_start_matches('/');
     let target_catalog_id = if target.is_empty() {
@@ -393,6 +397,8 @@ async fn mv_group(
         error!("错误: 文件不存在");
         return Err(ClientError::FileNotFound);
     }
+
+    debug!("mv_group: found_id={}, is_dir={}", found_id, is_dir);
 
     let target = target.trim_start_matches('/');
     let dest_path = if target.is_empty() {

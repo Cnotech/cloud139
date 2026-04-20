@@ -1,6 +1,7 @@
 use crate::client::endpoints::{family, group};
 use crate::client::{ClientError, StorageType};
 use crate::config::Config;
+use crate::debug;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
 use indicatif::ProgressBar;
@@ -14,6 +15,7 @@ pub async fn download(
     pb: Option<ProgressBar>,
 ) -> Result<()> {
     let storage_type = config.storage_type();
+    debug!("download: remote={}, local={}, storage={}", remote_path, local_path, storage_type.as_str());
 
     match storage_type {
         StorageType::PersonalNew => {
@@ -21,6 +23,7 @@ pub async fn download(
             if file_id.is_empty() {
                 return Err(ClientError::InvalidFilePath.into());
             }
+            debug!("download_personal: file_id={}", file_id);
             download_personal(config, remote_path, &file_id, local_path, pb).await?;
         }
         StorageType::Family => {
@@ -108,6 +111,7 @@ async fn download_personal(
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
+    debug!("download_personal: 获取下载链接, url_len={}", download_url.len());
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {

@@ -1,6 +1,7 @@
 use crate::cli::commands::list::ListArgs as CliListArgs;
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, StorageType};
+use crate::debug;
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;
 use crate::utils::parse_personal_time;
@@ -53,6 +54,8 @@ async fn list_personal(
     } else {
         crate::client::api::get_file_id_by_path(&config, path).await?
     };
+
+    debug!("list_personal: path={}, parent_file_id={}, page_size={}", path, parent_file_id, page_size);
 
     let thumbnail_styles = if config.use_large_thumbnail {
         serde_json::json!(["Small", "Large", "Original"])
@@ -123,6 +126,7 @@ async fn list_personal(
         }
     }
 
+    debug!("list_personal: 返回 {} 个条目", all_items.len());
     Ok(ListResult {
         path: path.to_string(),
         total: all_items.len() as i32,
