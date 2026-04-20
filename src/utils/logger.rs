@@ -35,6 +35,15 @@ macro_rules! step {
     };
 }
 
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        if $crate::utils::logger::is_debug() {
+            println!("\x1b[90mdebug\x1b[0m {}", format!($($arg)*))
+        }
+    };
+}
+
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
 
 pub fn init_verbose(level: &str) {
@@ -56,6 +65,12 @@ mod tests {
         // OnceLock 只能 set 一次，测试顺序可能影响结果
         // 生产环境中 init_verbose 仅在 main.rs 中调用一次，不受影响
         let _ = is_debug();
+    }
+
+    #[test]
+    fn test_debug_macro_format() {
+        let msg = format!("value: {}", 42);
+        assert_eq!(msg, "value: 42");
     }
 
     #[test]
