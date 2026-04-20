@@ -1,6 +1,7 @@
 use clap::Parser;
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::io::IsTerminal;
+use std::time::Duration;
 
 use crate::client::StorageType;
 
@@ -35,17 +36,22 @@ pub struct UploadPartParams<'a> {
     pub total_size: i64,
 }
 
-fn make_upload_progress(file_name: &str, file_size: u64) -> Option<ProgressBar> {
+fn make_upload_progress(
+    mp: &MultiProgress,
+    file_name: &str,
+    file_size: u64,
+) -> Option<ProgressBar> {
     if !std::io::stderr().is_terminal() {
         return None;
     }
-    let pb = ProgressBar::new(file_size);
+    let pb = mp.add(ProgressBar::new(file_size));
     let style = ProgressStyle::with_template(
         "{msg} {bar:24.cyan/blue} {bytes}/{total_bytes} {bytes_per_sec} {eta}",
     )
     .unwrap_or_else(|_| ProgressStyle::default_bar());
     pb.set_style(style);
     pb.set_message(file_name.to_string());
+    pb.enable_steady_tick(Duration::from_millis(100));
     Some(pb)
 }
 
@@ -81,7 +87,8 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     );
     crate::debug!("文件大小: {} bytes", file_size);
 
-    let pb = make_upload_progress(file_name, file_size as u64);
+    let mp = MultiProgress::new();
+    let pb = make_upload_progress(&mp, file_name, file_size as u64);
 
     match storage_type {
         StorageType::PersonalNew => {

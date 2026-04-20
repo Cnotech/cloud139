@@ -78,20 +78,26 @@ pub async fn upload_single_part(
         .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
     let total_size = buffer.len();
+    const CHUNK_SIZE: usize = 64 * 1024;
 
-    // 将 buffer 分成 64KB 小块，reqwest 以流方式拉取每块时同步调用 pb.inc()，
-    // 实现与网络发送速率关联的实时进度更新（reqwest 内部有背压机制）。
-    const PROGRESS_CHUNK: usize = 64 * 1024; // 64 KB
-    let chunks: Vec<Vec<u8>> = buffer.chunks(PROGRESS_CHUNK).map(|c| c.to_vec()).collect();
+    // Bounded channel (capacity=1): producer blocks until hyper consumes the previous
+    // chunk from its send buffer, so pb.inc() fires in step with actual network sends.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
+    let owned: Vec<u8> = buffer.to_vec();
 
-    let stream = futures_util::stream::iter(chunks.into_iter().map(move |chunk| {
-        let n = chunk.len();
-        if let Some(ref p) = pb {
-            p.inc(n as u64);
+    tokio::spawn(async move {
+        for chunk in owned.chunks(CHUNK_SIZE) {
+            let n = chunk.len();
+            if tx.send(Ok(chunk.to_vec())).await.is_err() {
+                break;
+            }
+            if let Some(ref p) = pb {
+                p.inc(n as u64);
+            }
         }
-        Ok::<Vec<u8>, std::io::Error>(chunk)
-    }));
+    });
 
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     let body = reqwest::Body::wrap_stream(stream);
 
     let resp = reqwest::Client::new()
