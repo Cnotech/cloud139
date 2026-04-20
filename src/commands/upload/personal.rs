@@ -349,12 +349,14 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
             &params.pb,
         );
 
-        super::personal_parts::upload_single_part(&upload_urls, part_number, &buffer[..bytes_read])
-            .await?;
-
-        if let Some(pb) = &params.pb {
-            pb.inc(bytes_read as u64);
-        }
+        super::personal_parts::upload_single_part(
+            &upload_urls,
+            part_number,
+            &buffer[..bytes_read],
+            params.pb.clone(),
+        )
+        .await?;
+        // pb.inc() 由 upload_single_part 内的流式传输逐块完成，此处无需重复调用
     }
 
     super::personal_parts::confirm_upload(config, host, file_id, upload_id, content_hash).await

@@ -70,32 +70,44 @@ pub async fn upload_single_part(
     upload_urls: &std::collections::HashMap<i32, String>,
     part_number: i32,
     buffer: &[u8],
+    pb: Option<indicatif::ProgressBar>,
 ) -> Result<(), ClientError> {
-    use crate::error;
-
     let upload_url = upload_urls
         .get(&part_number)
         .cloned()
         .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
 
-    let buffer = buffer.to_vec();
-    let resp_code = tokio::task::spawn_blocking(move || {
-        ureq::put(&upload_url)
-            .header("Content-Type", "application/octet-stream")
-            .send(&buffer)
-            .map(|resp| resp.status().as_u16() as u32)
-            .unwrap_or_else(|e| {
-                error!("上传失败: {}", e);
-                0
-            })
-    })
-    .await
-    .map_err(|e| ClientError::Api(format!("上传任务失败: {}", e)))?;
+    let total_size = buffer.len();
 
-    if resp_code != 200 {
+    // 将 buffer 分成 64KB 小块，reqwest 以流方式拉取每块时同步调用 pb.inc()，
+    // 实现与网络发送速率关联的实时进度更新（reqwest 内部有背压机制）。
+    const PROGRESS_CHUNK: usize = 64 * 1024; // 64 KB
+    let chunks: Vec<Vec<u8>> = buffer.chunks(PROGRESS_CHUNK).map(|c| c.to_vec()).collect();
+
+    let stream = futures_util::stream::iter(chunks.into_iter().map(move |chunk| {
+        let n = chunk.len();
+        if let Some(ref p) = pb {
+            p.inc(n as u64);
+        }
+        Ok::<Vec<u8>, std::io::Error>(chunk)
+    }));
+
+    let body = reqwest::Body::wrap_stream(stream);
+
+    let resp = reqwest::Client::new()
+        .put(&upload_url)
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", total_size.to_string())
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| ClientError::Api(format!("分片 {} 上传失败: {}", part_number, e)))?;
+
+    let status = resp.status().as_u16();
+    if status != 200 {
         return Err(ClientError::Api(format!(
-            "分片 {} 上传失败: {}",
-            part_number, resp_code
+            "分片 {} 上传失败: HTTP {}",
+            part_number, status
         )));
     }
 
@@ -112,7 +124,7 @@ pub async fn confirm_upload(
     use crate::info;
     use crate::step;
 
-    step!("\n所有分片上传完成");
+    step!("所有分片上传完成");
 
     let complete_url = format!("{}/file/complete", host);
 

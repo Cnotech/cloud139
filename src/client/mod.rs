@@ -47,7 +47,8 @@ impl Client {
         cloud_id: Option<String>,
     ) -> Result<Self, ClientError> {
         let config = auth::login(&token, &storage_type, cloud_id.as_deref()).await?;
-        config.save()?;
+        // 注意：config.save() 不在此处调用。
+        // 持久化配置是调用方（commands/login.rs）的职责，避免测试副作用污染真实配置文件。
         Ok(Self::new(config))
     }
 
