@@ -7,6 +7,7 @@ pub mod headers;
 pub mod storage_type;
 
 use crate::client::endpoints::group;
+pub use crate::debug;
 pub use crate::info;
 pub use crate::utils::rand::{generate_rand_str, sort_json_value_to_string};
 pub use endpoints::family;
@@ -54,7 +55,7 @@ impl Client {
 
     pub async fn refresh_token_if_needed(&mut self) -> Result<(), ClientError> {
         if self.config.is_token_expired() {
-            info!("Token expired, refreshing...");
+            debug!("Token expired, refreshing...");
             let new_config = auth::refresh_token(&self.config).await?;
             new_config.save()?;
             self.config = new_config;

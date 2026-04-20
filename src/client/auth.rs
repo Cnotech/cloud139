@@ -1,7 +1,7 @@
 use crate::client::ClientError;
 use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
 use crate::config::Config;
-use crate::{info, warn};
+use crate::{debug, warn};
 use serde::Deserialize;
 
 pub async fn login(
@@ -9,7 +9,7 @@ pub async fn login(
     storage_type: &str,
     cloud_id: Option<&str>,
 ) -> Result<Config, ClientError> {
-    info!("正在解析 Token ...");
+    debug!("正在解析 Token ...");
 
     let (account, token_info, expire_time) = parse_token(token)?;
 
@@ -63,7 +63,7 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
 }
 
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
-    info!("Refreshing token for account: {}", config.account);
+    debug!("Refreshing token for account: {}", config.account);
 
     if let Err(e) = check_token_expiration(config) {
         warn!("Token may be expired or invalid: {}", e);
