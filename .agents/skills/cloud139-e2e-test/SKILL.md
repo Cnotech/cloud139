@@ -27,16 +27,7 @@ metadata:
 
 ### 2. 环境准备
 
-> ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请在 Git Bash 中调用 PowerShell 执行命令。
-
-**示例**：
-```powershell
-# 正确方式：调用 PowerShell
-powershell -Command "cd 'D:\Desktop\Projects\cloud139'; .\target\release\cloud139.exe ls /"
-
-# 错误方式：直接执行（Git Bash 会将 / 解析为 Windows 路径）
-./target/release/cloud139.exe ls /  # ❌ 会报错 "File or directory not found: C:"
-```
+> ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请配置环境变量 `MSYS_NO_PATHCONV=1`。
 
 首先编译项目，确保测试的代码是最新的：
 ```bash
