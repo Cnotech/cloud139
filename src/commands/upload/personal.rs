@@ -6,56 +6,49 @@ use std::io::{Read, Seek};
 // ── pb-aware 日志辅助 ────────────────────────────────────────────────────────
 // pb = None  → 独立 upload 命令，使用现有宏直接打印
 // pb = Some  → sync 模式，用 pb.println() 保证输出在进度条上方
-//   is_debug() = false → 只打印 warn/error，抑制 info/step/success
-//   is_debug() = true  → 所有日志通过 pb.println() 输出
+// pb_debug 仅在 is_debug()=true 时输出; 其他级别始终显示
+
+fn pb_debug(msg: &str, pb: &Option<ProgressBar>) {
+    if crate::utils::logger::is_debug() {
+        match pb {
+            None => crate::debug!("{}", msg),
+            Some(pb) => pb.println(format!("\x1b[90mdebug\x1b[0m {}", msg)),
+        }
+    }
+}
 
 fn pb_info(msg: &str, pb: &Option<ProgressBar>) {
     match pb {
         None => crate::info!("{}", msg),
-        Some(pb) if crate::utils::logger::is_debug() => {
-            pb.println(format!("\x1b[36minfo\x1b[0m {}", msg));
-        }
-        _ => {}
+        Some(pb) => pb.println(format!("\x1b[36minfo\x1b[0m {}", msg)),
     }
 }
 
 fn pb_step(msg: &str, pb: &Option<ProgressBar>) {
     match pb {
         None => crate::step!("{}", msg),
-        Some(pb) if crate::utils::logger::is_debug() => {
-            pb.println(format!("\x1b[34mstep\x1b[0m {}", msg));
-        }
-        _ => {}
+        Some(pb) => pb.println(format!("\x1b[34mstep\x1b[0m {}", msg)),
     }
 }
 
 fn pb_success(msg: &str, pb: &Option<ProgressBar>) {
     match pb {
         None => crate::success!("{}", msg),
-        Some(pb) if crate::utils::logger::is_debug() => {
-            pb.println(format!("\x1b[32msuccess\x1b[0m {}", msg));
-        }
-        _ => {}
+        Some(pb) => pb.println(format!("\x1b[32msuccess\x1b[0m {}", msg)),
     }
 }
 
 fn pb_warn(msg: &str, pb: &Option<ProgressBar>) {
     match pb {
         None => crate::warn!("{}", msg),
-        Some(pb) => {
-            // 警告始终显示，不受 is_debug() 控制
-            pb.println(format!("\x1b[33mwarn\x1b[0m {}", msg));
-        }
+        Some(pb) => pb.println(format!("\x1b[33mwarn\x1b[0m {}", msg)),
     }
 }
 
 fn pb_error(msg: &str, pb: &Option<ProgressBar>) {
     match pb {
         None => crate::error!("{}", msg),
-        Some(pb) => {
-            // 错误始终显示，不受 is_debug() 控制
-            pb.println(format!("\x1b[31merror\x1b[0m {}", msg));
-        }
+        Some(pb) => pb.println(format!("\x1b[31merror\x1b[0m {}", msg)),
     }
 }
 // ────────────────────────────────────────────────────────────────────────────
