@@ -1,5 +1,6 @@
 use crate::application::services::sync_service::format_action_line;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
+use crate::utils::logger::mp_error;
 use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -79,13 +80,14 @@ pub async fn execute_sync_actions(
                 merge_summary(&mut summary, summary_for_success(&action));
             }
             Ok((action, Err(err))) => {
-                multiprogress
-                    .println(format!("同步失败: {}: {}", action_rel_path(&action), err))
-                    .ok();
+                mp_error(
+                    &format!("同步失败: {}: {}", action_rel_path(&action), err),
+                    &multiprogress,
+                );
                 summary.failed += 1;
             }
             Err(e) if e.is_panic() => {
-                multiprogress.println("同步任务异常终止").ok();
+                mp_error("同步任务异常终止", &multiprogress);
                 summary.failed += 1;
             }
             Err(_) => {
@@ -146,7 +148,7 @@ async fn ensure_upload_parent_dir(
         if needs_create && let Err(e) = ensure_personal_cloud_dir(config, &dir).await {
             let mut cache_guard = cache.lock().await;
             cache_guard.remove(&dir);
-            mp.println(format!("创建云端目录失败: {}", e)).ok();
+            mp_error(&format!("创建云端目录失败: {}", e), mp);
             return Err(e);
         }
     }

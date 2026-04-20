@@ -1,58 +1,8 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
+use crate::utils::logger::{pb_debug, pb_step, pb_success, pb_warn, pb_error};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
-
-// ── pb-aware 日志辅助 ────────────────────────────────────────────────────────
-// pb = None  → 独立 upload 命令，使用现有宏直接打印
-// pb = Some  → sync 模式，用 pb.println() 保证输出在进度条上方
-// pb_debug 仅在 is_debug()=true 时输出; 其他级别始终显示
-
-#[allow(dead_code)]
-fn pb_debug(msg: &str, pb: &Option<ProgressBar>) {
-    if crate::utils::logger::is_debug() {
-        match pb {
-            None => crate::debug!("{}", msg),
-            Some(pb) => pb.println(format!("\x1b[90mdebug\x1b[0m {}", msg)),
-        }
-    }
-}
-
-fn pb_info(msg: &str, pb: &Option<ProgressBar>) {
-    match pb {
-        None => crate::info!("{}", msg),
-        Some(pb) => pb.println(format!("\x1b[36minfo\x1b[0m {}", msg)),
-    }
-}
-
-fn pb_step(msg: &str, pb: &Option<ProgressBar>) {
-    match pb {
-        None => crate::step!("{}", msg),
-        Some(pb) => pb.println(format!("\x1b[34mstep\x1b[0m {}", msg)),
-    }
-}
-
-fn pb_success(msg: &str, pb: &Option<ProgressBar>) {
-    match pb {
-        None => crate::success!("{}", msg),
-        Some(pb) => pb.println(format!("\x1b[32msuccess\x1b[0m {}", msg)),
-    }
-}
-
-fn pb_warn(msg: &str, pb: &Option<ProgressBar>) {
-    match pb {
-        None => crate::warn!("{}", msg),
-        Some(pb) => pb.println(format!("\x1b[33mwarn\x1b[0m {}", msg)),
-    }
-}
-
-fn pb_error(msg: &str, pb: &Option<ProgressBar>) {
-    match pb {
-        None => crate::error!("{}", msg),
-        Some(pb) => pb.println(format!("\x1b[31merror\x1b[0m {}", msg)),
-    }
-}
-// ────────────────────────────────────────────────────────────────────────────
 
 pub async fn upload(
     config: &crate::config::Config,

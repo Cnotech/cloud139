@@ -1,6 +1,7 @@
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
+use crate::warn;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -159,7 +160,7 @@ fn change_kind(
         // One or both checksums missing; mtime is unreliable for
         // LocalToCloud. Fall back to size-only comparison.
         if checksum {
-            log::warn!(
+            warn!(
                 "checksum 模式下云端缺少 checksum，回退到仅按文件大小比较: {}",
                 source.rel_path
             );
