@@ -5,6 +5,7 @@ use crate::application::services::sync_service::{
 };
 use crate::client::StorageType;
 use crate::domain::{SyncDirection, SyncEndpoint, SyncSummary};
+use crate::{debug, step, success, warn};
 use std::fmt;
 use std::io::IsTerminal;
 
@@ -110,8 +111,8 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             .filter(|e| e.checksum.is_none())
             .count();
         if missing_count > 0 {
-            eprintln!(
-                "警告: {} 个云端文件缺少校验和，将回退到大小+时间比对",
+            warn!(
+                "{} 个云端文件缺少校验和，将回退到大小+时间比对",
                 missing_count
             );
         }
@@ -134,7 +135,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             .iter()
             .filter(|action| !matches!(action, crate::domain::SyncAction::Skip { .. }))
         {
-            eprintln!("{}", format_action_line(action, true));
+            step!("{}", format_action_line(action, true));
         }
     }
 
@@ -160,7 +161,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 }
 
 fn print_summary(summary: &SyncSummary) {
-    eprintln!(
+    success!(
         "同步完成: {} 个文件传输, {} 个目录创建, {} 个删除, {} 个跳过, {} 个失败",
         summary.transferred,
         summary.created_dirs,
@@ -168,7 +169,7 @@ fn print_summary(summary: &SyncSummary) {
         summary.skipped,
         summary.failed
     );
-    eprintln!(
+    debug!(
         "transferred {} bytes in {} files",
         summary.bytes, summary.transferred
     );
