@@ -403,7 +403,10 @@ pub(crate) async fn ensure_personal_cloud_dir(config: &crate::config::Config, pa
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
     use crate::domain::ChangeKind;
+    use httpmock::prelude::*;
+    use serde_json::json;
     use std::collections::HashSet;
 
     #[tokio::test]
@@ -483,5 +486,104 @@ mod tests {
             },
         ];
         assert_eq!(count_skips(&actions), 2);
+    }
+
+    #[tokio::test]
+    async fn ensure_personal_cloud_dir_deletes_conflicting_file_before_create() {
+        let server = MockServer::start();
+        let mut config = Config::default();
+        config.authorization = "test-auth".to_string();
+        config.account = "13800138000".to_string();
+        config.storage_type = "personal".to_string();
+        config.personal_cloud_host = Some(server.url(""));
+
+        let list_for_existing = server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body(json!({
+                "imageThumbnailStyleList": ["Small", "Large"],
+                "orderBy": "updated_at",
+                "orderDirection": "DESC",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": 100
+                },
+                "parentFileId": "/"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "items": [
+                        {
+                            "fileId": "file_1",
+                            "name": "conflict",
+                            "size": 0,
+                            "type": "file"
+                        }
+                    ],
+                    "nextPageCursor": ""
+                }
+            }));
+        });
+
+        let list_for_delete_lookup = server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body(json!({
+                "parentFileId": "/",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": 100
+                },
+                "orderBy": "updated_at",
+                "orderDirection": "DESC"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "items": [
+                        {
+                            "fileId": "file_1",
+                            "name": "conflict",
+                            "size": 0,
+                            "type": "file"
+                        }
+                    ]
+                }
+            }));
+        });
+
+        let delete_file = server.mock(|when, then| {
+            when.method(POST)
+                .path("/recyclebin/batchTrash")
+                .json_body(json!({
+                    "fileIds": ["file_1"]
+                }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "message": "文件已移动到回收站"
+            }));
+        });
+
+        let create_dir = server.mock(|when, then| {
+            when.method(POST).path("/file/create").json_body(json!({
+                "parentFileId": "/",
+                "name": "conflict",
+                "description": "",
+                "type": "folder"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "fileId": "dir_1",
+                    "fileName": "conflict"
+                }
+            }));
+        });
+
+        ensure_personal_cloud_dir(&config, "/conflict")
+            .await
+            .expect("cloud dir creation should replace same-name file");
+
+        list_for_existing.assert_calls(1);
+        list_for_delete_lookup.assert_calls(1);
+        delete_file.assert_calls(1);
+        create_dir.assert_calls(1);
     }
 }
