@@ -129,7 +129,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         },
     );
 
-    if !is_tty && args.dry_run {
+    if args.dry_run {
         for action in actions
             .iter()
             .filter(|action| !matches!(action, crate::domain::SyncAction::Skip { .. }))
