@@ -1,6 +1,6 @@
 use crate::application::services::sync_service::format_action_line;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
-use crate::utils::logger::mp_error;
+use crate::utils::logger::{mp_error, mp_step};
 use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -75,7 +75,7 @@ pub async fn execute_sync_actions(
         match result {
             Ok((action, Ok(()))) => {
                 if options.print_actions {
-                    multiprogress.println(format_action_line(&action, false)).ok();
+                    mp_step(&format_action_line(&action, false), &multiprogress);
                 }
                 merge_summary(&mut summary, summary_for_success(&action));
             }
