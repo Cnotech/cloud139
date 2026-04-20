@@ -10,6 +10,12 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 
+/// 只有已存在的文件（SizeOrTime / Checksum 变更）才需要先删后传。
+/// 新文件（New）目标端不存在，pre-delete 是多余的 API 调用。
+pub fn should_pre_delete(change: crate::domain::ChangeKind) -> bool {
+    !matches!(change, crate::domain::ChangeKind::New)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct SyncExecuteOptions {
     pub dry_run: bool,
@@ -238,6 +244,7 @@ async fn execute_one_action(
         SyncAction::Upload {
             local_abs,
             remote_abs,
+            change,
             ..
         } => {
             let remote_dir = remote_parent(remote_abs);
@@ -245,7 +252,9 @@ async fn execute_one_action(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
-            crate::application::services::delete(config, remote_abs, true).await.ok();
+            if should_pre_delete(*change) {
+                crate::application::services::delete(config, remote_abs, true).await.ok();
+            }
             crate::commands::upload::personal::upload(
                 config,
                 local_abs,
