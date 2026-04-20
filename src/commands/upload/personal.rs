@@ -67,7 +67,7 @@ pub async fn upload(
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/create", host);
 
-    pb_info("计算文件哈希...", &pb);
+    pb_debug("计算文件哈希...", &pb);
     let (parent_file_id, content_hash) =
         prepare_upload(config.clone(), local_path, remote_path).await?;
 
@@ -105,7 +105,7 @@ pub async fn upload(
 
     if let Some(part_infos_response) = data.part_infos {
         if part_infos_response.is_empty() {
-            pb_warn("服务器未返回分片信息", &pb);
+            pb_debug("服务器未返回分片信息", &pb);
             pb_success(
                 &format!(
                     "上传完成: {}",
@@ -157,7 +157,7 @@ pub async fn upload(
             }
         }
     } else {
-        pb_warn("服务器未返回分片信息", &pb);
+        pb_debug("服务器未返回分片信息", &pb);
         pb_success(&format!("上传完成: {}", file_name), &pb);
         if let Some(ref pb_bar) = pb {
             pb_bar.finish_and_clear();
@@ -172,7 +172,6 @@ async fn prepare_upload(
     local_path: &std::path::Path,
     remote_path: &str,
 ) -> Result<(String, String), ClientError> {
-    // info!("计算文件哈希...") 已移到调用处（upload 函数），由 pb-aware 辅助函数控制
     let local_path_str = local_path
         .to_str()
         .ok_or_else(|| ClientError::InvalidSourcePath)?;
