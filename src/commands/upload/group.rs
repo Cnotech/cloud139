@@ -1,7 +1,7 @@
 use crate::client::ClientError;
 use crate::client::endpoints::group;
 use crate::commands::upload::UploadPartParams;
-use crate::{info, step, success};
+use crate::info;
 use indicatif::ProgressBar;
 use log::debug;
 use std::io::{Read, Seek};
