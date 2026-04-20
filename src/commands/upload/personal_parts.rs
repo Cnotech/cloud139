@@ -121,7 +121,7 @@ pub async fn confirm_upload(
     upload_id: &str,
     content_hash: &str,
 ) -> Result<(), ClientError> {
-    use crate::info;
+    use crate::debug;
     use crate::step;
 
     step!("所有分片上传完成");
@@ -145,7 +145,7 @@ pub async fn confirm_upload(
 
     if let Some(success_flag) = resp_json.get("success").and_then(|s| s.as_bool()) {
         if success_flag {
-            info!("完成响应: {:?}", resp_json);
+            debug!("完成响应: {:?}", resp_json);
         } else {
             let message = resp_json
                 .get("message")
@@ -154,7 +154,7 @@ pub async fn confirm_upload(
             return Err(ClientError::Api(format!("完成上传失败: {}", message)));
         }
     } else {
-        info!("完成响应: {:?}", resp_json);
+        debug!("完成响应: {:?}", resp_json);
     }
 
     Ok(())

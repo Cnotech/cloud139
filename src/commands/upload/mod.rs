@@ -79,7 +79,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         remote_dir,
         file_name
     );
-    crate::info!("文件大小: {} bytes", file_size);
+    crate::debug!("文件大小: {} bytes", file_size);
 
     let pb = make_upload_progress(file_name, file_size as u64);
 
