@@ -1,8 +1,7 @@
 use crate::client::endpoints::group;
 use crate::client::{Client, ClientError, StorageType};
-use crate::info;
 use crate::models::BatchCopyResp;
-use crate::{error, success, warn};
+use crate::{debug, error, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -123,7 +122,7 @@ async fn cp_family(
         .and_album_request("/copyContentCatalog", body)
         .await?;
 
-    info!("复制响应: {:?}", resp);
+    debug!("复制响应: {:?}", resp);
     Ok(())
 }
 

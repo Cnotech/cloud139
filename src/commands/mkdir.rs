@@ -1,6 +1,6 @@
 use crate::client::{Client, ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::{error, info, success, warn};
+use crate::{debug, error, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -153,7 +153,7 @@ async fn mkdir_family(
     let client = Client::new(config.clone());
     let resp: serde_json::Value = client.api_request_post(url, body).await?;
 
-    info!("创建目录响应: {:?}", resp);
+    debug!("创建目录响应: {:?}", resp);
     Ok(())
 }
 
