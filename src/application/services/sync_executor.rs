@@ -266,6 +266,10 @@ async fn execute_one_action(
             if let Some(parent) = local_abs.parent() {
                 tokio::fs::create_dir_all(parent).await?;
             }
+            // If target exists as a directory, remove it first to replace with file
+            if local_abs.is_dir() {
+                tokio::fs::remove_dir_all(local_abs).await?;
+            }
             crate::application::services::download(
                 config,
                 remote_abs,
@@ -298,7 +302,12 @@ async fn execute_one_action(
                 ensure_personal_cloud_dir(config, target_abs).await?;
             }
             SyncTarget::Local => {
-                tokio::fs::create_dir_all(Path::new(target_abs)).await?;
+                let path = Path::new(target_abs);
+                // If target exists as a file, remove it first to replace with directory
+                if path.is_file() {
+                    tokio::fs::remove_file(path).await?;
+                }
+                tokio::fs::create_dir_all(path).await?;
             }
         },
         SyncAction::Skip { .. } => {}
