@@ -70,7 +70,7 @@ pub async fn upload(
             let file_id_val = data.file_id.clone().unwrap_or_default();
             let file_name_val = data.file_name.clone();
 
-            pb_step("开始分片上传...", &pb);
+            pb_debug("开始分片上传...", &pb);
             upload_parts(UploadPartsParams {
                 config: &config,
                 host: &host,
@@ -287,7 +287,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         }
 
         let part_number = (i + 1) as i32;
-        pb_step(
+        pb_debug(
             &format!("上传分片 {}/{}", part_number, part_count),
             &params.pb,
         );

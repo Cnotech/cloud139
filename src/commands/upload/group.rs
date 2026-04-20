@@ -3,6 +3,7 @@ use crate::client::endpoints::group;
 use crate::commands::upload::UploadPartParams;
 use crate::{info, step, success};
 use indicatif::ProgressBar;
+use log::debug;
 use std::io::{Read, Seek};
 
 pub async fn upload(
@@ -57,7 +58,7 @@ pub async fn upload(
     )
     .await?;
 
-    success!("上传完成!");
+    debug!("上传完成!");
     Ok(())
 }
 
@@ -122,7 +123,7 @@ async fn upload_file(
         }
 
         let part_number = i + 1;
-        step!("上传分片 {}/{}", part_number, part_count);
+        debug!("上传分片 {}/{}", part_number, part_count);
 
         upload_part(&UploadPartParams {
             upload_url,

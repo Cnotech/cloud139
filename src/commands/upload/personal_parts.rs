@@ -124,7 +124,7 @@ pub async fn confirm_upload(
     use crate::debug;
     use crate::step;
 
-    step!("所有分片上传完成");
+    debug!("所有分片上传完成");
 
     let complete_url = format!("{}/file/complete", host);
 
