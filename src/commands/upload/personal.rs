@@ -8,6 +8,7 @@ use std::io::{Read, Seek};
 // pb = Some  → sync 模式，用 pb.println() 保证输出在进度条上方
 // pb_debug 仅在 is_debug()=true 时输出; 其他级别始终显示
 
+#[allow(dead_code)]
 fn pb_debug(msg: &str, pb: &Option<ProgressBar>) {
     if crate::utils::logger::is_debug() {
         match pb {
