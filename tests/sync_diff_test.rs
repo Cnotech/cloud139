@@ -1,7 +1,9 @@
 use cloud139::application::services::sync_service::{
-    compute_diff, format_action_line, SyncDiffOptions,
+    SyncDiffOptions, compute_diff, format_action_line,
 };
-use cloud139::domain::{ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget};
+use cloud139::domain::{
+    ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
+};
 
 fn entry(path: &str, size: u64, mtime: i64, checksum: Option<&str>) -> FileEntry {
     FileEntry {
@@ -97,7 +99,9 @@ fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
 
     // Should create directory, not skip
     assert!(
-        actions.iter().any(|a| matches!(a, SyncAction::CreateDir { rel_path, .. } if rel_path == "conflict")),
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::CreateDir { rel_path, .. } if rel_path == "conflict")),
         "Expected CreateDir action for local dir vs cloud file, got: {:?}",
         actions
     );
@@ -121,7 +125,9 @@ fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
 
     // Should upload file, not skip
     assert!(
-        actions.iter().any(|a| matches!(a, SyncAction::Upload { rel_path, .. } if rel_path == "conflict")),
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::Upload { rel_path, .. } if rel_path == "conflict")),
         "Expected Upload action for local file vs cloud dir, got: {:?}",
         actions
     );
@@ -163,8 +169,12 @@ fn test_compute_diff_creates_missing_directory_before_files() {
         },
     );
 
-    assert!(matches!(actions[0], SyncAction::CreateDir { ref rel_path, .. } if rel_path == "empty"));
-    assert!(matches!(actions[1], SyncAction::Upload { ref rel_path, .. } if rel_path == "empty/file.txt"));
+    assert!(
+        matches!(actions[0], SyncAction::CreateDir { ref rel_path, .. } if rel_path == "empty")
+    );
+    assert!(
+        matches!(actions[1], SyncAction::Upload { ref rel_path, .. } if rel_path == "empty/file.txt")
+    );
 }
 
 #[test]
@@ -181,7 +191,9 @@ fn test_compute_diff_deletes_empty_directory_after_children() {
         },
     );
 
-    assert!(matches!(actions[0], SyncAction::Delete { ref rel_path, .. } if rel_path == "old/file.txt"));
+    assert!(
+        matches!(actions[0], SyncAction::Delete { ref rel_path, .. } if rel_path == "old/file.txt")
+    );
     assert!(matches!(actions[1], SyncAction::Delete { ref rel_path, .. } if rel_path == "old"));
 }
 

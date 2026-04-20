@@ -1,15 +1,15 @@
 use crate::application::services::sync_service::format_action_line;
-use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::debug;
+use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::utils::logger::{mp_error, mp_step};
 use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::time::Duration;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
 
 /// 只有已存在的文件（SizeOrTime / Checksum 变更）才需要先删后传。
@@ -31,9 +31,15 @@ pub async fn execute_sync_actions(
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
-    debug!("execute_sync_actions: {} 个动作, dry_run={}, jobs={}",
-        actions.iter().filter(|a| !matches!(a, SyncAction::Skip { .. })).count(),
-        options.dry_run, options.jobs);
+    debug!(
+        "execute_sync_actions: {} 个动作, dry_run={}, jobs={}",
+        actions
+            .iter()
+            .filter(|a| !matches!(a, SyncAction::Skip { .. }))
+            .count(),
+        options.dry_run,
+        options.jobs
+    );
     if options.dry_run {
         return Ok(summarize_actions(&actions));
     }
@@ -64,7 +70,8 @@ pub async fn execute_sync_actions(
                 return (action, Err(e));
             }
 
-            let result = execute_one_action(&config, &action, pb, Some(&dir_cache), Some(&mp)).await;
+            let result =
+                execute_one_action(&config, &action, pb, Some(&dir_cache), Some(&mp)).await;
             drop(permit);
             (action, result)
         }));
@@ -278,7 +285,9 @@ async fn execute_one_action(
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             if should_pre_delete(*change) {
-                crate::application::services::delete(config, remote_abs, true).await.ok();
+                crate::application::services::delete(config, remote_abs, true)
+                    .await
+                    .ok();
             }
             crate::commands::upload::personal::upload(
                 config,
@@ -331,7 +340,9 @@ async fn execute_one_action(
                 crate::application::services::delete(config, target_abs, false).await?;
             }
         },
-        SyncAction::CreateDir { target, target_abs, .. } => match target {
+        SyncAction::CreateDir {
+            target, target_abs, ..
+        } => match target {
             SyncTarget::Cloud => {
                 if let Some(cache) = dir_cache {
                     ensure_personal_cloud_dir_cached(config, target_abs, cache, mp).await?;
@@ -362,7 +373,10 @@ fn remote_parent(remote_abs: &str) -> String {
     }
 }
 
-pub(crate) async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -> Result<()> {
+pub(crate) async fn ensure_personal_cloud_dir(
+    config: &crate::config::Config,
+    path: &str,
+) -> Result<()> {
     let (parent, name) = crate::commands::mkdir::parse_path(path)?;
     let config = config.clone();
 

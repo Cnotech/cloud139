@@ -15,7 +15,12 @@ pub async fn download(
     pb: Option<ProgressBar>,
 ) -> Result<()> {
     let storage_type = config.storage_type();
-    debug!("download: remote={}, local={}, storage={}", remote_path, local_path, storage_type.as_str());
+    debug!(
+        "download: remote={}, local={}, storage={}",
+        remote_path,
+        local_path,
+        storage_type.as_str()
+    );
 
     match storage_type {
         StorageType::PersonalNew => {
@@ -111,7 +116,10 @@ async fn download_personal(
     if download_url.is_empty() {
         return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
     }
-    debug!("download_personal: 获取下载链接, url_len={}", download_url.len());
+    debug!(
+        "download_personal: 获取下载链接, url_len={}",
+        download_url.len()
+    );
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {

@@ -70,8 +70,12 @@ pub fn compute_diff(
     target: &[FileEntry],
     options: SyncDiffOptions,
 ) -> Vec<SyncAction> {
-    debug!("compute_diff: source={} entries, target={} entries, direction={:?}",
-        source.len(), target.len(), options.direction);
+    debug!(
+        "compute_diff: source={} entries, target={} entries, direction={:?}",
+        source.len(),
+        target.len(),
+        options.direction
+    );
     let source_by_path: BTreeMap<&str, &FileEntry> = source
         .iter()
         .map(|item| (item.rel_path.as_str(), item))
@@ -127,12 +131,18 @@ pub fn compute_diff(
     }
 
     actions.sort_by_key(|action| match action {
-        SyncAction::CreateDir { rel_path, .. } => (0, rel_path.matches('/').count(), rel_path.clone()),
+        SyncAction::CreateDir { rel_path, .. } => {
+            (0, rel_path.matches('/').count(), rel_path.clone())
+        }
         SyncAction::Upload { rel_path, .. } | SyncAction::Download { rel_path, .. } => {
             (1, rel_path.matches('/').count(), rel_path.clone())
         }
         SyncAction::Skip { rel_path } => (2, rel_path.matches('/').count(), rel_path.clone()),
-        SyncAction::Delete { rel_path, .. } => (3, usize::MAX - rel_path.matches('/').count(), rel_path.clone()),
+        SyncAction::Delete { rel_path, .. } => (
+            3,
+            usize::MAX - rel_path.matches('/').count(),
+            rel_path.clone(),
+        ),
     });
 
     debug!("compute_diff: 生成 {} 个动作", actions.len());
@@ -464,10 +474,10 @@ pub fn personal_item_to_file_entry(
         format!("{}/{}", rel_parent.trim_matches('/'), name)
     };
 
-    let checksum = if checksum
-        && item.content_hash_algorithm.as_deref() == Some("SHA256")
-    {
-        item.content_hash.clone().map(|value| value.to_ascii_lowercase())
+    let checksum = if checksum && item.content_hash_algorithm.as_deref() == Some("SHA256") {
+        item.content_hash
+            .clone()
+            .map(|value| value.to_ascii_lowercase())
     } else {
         None
     };
@@ -630,9 +640,11 @@ fn scan_cloud_personal_dir_inner<'a>(
                         }
                     }
                 } else {
-                    let mut entry = personal_item_to_file_entry(rel_parent, &item, options.checksum)?;
+                    let mut entry =
+                        personal_item_to_file_entry(rel_parent, &item, options.checksum)?;
 
-                    if options.checksum && entry.checksum.is_none()
+                    if options.checksum
+                        && entry.checksum.is_none()
                         && let Some(file_id) = item.file_id.as_deref()
                         && let Ok(detail) =
                             crate::client::api::get_personal_file_detail(config, file_id).await

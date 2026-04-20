@@ -55,7 +55,10 @@ async fn list_personal(
         crate::client::api::get_file_id_by_path(&config, path).await?
     };
 
-    debug!("list_personal: path={}, parent_file_id={}, page_size={}", path, parent_file_id, page_size);
+    debug!(
+        "list_personal: path={}, parent_file_id={}, page_size={}",
+        path, parent_file_id, page_size
+    );
 
     let thumbnail_styles = if config.use_large_thumbnail {
         serde_json::json!(["Small", "Large", "Original"])

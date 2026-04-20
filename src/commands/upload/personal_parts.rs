@@ -122,7 +122,6 @@ pub async fn confirm_upload(
     content_hash: &str,
 ) -> Result<(), ClientError> {
     use crate::debug;
-    
 
     debug!("所有分片上传完成");
 

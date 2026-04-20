@@ -220,7 +220,10 @@ pub async fn check_file_exists_with_client(
     file_name: &str,
     http_client: &HttpClientWrapper,
 ) -> Result<bool, ClientError> {
-    debug!("check_file_exists: parent={}, name={}", parent_file_id, file_name);
+    debug!(
+        "check_file_exists: parent={}, name={}",
+        parent_file_id, file_name
+    );
     let files = list_personal_files_with_client(config, parent_file_id, http_client).await?;
     let exists = files.iter().any(|f| f.name.as_deref() == Some(file_name));
     debug!("check_file_exists: result={}", exists);
@@ -273,7 +276,10 @@ pub async fn list_personal_files_with_client(
                 all_items.extend(data.items);
                 next_cursor = data.next_page_cursor.unwrap_or_default();
                 if next_cursor.is_empty() {
-                    debug!("list_personal_files: 获取 {} 个条目, 无更多页", all_items.len());
+                    debug!(
+                        "list_personal_files: 获取 {} 个条目, 无更多页",
+                        all_items.len()
+                    );
                     break;
                 }
             }
@@ -316,7 +322,11 @@ pub async fn get_family_download_link(
         .unwrap_or("")
         .to_string();
 
-    debug!("get_family_download_link: content_id={}, url_len={}", content_id, url.len());
+    debug!(
+        "get_family_download_link: content_id={}, url_len={}",
+        content_id,
+        url.len()
+    );
     Ok(url)
 }
 
@@ -350,7 +360,11 @@ pub async fn get_group_download_link(
         .unwrap_or("")
         .to_string();
 
-    debug!("get_group_download_link: content_id={}, url_len={}", content_id, url.len());
+    debug!(
+        "get_group_download_link: content_id={}, url_len={}",
+        content_id,
+        url.len()
+    );
     Ok(url)
 }
 
@@ -428,7 +442,10 @@ pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, Clien
         .and_then(|v| v.as_str())
         && !parent_catalog_id.is_empty()
     {
-        debug!("get_group_root_by_cloud_id: parentCatalogID={}", parent_catalog_id);
+        debug!(
+            "get_group_root_by_cloud_id: parentCatalogID={}",
+            parent_catalog_id
+        );
         return Ok(parent_catalog_id.to_string());
     }
 
@@ -463,7 +480,10 @@ pub async fn get_personal_file_detail(
         personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
 
     if !resp.base.success {
-        let msg = resp.base.message.unwrap_or_else(|| "获取文件详情失败".to_string());
+        let msg = resp
+            .base
+            .message
+            .unwrap_or_else(|| "获取文件详情失败".to_string());
         return Err(ClientError::Api(msg));
     }
 
@@ -493,7 +513,10 @@ pub async fn get_personal_download_link(
         .to_string();
 
     if !cdn_url.is_empty() {
-        debug!("get_personal_download_link: 使用CDN链接, url_len={}", cdn_url.len());
+        debug!(
+            "get_personal_download_link: 使用CDN链接, url_len={}",
+            cdn_url.len()
+        );
         return Ok(cdn_url);
     }
 
@@ -503,6 +526,9 @@ pub async fn get_personal_download_link(
         .unwrap_or("")
         .to_string();
 
-    debug!("get_personal_download_link: 使用普通链接, url_len={}", url.len());
+    debug!(
+        "get_personal_download_link: 使用普通链接, url_len={}",
+        url.len()
+    );
     Ok(url)
 }

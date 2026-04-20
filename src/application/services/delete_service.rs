@@ -8,7 +8,12 @@ use anyhow::Result;
 /// 删除文件服务
 pub async fn delete(config: &Config, path: &str, permanent: bool) -> Result<()> {
     let storage_type = config.storage_type();
-    debug!("delete: path={}, permanent={}, storage={}", path, permanent, storage_type.as_str());
+    debug!(
+        "delete: path={}, permanent={}, storage={}",
+        path,
+        permanent,
+        storage_type.as_str()
+    );
 
     match storage_type {
         StorageType::PersonalNew => delete_personal(config, path, permanent).await?,

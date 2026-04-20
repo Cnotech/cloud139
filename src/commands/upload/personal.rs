@@ -1,6 +1,6 @@
 use crate::client::{ClientError, StorageType};
 use crate::models::PersonalUploadResp;
-use crate::utils::logger::{pb_debug, pb_step, pb_success, pb_warn, pb_error};
+use crate::utils::logger::{pb_debug, pb_error, pb_step, pb_success, pb_warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
