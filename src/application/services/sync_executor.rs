@@ -60,7 +60,7 @@ pub async fn execute_sync_actions(
                 return (action, Err(e));
             }
 
-            let result = execute_one_action(&config, &action, pb).await;
+            let result = execute_one_action(&config, &action, pb, Some(&dir_cache), Some(&mp)).await;
             drop(permit);
             (action, result)
         }));
@@ -135,22 +135,39 @@ async fn ensure_upload_parent_dir(
     // unnecessary. Only the failed dir itself is removed from the cache so
     // that a future retry can attempt it again.
     for dir in dirs_to_ensure {
-        let needs_create = {
-            let mut cache_guard = cache.lock().await;
-            if cache_guard.contains(&dir) {
-                false
-            } else {
-                cache_guard.insert(dir.clone());
-                true
-            }
-        };
+        ensure_personal_cloud_dir_cached(config, &dir, cache, Some(mp)).await?;
+    }
 
-        if needs_create && let Err(e) = ensure_personal_cloud_dir(config, &dir).await {
-            let mut cache_guard = cache.lock().await;
-            cache_guard.remove(&dir);
-            mp_error(&format!("创建云端目录失败: {}", e), mp);
-            return Err(e);
+    Ok(())
+}
+
+async fn ensure_personal_cloud_dir_cached(
+    config: &crate::config::Config,
+    path: &str,
+    cache: &Arc<Mutex<HashSet<String>>>,
+    mp: Option<&MultiProgress>,
+) -> Result<()> {
+    let needs_create = {
+        let mut cache_guard = cache.lock().await;
+        if cache_guard.contains(path) {
+            false
+        } else {
+            cache_guard.insert(path.to_string());
+            true
         }
+    };
+
+    if !needs_create {
+        return Ok(());
+    }
+
+    if let Err(e) = ensure_personal_cloud_dir(config, path).await {
+        let mut cache_guard = cache.lock().await;
+        cache_guard.remove(path);
+        if let Some(mp) = mp {
+            mp_error(&format!("创建云端目录失败: {}", e), mp);
+        }
+        return Err(e);
     }
 
     Ok(())
@@ -241,6 +258,8 @@ async fn execute_one_action(
     config: &crate::config::Config,
     action: &SyncAction,
     pb: Option<ProgressBar>,
+    dir_cache: Option<&Arc<Mutex<HashSet<String>>>>,
+    mp: Option<&MultiProgress>,
 ) -> Result<()> {
     match action {
         SyncAction::Upload {
@@ -310,7 +329,11 @@ async fn execute_one_action(
         },
         SyncAction::CreateDir { target, target_abs, .. } => match target {
             SyncTarget::Cloud => {
-                ensure_personal_cloud_dir(config, target_abs).await?;
+                if let Some(cache) = dir_cache {
+                    ensure_personal_cloud_dir_cached(config, target_abs, cache, mp).await?;
+                } else {
+                    ensure_personal_cloud_dir(config, target_abs).await?;
+                }
             }
             SyncTarget::Local => {
                 let path = Path::new(target_abs);
@@ -595,6 +618,126 @@ mod tests {
         list_for_existing.assert_calls(1);
         list_for_delete_lookup.assert_calls(1);
         delete_file.assert_calls(1);
+        create_dir.assert_calls(1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_create_dir_and_upload_parent_ensure_only_create_once() {
+        let server = MockServer::start();
+        let mut config = Config::default();
+        config.authorization = "test-auth".to_string();
+        config.account = "13800138000".to_string();
+        config.storage_type = "personal".to_string();
+        config.personal_cloud_host = Some(server.url(""));
+
+        let root_list = server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body(json!({
+                "parentFileId": "/",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": 100
+                },
+                "orderBy": "updated_at",
+                "orderDirection": "DESC"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "items": [
+                        {
+                            "fileId": "dir_remote",
+                            "name": "remote",
+                            "size": 0,
+                            "type": "folder"
+                        }
+                    ],
+                    "nextPageCursor": ""
+                }
+            }));
+        });
+
+        let root_existing_list = server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body(json!({
+                "imageThumbnailStyleList": ["Small", "Large"],
+                "orderBy": "updated_at",
+                "orderDirection": "DESC",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": 100
+                },
+                "parentFileId": "/"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "items": [
+                        {
+                            "fileId": "dir_remote",
+                            "name": "remote",
+                            "size": 0,
+                            "type": "folder"
+                        }
+                    ],
+                    "nextPageCursor": ""
+                }
+            }));
+        });
+
+        let remote_list = server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body(json!({
+                "imageThumbnailStyleList": ["Small", "Large"],
+                "orderBy": "updated_at",
+                "orderDirection": "DESC",
+                "pageInfo": {
+                    "pageCursor": "",
+                    "pageSize": 100
+                },
+                "parentFileId": "dir_remote"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "items": [],
+                    "nextPageCursor": ""
+                }
+            }));
+        });
+
+        let create_dir = server.mock(|when, then| {
+            when.method(POST).path("/file/create").json_body(json!({
+                "parentFileId": "dir_remote",
+                "name": "docs",
+                "description": "",
+                "type": "folder"
+            }));
+            then.status(200).json_body(json!({
+                "success": true,
+                "data": {
+                    "fileId": "dir_docs",
+                    "fileName": "docs"
+                }
+            }));
+        });
+
+        let cache: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+        let mp = MultiProgress::new();
+        let create_action = SyncAction::CreateDir {
+            rel_path: "docs".to_string(),
+            target: SyncTarget::Cloud,
+            target_abs: "/remote/docs".to_string(),
+        };
+
+        let (parent_result, create_result) = tokio::join!(
+            ensure_upload_parent_dir(&config, "/remote/docs/file.txt", &cache, &mp),
+            execute_one_action(&config, &create_action, None, Some(&cache), Some(&mp)),
+        );
+
+        parent_result.expect("upload parent ensure should succeed");
+        create_result.expect("create dir action should succeed");
+
+        root_list.assert_calls(1);
+        root_existing_list.assert_calls(1);
+        remote_list.assert_calls(1);
         create_dir.assert_calls(1);
     }
 }
