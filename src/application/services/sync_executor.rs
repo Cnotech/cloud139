@@ -324,10 +324,9 @@ fn remote_parent(remote_abs: &str) -> String {
     }
 }
 
-async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -> Result<()> {
+pub(crate) async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -> Result<()> {
     let (parent, name) = crate::commands::mkdir::parse_path(path)?;
-    let mut config = config.clone();
-    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
+    let config = config.clone();
 
     let parent_file_id = if parent == "/" {
         "/".to_string()
@@ -340,11 +339,29 @@ async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -
         }
     };
 
-    // 先检查目录是否已存在，避免云端因重名自动添加时间戳后缀
-    let exists = crate::client::api::check_file_exists(&config, &parent_file_id, &name).await?;
-    if exists {
-        return Ok(());
+    // 查找同名条目并判断类型
+    let existing = crate::client::api::list_personal_files(&config, &parent_file_id)
+        .await?
+        .into_iter()
+        .find(|item| item.name.as_deref() == Some(&name));
+
+    if let Some(item) = existing {
+        if crate::application::services::sync_service::should_treat_personal_item_as_folder(&item) {
+            // 同名条目已经是目录，无需操作
+            return Ok(());
+        }
+        // 同名条目是文件，先删除再创建目录
+        let full_path = if parent == "/" {
+            format!("/{}", name)
+        } else {
+            format!("{}/{}", parent.trim_end_matches('/'), name)
+        };
+        crate::application::services::delete(&config, &full_path, false).await?;
     }
+
+    // 创建目录
+    let mut config_for_create = config.clone();
+    let host = crate::client::api::get_personal_cloud_host(&mut config_for_create).await?;
 
     let body = serde_json::json!({
         "parentFileId": parent_file_id,
@@ -354,7 +371,7 @@ async fn ensure_personal_cloud_dir(config: &crate::config::Config, path: &str) -
     });
 
     let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(
-        &config,
+        &config_for_create,
         &format!("{}/file/create", host),
         body,
         crate::client::StorageType::PersonalNew,
