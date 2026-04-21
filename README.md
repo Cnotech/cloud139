@@ -85,40 +85,12 @@ cloud139 cp /remote/source/file.txt /remote/destination
 # 重命名
 # rename [远程文件路径] [新文件名]
 cloud139 rename /remote/oldname.txt newname.txt
-```
 
-### sync
-
-同步本地目录和云端目录（仅支持个人云）。
-
-```bash
-cloud139 sync <SRC> <DEST> [OPTIONS]
-```
-
-**参数说明：**
-
-| 参数 | 简写 | 说明 |
-|------|------|------|
-| 源路径 | - | 本地路径或云端路径（cloud:/path） |
-| 目标路径 | - | 本地路径或云端路径 |
-| --recursive | -r | 递归同步子目录，空目录也会同步 |
-| --dry-run | -n | 演习模式，只输出操作计划 |
-| --delete | - | 删除目标中源没有的文件或空目录 |
-| --checksum | - | 优先用校验和做对比；个人云场景下使用 SHA-256，缺失时回退到大小和时间 |
-| --exclude | - | 排除匹配的路径，可多次指定 |
-| --jobs | -j | 并发传输数量上限，默认4 |
-
-**示例：**
-
-```bash
-# 本地到云端同步
-cloud139 sync ./backup cloud:/backup -r --delete -j 8
-
-# 云端到本地同步（先预览）
-cloud139 sync cloud:/photos ./photos -r -n
-
-# 排除特定文件
-cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
+# 同步
+# sync [本地路径] [cloud:远程路径]
+# sync [cloud:远程路径] [本地路径]
+cloud139 sync ./local/path cloud:/remote/path
+cloud139 sync cloud:/remote/path ./local/path -r
 ```
 
 ## 全局选项
@@ -338,6 +310,54 @@ cloud139 rename <源路径> <新名称>
 ```bash
 cloud139 rename /oldname.txt newname.txt
 cloud139 rename /folder/old newname
+```
+
+### sync
+
+同步本地目录和云端目录。
+
+```bash
+cloud139 sync <SRC> <DEST> [OPTIONS]
+```
+
+**同步方向：**
+
+- **本地 → 云端**：`cloud139 sync <本地路径> cloud:/<远程路径>`
+- **云端 → 本地**：`cloud139 sync cloud:/<远程路径> <本地路径>`
+
+> 云端路径需使用 `cloud:` 前缀标识。
+
+**文件比对逻辑：**
+
+默认通过文件大小和修改时间判断文件是否需要同步。启用 `--checksum` 时，优先使用 SHA-256 校验和进行比对；如果云端文件缺少校验和信息，则自动回退到大小和时间比对。
+
+**参数说明：**
+
+| 参数 | 简写 | 说明 |
+|------|------|------|
+| 源路径 | - | 本地路径或云端路径（`cloud:/path`） |
+| 目标路径 | - | 本地路径或云端路径 |
+| --recursive | -r | 递归同步子目录，空目录也会同步 |
+| --dry-run | -n | 演习模式，只输出操作计划，不执行实际同步 |
+| --delete | - | 删除目标中源没有的文件或空目录 |
+| --checksum | - | 优先用校验和（SHA-256）替代大小和修改时间做比对 |
+| --exclude | - | 排除匹配的路径（glob 模式），可多次指定 |
+| --jobs | -j | 并发传输数量上限，默认 4 |
+
+**示例：**
+
+```bash
+# 本地到云端同步（递归、删除目标多余文件、8并发）
+cloud139 sync ./backup cloud:/backup -r --delete -j 8
+
+# 云端到本地同步（先演习预览）
+cloud139 sync cloud:/photos ./photos -r -n
+
+# 排除特定文件或目录
+cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
+
+# 使用校验和进行精确比对
+cloud139 sync ./docs cloud:/docs -r --checksum
 ```
 
 ## 配置文件
