@@ -193,11 +193,12 @@ fi
 | 1.2.1 | `./target/release/cloud139.exe login --token <expired_or_invalid_token>` | **边界**：`ls /` 校验失败，输出 Token 可能已过期的警告，退出码为 1，配置文件被删除 |
 | 1.2.2 | `./target/release/cloud139.exe login --token <valid_token>` | 登录成功：内部自动执行 `ls /`，输出 `Token 验证成功!`，退出码为 0 |
 
-> **步骤 1.2.1 说明**：可以通过篡改有效 token 的最后几位字符来模拟无效 token。预期输出包含：
+> **步骤 1.2.1 说明**：将有效 token 倒数第 10~20 位之间的任意一个字符替换为另一个不同的 Base64 合法字符（A-Z、a-z、0-9、+、/）。这样 Base64 解码仍能通过，但 token 内容被篡改，服务端校验签名或 payload 时会拒绝，预期输出：
 > ```
 > ⚠ ls / 执行失败，Token 可能已过期或无效: ...
 > ⚠ 请重新获取 Token 后再次登录
 > ```
+> 例如原始 token 的某一位是 `a`，将其改为 `b`。
 
 #### 阶段 2: 列表测试 (ls)
 
@@ -212,7 +213,7 @@ fi
 | 2.7 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 1 -s 25` | 分页：单页返回全部25条记录，验证总数 |
 | 2.8 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -o ls_result.json` | 结果输出为 JSON 文件，文件内容有效且包含目录条目 |
 | 2.9 | `cat ls_result.json` | 验证 JSON 文件结构正确（包含 `name`、`type`、`size` 等字段） |
-| 2.10 | `./target/release/cloud139.exe ls / -v debug` | 全局 `-v` 选项生效，控制台应输出 `DEBUG` 级别日志 |
+| 2.10 | `./target/release/cloud139.exe -v debug ls /` | 全局 `-v` 选项生效，控制台应输出 `DEBUG` 级别日志 |
 
 #### 阶段 3: 上传测试 (upload)
 
@@ -370,7 +371,7 @@ rm -rf cloud139_e2e_download_test
 | 8.4 | `./target/release/cloud139.exe mv /README_copy.md /not_exist_dir/` | **边界**：目标不存在 |
 | 8.5 | `./target/release/cloud139.exe mv / /somewhere` | **边界**：不能移动根目录 |
 | 8.6 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录；当前实现个人云下会直接移动成功（云端自动重命名），退出码为 0 |
-| 8.7 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/ --force` | 强制移动，云端会自动重命名 |
+| 8.7 | `echo "re-upload readme" > README.md && ./target/release/cloud139.exe upload README.md / && ./target/release/cloud139.exe mv /README.md /e2e_test_xxx/ --force` | 先重新上传 README.md，再强制移动，云端会自动重命名 |
 | 8.8 | `echo "mv_multi_1" > mv_multi_1.txt && ./target/release/cloud139.exe upload mv_multi_1.txt /e2e_test_xxx/ && echo "mv_multi_2" > mv_multi_2.txt && ./target/release/cloud139.exe upload mv_multi_2.txt /e2e_test_xxx/` | 准备：上传多个文件用于批量移动测试 |
 | 8.9 | `./target/release/cloud139.exe mv /e2e_test_xxx/mv_multi_1.txt /e2e_test_xxx/mv_multi_2.txt /e2e_test_xxx/subdir/` | 同时移动多个文件到目标目录 |
 | 8.10 | `./target/release/cloud139.exe ls /e2e_test_xxx/subdir` | 目标目录应包含 mv_multi_1.txt 和 mv_multi_2.txt |
