@@ -26,7 +26,7 @@ pub async fn list(
     let storage_type = config.storage_type();
 
     match storage_type {
-        StorageType::PersonalNew => list_personal(config, &path, args.page_size).await,
+        StorageType::PersonalNew => list_personal(config, &path, args.page, args.page_size).await,
         StorageType::Family => list_family(config, &path, args.page, args.page_size).await,
         StorageType::Group => list_group(config, &path, args.page, args.page_size).await,
     }
@@ -35,6 +35,7 @@ pub async fn list(
 async fn list_personal(
     config: &crate::config::Config,
     path: &str,
+    page: i32,
     page_size: i32,
 ) -> anyhow::Result<ListResult> {
     let mut config = config.clone();
@@ -129,11 +130,20 @@ async fn list_personal(
         }
     }
 
-    debug!("list_personal: 返回 {} 个条目", all_items.len());
+    let total = all_items.len() as i32;
+    let start = ((page - 1) * page_size) as usize;
+    let end = (start + page_size as usize).min(all_items.len());
+    let items = if start < all_items.len() {
+        all_items[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    debug!("list_personal: 返回 {} 个条目 (总 {})", items.len(), total);
     Ok(ListResult {
         path: path.to_string(),
-        total: all_items.len() as i32,
-        items: all_items,
+        total,
+        items,
     })
 }
 

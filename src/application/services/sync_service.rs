@@ -155,6 +155,11 @@ fn change_kind(
     checksum: bool,
     direction: SyncDirection,
 ) -> Option<ChangeKind> {
+    // Directories don't need re-creation; their content changes are handled by children
+    if source.kind == SyncEntryKind::Directory && target.kind == SyncEntryKind::Directory {
+        return None;
+    }
+
     if source.size != target.size {
         return Some(ChangeKind::SizeOrTime);
     }

@@ -10,7 +10,6 @@ fn test_cp_args_parse() {
     let args = CpArgs::try_parse_from(["cp", "source.txt", "/dest/"]).unwrap();
     assert_eq!(args.source, "source.txt");
     assert_eq!(args.target, "/dest/");
-    assert!(!args.merge);
     assert!(!args.force);
 }
 
@@ -18,12 +17,6 @@ fn test_cp_args_parse() {
 fn test_cp_args_parse_with_force() {
     let args = CpArgs::try_parse_from(["cp", "source.txt", "/dest/", "--force"]).unwrap();
     assert!(args.force);
-}
-
-#[test]
-fn test_cp_args_parse_with_merge() {
-    let args = CpArgs::try_parse_from(["cp", "source.txt", "/dest/", "--merge"]).unwrap();
-    assert!(args.merge);
 }
 
 #[test]

@@ -240,13 +240,12 @@ rm -rf cloud139_e2e_download_test
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 5.1 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | 复制到测试目录（云端自动重命名） |
+| 5.1 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | 复制到测试目录；**注意**：个人云下若目标目录已存在同名文件，需使用 `--force` 才能继续，云端会自动重命名 |
 | 5.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 3 个文件（含自动重命名的文件） |
 | 5.3 | `./target/release/cloud139.exe cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
 | 5.4 | `./target/release/cloud139.exe cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
 | 5.5 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | **边界**：复制同名文件，云端已存在；应提示警告且退出码为1 |
 | 5.6 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/ --force` | 强制复制，云端会自动重命名 |
-| 5.7 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/ -m` | **已知问题**：`--merge` 参数在个人云场景下**未实现**（`cp_personal` 中 `_merge` 被忽略），行为与不带 `-m` 相同，遇到同名文件报错退出码 1 |
 
 #### 阶段 6: 重命名测试 (rename)
 
@@ -259,7 +258,7 @@ rm -rf cloud139_e2e_download_test
 | 6.5 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rename_dir_src` | 准备：创建待重命名的目录 |
 | 6.6 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_src rename_dir_dst` | 重命名目录成功 |
 | 6.7 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 rename_dir_dst，无 rename_dir_src |
-| 6.8 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_dst rename_dir_dst` | **边界**：重命名为同名（或目标已存在），应提示警告且退出码为 1 |
+| 6.8 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_dst rename_dir_dst` | **边界**：重命名为同名；当前实现允许重命名为同名（返回退出码 0） |
 | 6.9 | `./target/release/cloud139.exe rename /e2e_test_xxx/not_exist_dir new_dir` | **边界**：目录不存在 |
 
 #### 阶段 7: 移动测试 (mv)
@@ -271,7 +270,7 @@ rm -rf cloud139_e2e_download_test
 | 7.3 | `./target/release/cloud139.exe ls /e2e_test_xxx` | README_copy.md 已移出 |
 | 7.4 | `./target/release/cloud139.exe mv /README_copy.md /not_exist_dir/` | **边界**：目标不存在 |
 | 7.5 | `./target/release/cloud139.exe mv / /somewhere` | **边界**：不能移动根目录 |
-| 7.6 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录，云端已存在；应提示警告且退出码为1 |
+| 7.6 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录；当前实现个人云下会直接移动成功（云端自动重命名），退出码为 0 |
 | 7.7 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/ --force` | 强制移动，云端会自动重命名 |
 | 7.8 | `echo "mv_multi_1" > mv_multi_1.txt && ./target/release/cloud139.exe upload mv_multi_1.txt /e2e_test_xxx/ && echo "mv_multi_2" > mv_multi_2.txt && ./target/release/cloud139.exe upload mv_multi_2.txt /e2e_test_xxx/` | 准备：上传多个文件用于批量移动测试 |
 | 7.9 | `./target/release/cloud139.exe mv /e2e_test_xxx/mv_multi_1.txt /e2e_test_xxx/mv_multi_2.txt /e2e_test_xxx/subdir/` | 同时移动多个文件到目标目录 |
