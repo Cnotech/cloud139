@@ -248,6 +248,12 @@ rm -rf cloud139_e2e_download_test
 | 7.5 | `./target/release/cloud139.exe mv / /somewhere` | **边界**：不能移动根目录 |
 | 7.6 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录，云端已存在；应提示警告且退出码为1 |
 | 7.7 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/ --force` | 强制移动，云端会自动重命名 |
+| 7.8 | `echo "mv_multi_1" > mv_multi_1.txt && ./target/release/cloud139.exe upload mv_multi_1.txt /e2e_test_xxx/ && echo "mv_multi_2" > mv_multi_2.txt && ./target/release/cloud139.exe upload mv_multi_2.txt /e2e_test_xxx/` | 准备：上传多个文件用于批量移动测试 |
+| 7.9 | `./target/release/cloud139.exe mv /e2e_test_xxx/mv_multi_1.txt /e2e_test_xxx/mv_multi_2.txt /e2e_test_xxx/subdir/` | 同时移动多个文件到目标目录 |
+| 7.10 | `./target/release/cloud139.exe ls /e2e_test_xxx/subdir` | 目标目录应包含 mv_multi_1.txt 和 mv_multi_2.txt |
+| 7.11 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 源目录中应无 mv_multi_1.txt 和 mv_multi_2.txt |
+| 7.12 | `./target/release/cloud139.exe mv /e2e_test_xxx/subdir/mv_multi_1.txt /e2e_test_xxx/subdir/mv_multi_2.txt /not_exist_dir/` | **边界**：目标目录不存在 |
+| 7.13 | `./target/release/cloud139.exe mv /e2e_test_xxx/subdir/mv_multi_1.txt /not_exist.txt /e2e_test_xxx/` | **边界**：多个源路径中有一个不存在 |
 
 #### 阶段 8: 创建目录测试 (mkdir)
 
