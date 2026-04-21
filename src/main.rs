@@ -7,8 +7,6 @@ use cloud139::presentation::error::format_error;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-
     let cli = Cli::parse();
     cloud139::utils::logger::init_verbose(&cli.verbose);
     let result = match cli.command {
