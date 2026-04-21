@@ -56,6 +56,23 @@ cargo build --release
 ./target/release/cloud139.exe mkdir /e2e_test_xxx
 ```
 
+准备**固定名称**的 `ls` 分页测试目录 `/e2e_ls_paging_test`（若已存在且文件足够则跳过创建，便于复用）：
+```bash
+# 创建目录（已存在则忽略错误）
+./target/release/cloud139.exe mkdir /e2e_ls_paging_test 2>/dev/null || true
+
+# 获取当前文件数量（简单估算，根据实际输出调整）
+file_count=$(./target/release/cloud139.exe ls /e2e_ls_paging_test 2>/dev/null | grep -c 'txt' || echo 0)
+
+if [ "$file_count" -lt 25 ]; then
+    for i in $(seq 1 25); do
+        echo "paging_test_content_$i" > "/tmp/e2e_paging_file_$i.txt"
+        ./target/release/cloud139.exe upload "/tmp/e2e_paging_file_$i.txt" /e2e_ls_paging_test/ 2>/dev/null || true
+    done
+    rm -f /tmp/e2e_paging_file_*.txt
+fi
+```
+
 ### 3. 退出码校验规则
 
 **通用规则**：如果命令未能正常执行，则程序退出码应当为 1。
@@ -90,6 +107,13 @@ cargo build --release
 | 1.1 | `./target/release/cloud139.exe ls /` | 能列出根目录内容 |
 | 1.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 能列出空目录 |
 | 1.3 | `./target/release/cloud139.exe ls /not_exist_dir` | **边界**：返回错误 |
+| 1.4 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 1 -s 10` | 分页：只返回第1页10条记录；总条目数应为25 |
+| 1.5 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 2 -s 10` | 分页：返回第2页10条记录，条目与 1.4 不重复 |
+| 1.6 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 3 -s 10` | 分页：返回剩余约5条记录 |
+| 1.7 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 1 -s 25` | 分页：单页返回全部25条记录，验证总数 |
+| 1.8 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -o ls_result.json` | 结果输出为 JSON 文件，文件内容有效且包含目录条目 |
+| 1.9 | `cat ls_result.json` | 验证 JSON 文件结构正确（包含 `name`、`type`、`size` 等字段） |
+| 1.10 | `./target/release/cloud139.exe ls / -v debug` | 全局 `-v` 选项生效，控制台应输出 `DEBUG` 级别日志 |
 
 #### 阶段 2: 上传测试 (upload)
 
@@ -222,6 +246,7 @@ rm -rf cloud139_e2e_download_test
 | 5.4 | `./target/release/cloud139.exe cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
 | 5.5 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | **边界**：复制同名文件，云端已存在；应提示警告且退出码为1 |
 | 5.6 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/ --force` | 强制复制，云端会自动重命名 |
+| 5.7 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/ -m` | **已知问题**：`--merge` 参数在个人云场景下**未实现**（`cp_personal` 中 `_merge` 被忽略），行为与不带 `-m` 相同，遇到同名文件报错退出码 1 |
 
 #### 阶段 6: 重命名测试 (rename)
 
@@ -403,6 +428,11 @@ rm -f cloud139_e2e_sync_src/.env cloud139_e2e_sync_src/output.log  # 已在 rm -
 ### 4. 清理
 
 > ⚠️ **重要警告**：清理时**绝对不要删除本地的项目核心文件**（如 `Cargo.toml`、`README.md`）。下载测试会在当前目录覆盖这些文件，但这是正常行为，不需要清理。需要清理的是**云端**的测试文件。
+
+清理本地临时 JSON 输出文件：
+```bash
+rm -f ls_result.json
+```
 
 测试完成后清理**云端**的测试数据：
 ```bash
