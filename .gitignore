@@ -2,7 +2,7 @@
 /alist-main
 /target
 /nul
-/cloud139.toml
+/cloud139rc.toml
 /output.json
 /cloud139_e2e*
 /tarpaulin-report.html

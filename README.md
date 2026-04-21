@@ -108,6 +108,7 @@ cloud139 sync cloud:/remote/path ./local/path -r
 | 参数 | 简写 | 默认值 | 说明 |
 |------|------|--------|------|
 | --verbose | -v | info | 日志级别 (trace, debug, info, warn, error) |
+| --config | - | - | 指定配置文件路径。读取时优先使用该路径；`login` 时也写入该路径 |
 
 ## 命令参考
 
@@ -398,7 +399,15 @@ cloud139 sync ./docs cloud:/docs -r --checksum
 
 ## 配置文件
 
-登录成功后，配置信息会保存在当前目录的 `cloud139.toml` 文件中。
+登录成功后，配置信息默认保存到 `~/.config/cloud139/cloud139rc.toml`（Windows 下为 `%APPDATA%\cloud139\cloud139rc.toml`）。
+
+读取时按以下优先级查找：
+
+1. 通过全局参数 `--config <PATH>` 指定的路径
+2. 当前工作目录下的 `cloud139rc.toml`
+3. 全局路径 `~/.config/cloud139/cloud139rc.toml`
+
+`login` 时如果指定了 `--config <PATH>`，则将配置文件写入该路径；否则写入全局路径（若当前工作目录已存在 `cloud139rc.toml`，则沿用该文件）。
 
 ### 配置文件结构
 
@@ -440,7 +449,7 @@ user_domain_id = null
 cloud139/
 ├── Cargo.toml           # 项目配置
 ├── LICENSE              # MIT 许可证
-├── cloud139.toml        # 配置文件
+├── cloud139rc.toml      # 本地配置文件（可选，存在时优先生效）
 └── src/
     ├── main.rs          # 入口文件
     ├── lib.rs           # 库入口

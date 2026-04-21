@@ -8,6 +8,9 @@ use cloud139::presentation::error::format_error;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if let Some(path) = cli.config.clone() {
+        cloud139::config::set_config_override(path);
+    }
     cloud139::utils::logger::init_verbose(&cli.verbose);
     let result = match cli.command {
         Commands::Login(args) => cloud139::commands::login::execute(args.into()).await,

@@ -91,7 +91,8 @@ user_domain_id = "domain123"
     #[test]
     fn test_config_config_path() {
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.toml"));
+        let s = path.to_string_lossy();
+        assert!(s.contains("cloud139rc.toml"));
     }
 
     #[test]
@@ -99,7 +100,8 @@ user_domain_id = "domain123"
         // Use an explicit invalid path by temporarily changing behavior
         // The config_path() is hardcoded, so we just verify it returns a valid path
         let path = Config::config_path();
-        assert!(path.to_string_lossy().contains("cloud139.toml"));
+        let s = path.to_string_lossy();
+        assert!(s.contains("cloud139rc.toml"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 use crate::cli::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
 
@@ -12,6 +13,10 @@ pub struct Cli {
 
     #[arg(short, long, default_value = "info")]
     pub verbose: String,
+
+    /// 指定配置文件路径 (覆盖默认查找顺序)
+    #[arg(long, global = true, value_name = "PATH")]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]

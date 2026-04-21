@@ -25,7 +25,33 @@ metadata:
 首先询问用户获取以下信息：
 - **139 云盘登录 Token**：从浏览器开发者工具获取
 
-### 2. 环境准备
+### 2.1 配置文件约定
+
+测试本 SKILL 时，配置文件统一使用 `cloud139rc.toml`。
+
+读取优先级：
+1. `--config <PATH>` 指定路径
+2. 当前工作目录下的 `cloud139rc.toml`
+3. 全局路径 `~/.config/cloud139/cloud139rc.toml`
+
+写入规则：
+- `login --config <PATH>`：写入指定路径
+- 未指定 `--config` 且当前工作目录已存在 `cloud139rc.toml`：写回当前工作目录
+- 其他情况：写入全局路径 `~/.config/cloud139/cloud139rc.toml`
+
+执行 E2E 前，先确认并记录当前环境中以下文件是否存在，避免误删用户真实配置：
+```bash
+pwd
+ls -la ./cloud139rc.toml
+ls -la ~/.config/cloud139/cloud139rc.toml
+```
+
+如果本地或全局配置文件已存在，先备份再测试：
+```bash
+cp ./cloud139rc.toml ./cloud139rc.toml.e2e.bak 2>/dev/null || true
+cp ~/.config/cloud139/cloud139rc.toml ~/.config/cloud139/cloud139rc.toml.e2e.bak 2>/dev/null || true
+```
+
 
 > ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请配置环境变量 `MSYS_NO_PATHCONV=1`。
 
@@ -88,6 +114,23 @@ fi
 ### 4. 测试执行顺序
 
 #### 阶段 0: 登录测试 (login)
+
+##### 阶段 0A: 配置文件 E2E 测试
+
+| 步骤 | 命令 | 验证点 |
+|------|------|--------|
+| 0A.1 | `rm -f ./cloud139rc.toml && rm -f ~/.config/cloud139/cloud139rc.toml` | 准备干净环境（仅在已完成备份后执行） |
+| 0A.2 | `./target/release/cloud139.exe login --token <valid_token> --config ./e2e_config_override.toml` | `login` 成功，配置写入 `./e2e_config_override.toml` |
+| 0A.3 | `ls -la ./e2e_config_override.toml && ls -la ./cloud139rc.toml && ls -la ~/.config/cloud139/cloud139rc.toml` | 仅 override 文件存在；当前目录与全局路径不应新增配置 |
+| 0A.4 | `./target/release/cloud139.exe --config ./e2e_config_override.toml ls /` | 使用 override 配置读取成功 |
+| 0A.5 | `cp ./e2e_config_override.toml ./cloud139rc.toml && rm -f ./e2e_config_override.toml` | 准备“当前目录配置优先”场景 |
+| 0A.6 | `./target/release/cloud139.exe ls /` | 未传 `--config` 时，优先读取当前目录 `./cloud139rc.toml` |
+| 0A.7 | `mkdir -p ~/.config/cloud139 && cp ./cloud139rc.toml ~/.config/cloud139/cloud139rc.toml && rm -f ./cloud139rc.toml` | 准备“全局配置回退”场景 |
+| 0A.8 | `./target/release/cloud139.exe ls /` | 当前目录无配置时，回退读取全局配置 |
+| 0A.9 | `./target/release/cloud139.exe login --token <expired_or_invalid_token> --config ./e2e_invalid.toml` | **边界**：登录校验失败，退出码为 1，`./e2e_invalid.toml` 不应残留 |
+| 0A.10 | `ls -la ./e2e_invalid.toml` | 验证失败登录未保留 override 配置 |
+| 0A.11 | `cp ~/.config/cloud139/cloud139rc.toml ./cloud139rc.toml && ./target/release/cloud139.exe login --token <valid_token>` | 当前目录已有 `cloud139rc.toml` 时，成功登录后应写回当前目录，而不是写全局 |
+| 0A.12 | `ls -la ./cloud139rc.toml && ls -la ~/.config/cloud139/cloud139rc.toml` | 验证本地配置仍存在；全局配置未被新路径替代 |
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
@@ -431,6 +474,7 @@ rm -f cloud139_e2e_sync_src/.env cloud139_e2e_sync_src/output.log  # 已在 rm -
 清理本地临时 JSON 输出文件：
 ```bash
 rm -f ls_result.json
+rm -f ./e2e_config_override.toml ./e2e_invalid.toml
 ```
 
 测试完成后清理**云端**的测试数据：
@@ -456,6 +500,12 @@ rm -rf cloud139_e2e_sync_dst
 - `Cargo.toml` - Rust 项目配置文件
 - `README.md` - 项目说明文档
 - `Cargo.lock` - 依赖锁定文件
+
+如果测试前备份过配置文件，测试结束后恢复：
+```bash
+mv -f ./cloud139rc.toml.e2e.bak ./cloud139rc.toml 2>/dev/null || true
+mv -f ~/.config/cloud139/cloud139rc.toml.e2e.bak ~/.config/cloud139/cloud139rc.toml 2>/dev/null || true
+```
 
 ### 5. 生成报告
 
