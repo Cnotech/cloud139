@@ -20,7 +20,9 @@ pub const CONFIG_FILE: &str = "cloud139rc.toml";
 pub const GLOBAL_CONFIG_SUBDIR: &str = "cloud139";
 
 pub fn local_config_path() -> PathBuf {
-    PathBuf::from(format!("./{}", CONFIG_FILE))
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(CONFIG_FILE)
 }
 
 pub fn global_config_path() -> PathBuf {
@@ -93,34 +95,47 @@ impl Default for Config {
     }
 }
 
+/// 统一解析配置文件路径。
+/// 优先级：--config override > 当前目录已存在 > 全局配置目录。
+/// 当 `for_write` 为 true 时，若本地不存在，回退到全局（用于写入）。
+/// 当 `for_write` 为 false 时，同样遵循此优先级（用于读取单个路径）。
+pub fn resolve_config_path(for_write: bool) -> PathBuf {
+    if let Some(p) = config_override() {
+        return p.to_path_buf();
+    }
+    let local = local_config_path();
+    if local.exists() {
+        return local;
+    }
+    // 当用于写入且本地不存在时，仍返回本地路径（在终端首次登录时写本地）
+    if for_write {
+        return local;
+    }
+    global_config_path()
+}
+
+/// 返回用于读取的配置文件候选路径列表。
+/// 优先级：--config override > [本地, 全局]
+pub fn config_load_candidates() -> Vec<PathBuf> {
+    if let Some(p) = config_override() {
+        return vec![p.to_path_buf()];
+    }
+    vec![local_config_path(), global_config_path()]
+}
+
 impl Config {
     /// 返回默认读取路径（优先当前目录，其次全局）。
-    /// 注意：load/save 会综合 override、当前目录、全局目录自行决定路径。
     pub fn config_path() -> PathBuf {
-        if let Some(p) = config_override() {
-            return p.to_path_buf();
-        }
-        let local = local_config_path();
-        if local.exists() {
-            return local;
-        }
-        global_config_path()
+        resolve_config_path(false)
     }
 
-    /// save 的默认路径：override > 全局。
+    /// save 的默认路径。
     pub fn save_path() -> PathBuf {
-        if let Some(p) = config_override() {
-            return p.to_path_buf();
-        }
-        global_config_path()
+        resolve_config_path(true)
     }
 
     pub fn load() -> Result<Self, ConfigError> {
-        let candidates: Vec<PathBuf> = if let Some(p) = config_override() {
-            vec![p.to_path_buf()]
-        } else {
-            vec![local_config_path(), global_config_path()]
-        };
+        let candidates = config_load_candidates();
         for path in &candidates {
             if path.exists() {
                 let content = fs::read_to_string(path)?;
@@ -132,17 +147,7 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        // override > 当前目录已存在 > 全局
-        let path = if let Some(p) = config_override() {
-            p.to_path_buf()
-        } else {
-            let local = local_config_path();
-            if local.exists() {
-                local
-            } else {
-                global_config_path()
-            }
-        };
+        let path = resolve_config_path(true);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
