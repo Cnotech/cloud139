@@ -1,5 +1,3 @@
-use log::info;
-
 use crate::application::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use crate::application::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
@@ -127,7 +125,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         target.len()
     );
 
-    info!("开始计算同步差异...");
+    step!("正在计算同步差异...");
     let actions = compute_diff(
         &source,
         &target,
