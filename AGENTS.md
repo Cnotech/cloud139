@@ -82,3 +82,4 @@ clap, reqwest, tokio, serde, thiserror 等
 
 - [README.md](../README.md): 项目说明
 - [.agents/skills/cloud139-e2e-test](../.agents/skills/cloud139-e2e-test/SKILL.md): E2E 测试流程
+- [docs/command-docs-style.md](docs/command-docs-style.md): 命令文档编写规范

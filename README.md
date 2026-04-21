@@ -67,8 +67,8 @@ cloud139 download /remote/file.txt
 cloud139 download /remote/file.txt ./local/myfile.txt
 
 # 删除文件（移动到回收站）
-# rm [远程文件路径] --yes
-cloud139 rm /remote/file.txt --yes
+# rm [远程文件路径] -y
+cloud139 rm /remote/file.txt -y
 
 # 创建目录
 # mkdir [远程新目录]
@@ -87,9 +87,9 @@ cloud139 cp /remote/source/file.txt /remote/destination
 cloud139 rename /remote/oldname.txt newname.txt
 
 # 同步
-# sync [本地路径] [cloud:远程路径]
-# sync [cloud:远程路径] [本地路径]
-cloud139 sync ./local/path cloud:/remote/path
+# sync [本地路径] [cloud:远程路径] -r
+# sync [cloud:远程路径] [本地路径] -r
+cloud139 sync ./local/path cloud:/remote/path -r
 cloud139 sync cloud:/remote/path ./local/path -r
 ```
 
@@ -171,7 +171,7 @@ cloud139 upload <本地路径> [远程目录]
 ```bash
 cloud139 upload ./file.txt /
 cloud139 upload ./folder/photo.jpg /backup/
-cloud139 upload ./file.txt / --force
+cloud139 upload ./file.txt / -f
 ```
 
 ### download
@@ -201,7 +201,7 @@ cloud139 download /folder/photo.jpg ./downloads/
 删除云盘文件或目录。
 
 ```bash
-cloud139 rm <路径> [--yes]
+cloud139 rm <路径> [-y]
 ```
 
 **参数说明：**
@@ -214,8 +214,8 @@ cloud139 rm <路径> [--yes]
 **示例：**
 
 ```bash
-cloud139 rm /file.txt -f
-cloud139 rm /folder -f
+cloud139 rm /file.txt -y
+cloud139 rm /folder -y
 ```
 
 ### mkdir
@@ -238,7 +238,7 @@ cloud139 mkdir <路径>
 ```bash
 cloud139 mkdir /newfolder
 cloud139 mkdir /parent/child
-cloud139 mkdir /newfolder --force
+cloud139 mkdir /newfolder -f
 ```
 
 ### mv
@@ -262,7 +262,7 @@ cloud139 mv <源路径...> <目标路径>
 ```bash
 cloud139 mv /old.txt /new.txt
 cloud139 mv /file1.txt /file2.txt /folder/
-cloud139 mv /file.txt /folder/ --force
+cloud139 mv /file.txt /folder/ -f
 ```
 
 ### cp
@@ -270,7 +270,7 @@ cloud139 mv /file.txt /folder/ --force
 复制文件或目录。
 
 ```bash
-cloud139 cp <源路径> <目标目录> [--merge]
+cloud139 cp <源路径> <目标目录>
 ```
 
 **参数说明：**
@@ -287,7 +287,7 @@ cloud139 cp <源路径> <目标目录> [--merge]
 ```bash
 cloud139 cp /file.txt /backup/
 cloud139 cp /file.txt /backup/ -m
-cloud139 cp /file.txt /backup/ --force
+cloud139 cp /file.txt /backup/ -f
 ```
 
 ### rename
@@ -335,13 +335,13 @@ cloud139 sync <SRC> <DEST> [OPTIONS]
 
 | 参数 | 简写 | 说明 |
 |------|------|------|
-| 源路径 | - | 本地路径或云端路径（`cloud:/path`） |
-| 目标路径 | - | 本地路径或云端路径 |
+| 源路径 |  | 本地路径或云端路径（`cloud:/path`） |
+| 目标路径 |  | 本地路径或云端路径 |
 | --recursive | -r | 递归同步子目录，空目录也会同步 |
 | --dry-run | -n | 演习模式，只输出操作计划，不执行实际同步 |
-| --delete | - | 删除目标中源没有的文件或空目录 |
-| --checksum | - | 优先用校验和（SHA-256）替代大小和修改时间做比对 |
-| --exclude | - | 排除匹配的路径（glob 模式），可多次指定 |
+| --delete |  | 删除目标中源没有的文件或空目录 |
+| --checksum |  | 优先用校验和（SHA-256）替代大小和修改时间做比对 |
+| --exclude |  | 排除匹配的路径（glob 模式），可多次指定 |
 | --jobs | -j | 并发传输数量上限，默认 4 |
 
 **示例：**
