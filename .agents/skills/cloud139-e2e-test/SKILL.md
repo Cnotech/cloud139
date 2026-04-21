@@ -227,10 +227,15 @@ rm -rf cloud139_e2e_download_test
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 6.1 | `./target/release/cloud139.exe rename /e2e_test_xxx/README.md README_copy.md` | 重命名成功 |
+| 6.1 | `./target/release/cloud139.exe rename /e2e_test_xxx/README.md README_copy.md` | 重命名文件成功 |
 | 6.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 README_copy.md |
 | 6.3 | `./target/release/cloud139.exe rename / new_name` | **边界**：不能重命名根目录 |
 | 6.4 | `./target/release/cloud139.exe rename /not_exist.txt new.txt` | **边界**：文件不存在 |
+| 6.5 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rename_dir_src` | 准备：创建待重命名的目录 |
+| 6.6 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_src rename_dir_dst` | 重命名目录成功 |
+| 6.7 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 rename_dir_dst，无 rename_dir_src |
+| 6.8 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_dst rename_dir_dst` | **边界**：重命名为同名（或目标已存在），应提示警告且退出码为 1 |
+| 6.9 | `./target/release/cloud139.exe rename /e2e_test_xxx/not_exist_dir new_dir` | **边界**：目录不存在 |
 
 #### 阶段 7: 移动测试 (mv)
 
