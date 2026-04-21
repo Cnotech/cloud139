@@ -9,6 +9,9 @@ pub struct RenameArgs {
 
     #[arg(help = "新名称")]
     pub target: String,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    pub force: bool,
 }
 
 impl From<RenameArgs> for OldRenameArgs {
@@ -16,6 +19,7 @@ impl From<RenameArgs> for OldRenameArgs {
         OldRenameArgs {
             source: args.source,
             target: args.target,
+            force: args.force,
         }
     }
 }

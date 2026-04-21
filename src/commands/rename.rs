@@ -1,6 +1,6 @@
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, ClientError, StorageType};
-use crate::{debug, error, success};
+use crate::{debug, error, success, warn};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -10,6 +10,9 @@ pub struct RenameArgs {
 
     #[arg(help = "新名称")]
     pub target: String,
+
+    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    pub force: bool,
 }
 
 pub fn validate_rename_path(source: &str) -> Result<(), String> {
@@ -25,7 +28,7 @@ pub async fn execute(args: RenameArgs) -> anyhow::Result<()> {
 
     match storage_type {
         StorageType::PersonalNew => {
-            rename_personal(&config, &args.source, &args.target).await?;
+            rename_personal(&config, &args.source, &args.target, args.force).await?;
         }
         StorageType::Family => {
             rename_family(&config, &args.source, &args.target).await?;
@@ -42,6 +45,7 @@ async fn rename_personal(
     config: &crate::config::Config,
     source: &str,
     new_name: &str,
+    force: bool,
 ) -> Result<(), ClientError> {
     if source == "/" || source.is_empty() {
         error!("不能重命名根目录");
@@ -54,6 +58,27 @@ async fn rename_personal(
         return Err(ClientError::InvalidFilePath);
     }
     debug!("rename_personal: file_id={}", file_id);
+
+    // 获取源文件所在父目录，用于检测同名
+    let source_path = std::path::Path::new(source);
+    let parent_path = source_path
+        .parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "/".to_string());
+    let parent_id = if parent_path == "/" || parent_path.is_empty() {
+        "/".to_string()
+    } else {
+        crate::client::api::get_file_id_by_path(config, &parent_path).await?
+    };
+
+    if !force {
+        let exists = crate::client::api::check_file_exists(config, &parent_id, new_name).await?;
+        if exists {
+            warn!("云端已存在「{}」，如果继续则云端会自动进行重命名", new_name);
+            error!("请使用 --force 参数确认继续");
+            return Err(ClientError::ForceRequired);
+        }
+    }
 
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
