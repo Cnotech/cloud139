@@ -60,14 +60,12 @@ fn test_personal_item_to_file_entry_uses_relative_path_and_mtime() {
     let entry = personal_item_to_file_entry(
         "docs",
         &item("readme.md", Some(42), "file", Some("2024-01-01T00:00:03Z")),
-        false,
     )
     .unwrap();
 
     assert_eq!(entry.rel_path, "docs/readme.md");
     assert_eq!(entry.size, 42);
     assert_eq!(entry.mtime, Some(1704067203));
-    assert!(entry.checksum.is_none());
 }
 
 #[test]
@@ -91,45 +89,8 @@ fn test_personal_item_to_file_entry_top_level_has_no_prefix_dot() {
     let entry = personal_item_to_file_entry(
         "",
         &item("top.txt", Some(10), "file", Some("2024-06-01T00:00:00Z")),
-        false,
     )
     .unwrap();
 
     assert_eq!(entry.rel_path, "top.txt");
-}
-
-#[test]
-fn test_personal_item_to_file_entry_checksum_always_none() {
-    let entry_with_checksum = personal_item_to_file_entry(
-        "docs",
-        &item("file.txt", Some(5), "file", Some("2024-01-01T00:00:00Z")),
-        true,
-    )
-    .unwrap();
-
-    assert!(entry_with_checksum.checksum.is_none());
-
-    let entry_without_checksum = personal_item_to_file_entry(
-        "docs",
-        &item("file.txt", Some(5), "file", Some("2024-01-01T00:00:00Z")),
-        false,
-    )
-    .unwrap();
-
-    assert!(entry_without_checksum.checksum.is_none());
-}
-
-#[test]
-fn test_personal_item_to_file_entry_carries_sha256_checksum() {
-    let mut item = item("file.txt", Some(5), "file", Some("2024-01-01T00:00:00Z"));
-    item.content_hash =
-        Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824".to_string());
-    item.content_hash_algorithm = Some("SHA256".to_string());
-
-    let entry = personal_item_to_file_entry("docs", &item, true).unwrap();
-
-    assert_eq!(
-        entry.checksum.as_deref(),
-        Some("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
-    );
 }

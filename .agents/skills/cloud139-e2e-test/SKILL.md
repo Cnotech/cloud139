@@ -479,39 +479,32 @@ mkdir -p cloud139_e2e_sync_dst
 | 11.5.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --exclude "subdir"` | 排除整个子目录 |
 | 11.5.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证 subdir 目录及其内容未被同步 |
 
-##### 11.6 --checksum 精确对比
+##### 11.6 --jobs 并发控制
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 11.6.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --checksum` | 使用哈希对比，内容未变的文件应全部 Skip；观察终端输出，显示警告（需扫描 checksum 耗时） |
-| 11.6.2 | 准备一个"同大小不同内容"的文件后执行 `sync ... -r --checksum` | 应识别为变化并传输，而不是 Skip |
+| 11.6.1 | 准备多文件：`for i in $(seq 1 8); do echo "content $i" > cloud139_e2e_sync_src/batch_$i.txt; done` | 准备 8 个文件 |
+| 11.6.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 2` | 限制 2 并发，8 个新文件全部上传成功；退出码为 0 |
+| 11.6.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 8` | 8 并发，全部 Skip（已存在）；退出码为 0 |
 
-##### 11.7 --jobs 并发控制
-
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.7.1 | 准备多文件：`for i in $(seq 1 8); do echo "content $i" > cloud139_e2e_sync_src/batch_$i.txt; done` | 准备 8 个文件 |
-| 11.7.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 2` | 限制 2 并发，8 个新文件全部上传成功；退出码为 0 |
-| 11.7.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 8` | 8 并发，全部 Skip（已存在）；退出码为 0 |
-
-##### 11.8 云端 → 本地（下载方向）
+##### 11.7 云端 → 本地（下载方向）
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 11.8.1 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 首次全量下载，云端所有文件下载到本地 |
-| 11.8.2 | `ls ./cloud139_e2e_sync_dst/` | 验证本地有 file1.txt、subdir/ 等 |
-| 11.8.3 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | **增量**：无变化，全部 Skip |
-| 11.8.4 | 修改本地文件：`echo "local modified" > ./cloud139_e2e_sync_dst/file1.txt` | 准备 |
-| 11.8.5 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 云端 file1.txt 覆盖本地被修改版本；输出 `1 个文件传输` |
+| 11.7.1 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 首次全量下载，云端所有文件下载到本地 |
+| 11.7.2 | `ls ./cloud139_e2e_sync_dst/` | 验证本地有 file1.txt、subdir/ 等 |
+| 11.7.3 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | **增量**：无变化，全部 Skip |
+| 11.7.4 | 修改本地文件：`echo "local modified" > ./cloud139_e2e_sync_dst/file1.txt` | 准备 |
+| 11.7.5 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 云端 file1.txt 覆盖本地被修改版本；输出 `1 个文件传输` |
 
-##### 11.9 路径参数错误处理（边界）
+##### 11.8 路径参数错误处理（边界）
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 11.9.1 | `./target/release/cloud139.exe sync ./local1 ./local2 -r` | **边界**：两端均为本地路径，应立即报错，退出码 2，提示使用 `cp`/`mv` 等系统工具 |
-| 11.9.2 | `./target/release/cloud139.exe sync cloud:/src cloud:/dst -r` | **边界**：两端均为云端路径，应立即报错，退出码 2 |
-| 11.9.3 | `./target/release/cloud139.exe sync ./not_exist_src cloud:/e2e_test_xxx/sync_target -r` | **边界**：本地源目录不存在，扫描失败，退出码 2 |
-| 11.9.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/not_exist_remote_dir -r` | **边界**：云端目标目录不存在，扫描/创建失败，退出码 2 |
+| 11.8.1 | `./target/release/cloud139.exe sync ./local1 ./local2 -r` | **边界**：两端均为本地路径，应立即报错，退出码 2，提示使用 `cp`/`mv` 等系统工具 |
+| 11.8.2 | `./target/release/cloud139.exe sync cloud:/src cloud:/dst -r` | **边界**：两端均为云端路径，应立即报错，退出码 2 |
+| 11.8.3 | `./target/release/cloud139.exe sync ./not_exist_src cloud:/e2e_test_xxx/sync_target -r` | **边界**：本地源目录不存在，扫描失败，退出码 2 |
+| 11.8.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/not_exist_remote_dir -r` | **边界**：云端目标目录不存在，扫描/创建失败，退出码 2 |
 
 ##### 阶段 11 清理
 

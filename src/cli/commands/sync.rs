@@ -28,12 +28,6 @@ pub struct SyncArgs {
     #[arg(long, help = "删除目标中源没有的文件或空目录")]
     pub delete: bool,
 
-    #[arg(
-        long,
-        help = "优先用校验和（个人云为 SHA-256）替代大小和修改时间做对比"
-    )]
-    pub checksum: bool,
-
     #[arg(long, value_name = "PAT", help = "排除匹配的路径，可多次指定")]
     pub exclude: Vec<String>,
 
@@ -49,7 +43,6 @@ impl From<SyncArgs> for CommandSyncArgs {
             recursive: args.recursive,
             dry_run: args.dry_run,
             delete: args.delete,
-            checksum: args.checksum,
             exclude: args.exclude,
             jobs: args.jobs,
         }

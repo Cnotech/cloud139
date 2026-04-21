@@ -13,7 +13,6 @@ fn test_sync_args_parse_defaults() {
     assert!(!args.recursive);
     assert!(!args.dry_run);
     assert!(!args.delete);
-    assert!(!args.checksum);
     assert!(args.exclude.is_empty());
     assert_eq!(args.jobs, 4);
 }
@@ -27,7 +26,6 @@ fn test_sync_args_parse_all_flags() {
         "-r",
         "-n",
         "--delete",
-        "--checksum",
         "--exclude",
         ".git",
         "--exclude",
@@ -42,7 +40,6 @@ fn test_sync_args_parse_all_flags() {
     assert!(args.recursive);
     assert!(args.dry_run);
     assert!(args.delete);
-    assert!(args.checksum);
     assert_eq!(args.exclude, vec![".git", "target/**"]);
     assert_eq!(args.jobs, 8);
 }
@@ -130,7 +127,6 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
         recursive: true,
         dry_run: true,
         delete: false,
-        checksum: false,
         exclude: vec!["target/**".to_string()],
         jobs: 4,
     };
@@ -138,12 +134,6 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
     assert!(args.recursive);
     assert!(args.dry_run);
     assert_eq!(args.jobs, 4);
-}
-
-#[test]
-fn test_sync_help_mentions_sha256_checksum() {
-    let help = SyncArgs::command().render_long_help().to_string();
-    assert!(help.contains("SHA-256"));
 }
 
 #[test]

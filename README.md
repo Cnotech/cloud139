@@ -377,7 +377,6 @@ cloud139 sync <源路径> <目标路径> [选项]
 | --recursive | -r | 否 | 递归同步子目录，空目录也会同步 |
 | --dry-run | -n | 否 | 演习模式，只输出操作计划，不执行实际同步 |
 | --delete | - | 否 | 删除目标中源没有的文件或空目录 |
-| --checksum | - | 否 | 优先用校验和（SHA-256）替代大小和修改时间做比对 |
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
 | --jobs | -j | 否 | 并发传输数量上限，默认：4 |
 
@@ -392,9 +391,6 @@ cloud139 sync cloud:/photos ./photos -r -n
 
 # 排除特定文件或目录
 cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
-
-# 使用校验和进行精确比对
-cloud139 sync ./docs cloud:/docs -r --checksum
 ```
 
 ## 配置文件

@@ -5,7 +5,7 @@ use crate::application::services::sync_service::{
 };
 use crate::client::StorageType;
 use crate::domain::{SyncDirection, SyncEndpoint, SyncSummary};
-use crate::{debug, step, success, warn};
+use crate::{debug, step, success};
 use std::fmt;
 use std::io::IsTerminal;
 
@@ -16,7 +16,6 @@ pub struct SyncArgs {
     pub recursive: bool,
     pub dry_run: bool,
     pub delete: bool,
-    pub checksum: bool,
     pub exclude: Vec<String>,
     pub jobs: usize,
 }
@@ -63,7 +62,6 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     let dest = parse_sync_endpoint(&args.dest);
     let scan_options = SyncScanOptions {
         recursive: args.recursive,
-        checksum: args.checksum,
         exclude: args.exclude.clone(),
     };
 
@@ -101,23 +99,6 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         _ => return Err(CommandExit::new(2, "无效的同步方向").into()),
     };
 
-    if args.checksum {
-        let cloud_entries = match direction {
-            SyncDirection::LocalToCloud => &target,
-            SyncDirection::CloudToLocal => &source,
-        };
-        let missing_count = cloud_entries
-            .iter()
-            .filter(|e| e.checksum.is_none())
-            .count();
-        if missing_count > 0 {
-            warn!(
-                "{} 个云端文件缺少校验和，将回退到大小+时间比对",
-                missing_count
-            );
-        }
-    }
-
     debug!(
         "sync: 方向={:?}, 源条目={}, 目标条目={}",
         direction,
@@ -132,7 +113,6 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         SyncDiffOptions {
             direction,
             delete: args.delete,
-            checksum: args.checksum,
             local_root,
             cloud_root,
         },

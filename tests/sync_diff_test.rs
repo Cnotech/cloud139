@@ -1,26 +1,24 @@
 use cloud139::application::services::sync_service::{
-    SyncDiffOptions, compute_diff, format_action_line,
+    compute_diff, format_action_line, SyncDiffOptions,
 };
 use cloud139::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
 };
 
-fn entry(path: &str, size: u64, mtime: i64, checksum: Option<&str>) -> FileEntry {
+fn entry(path: &str, size: u64, mtime: i64) -> FileEntry {
     FileEntry {
         rel_path: path.to_string(),
         size,
         mtime: Some(mtime),
-        checksum: checksum.map(str::to_string),
         kind: SyncEntryKind::File,
     }
 }
 
-fn entry_no_mtime(path: &str, size: u64, checksum: Option<&str>) -> FileEntry {
+fn entry_no_mtime(path: &str, size: u64) -> FileEntry {
     FileEntry {
         rel_path: path.to_string(),
         size,
         mtime: None,
-        checksum: checksum.map(str::to_string),
         kind: SyncEntryKind::File,
     }
 }
@@ -30,7 +28,6 @@ fn dir_entry(path: &str) -> FileEntry {
         rel_path: path.to_string(),
         size: 0,
         mtime: None,
-        checksum: None,
         kind: SyncEntryKind::Directory,
     }
 }
@@ -38,12 +35,11 @@ fn dir_entry(path: &str) -> FileEntry {
 #[test]
 fn test_compute_diff_uploads_missing_target() {
     let actions = compute_diff(
-        &[entry("docs/readme.md", 10, 100, None)],
+        &[entry("docs/readme.md", 10, 100)],
         &[],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -62,12 +58,11 @@ fn test_compute_diff_uploads_missing_target() {
 #[test]
 fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
     let actions = compute_diff(
-        &[entry("same.txt", 42, 100, None)],
-        &[entry("same.txt", 42, 101, None)],
+        &[entry("same.txt", 42, 100)],
+        &[entry("same.txt", 42, 101)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -87,11 +82,10 @@ fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
     // This should NOT be treated as skip - it's a type conflict
     let actions = compute_diff(
         &[dir_entry("conflict")],
-        &[entry("conflict", 0, 100, None)],
+        &[entry("conflict", 0, 100)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -112,12 +106,11 @@ fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
     // Local has 0-byte file "conflict", cloud has empty directory "conflict"
     // This should NOT be treated as skip - it's a type conflict
     let actions = compute_diff(
-        &[entry("conflict", 0, 100, None)],
+        &[entry("conflict", 0, 100)],
         &[dir_entry("conflict")],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -141,7 +134,6 @@ fn test_existing_directory_on_both_sides_produces_skip() {
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -158,12 +150,11 @@ fn test_existing_directory_on_both_sides_produces_skip() {
 #[test]
 fn test_compute_diff_creates_missing_directory_before_files() {
     let actions = compute_diff(
-        &[dir_entry("empty"), entry("empty/file.txt", 4, 100, None)],
+        &[dir_entry("empty"), entry("empty/file.txt", 4, 100)],
         &[],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -181,11 +172,10 @@ fn test_compute_diff_creates_missing_directory_before_files() {
 fn test_compute_diff_deletes_empty_directory_after_children() {
     let actions = compute_diff(
         &[],
-        &[dir_entry("old"), entry("old/file.txt", 4, 100, None)],
+        &[dir_entry("old"), entry("old/file.txt", 4, 100)],
         SyncDiffOptions {
             direction: SyncDirection::CloudToLocal,
             delete: true,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -200,12 +190,11 @@ fn test_compute_diff_deletes_empty_directory_after_children() {
 #[test]
 fn test_both_mtime_none_equal_size_is_skip() {
     let actions = compute_diff(
-        &[entry_no_mtime("file.txt", 42, None)],
-        &[entry_no_mtime("file.txt", 42, None)],
+        &[entry_no_mtime("file.txt", 42)],
+        &[entry_no_mtime("file.txt", 42)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -222,12 +211,11 @@ fn test_both_mtime_none_equal_size_is_skip() {
 #[test]
 fn test_one_mtime_none_still_detects_size_change() {
     let actions = compute_diff(
-        &[entry_no_mtime("file.txt", 100, None)],
-        &[entry("file.txt", 42, 101, None)],
+        &[entry_no_mtime("file.txt", 100)],
+        &[entry("file.txt", 42, 101)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -244,12 +232,11 @@ fn test_one_mtime_none_still_detects_size_change() {
 #[test]
 fn test_compute_diff_transfers_when_mtime_diff_is_larger_than_two_seconds() {
     let actions = compute_diff(
-        &[entry("changed.txt", 42, 100, None)],
-        &[entry("changed.txt", 42, 103, None)],
+        &[entry("changed.txt", 42, 100)],
+        &[entry("changed.txt", 42, 103)],
         SyncDiffOptions {
             direction: SyncDirection::CloudToLocal,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -265,37 +252,13 @@ fn test_compute_diff_transfers_when_mtime_diff_is_larger_than_two_seconds() {
 }
 
 #[test]
-fn test_compute_diff_uses_checksum_when_enabled() {
-    let actions = compute_diff(
-        &[entry("hash.txt", 42, 100, Some("aaa"))],
-        &[entry("hash.txt", 42, 100, Some("bbb"))],
-        SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert!(
-        matches!(actions[0], SyncAction::Upload { ref rel_path, .. } if rel_path == "hash.txt")
-    );
-    assert_eq!(
-        format_action_line(&actions[0], true),
-        "(DRY RUN) >f.c....... hash.txt"
-    );
-}
-
-#[test]
 fn test_compute_diff_adds_delete_actions_for_extra_target_files() {
     let actions = compute_diff(
-        &[entry("keep.txt", 1, 1, None)],
-        &[entry("keep.txt", 1, 1, None), entry("old.txt", 1, 1, None)],
+        &[entry("keep.txt", 1, 1)],
+        &[entry("keep.txt", 1, 1), entry("old.txt", 1, 1)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: true,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -309,36 +272,13 @@ fn test_compute_diff_adds_delete_actions_for_extra_target_files() {
 }
 
 #[test]
-fn test_checksum_mode_falls_back_to_size_mtime_when_one_side_none() {
-    let actions = compute_diff(
-        &[entry("file.txt", 42, 100, Some("abc123"))],
-        &[entry("file.txt", 42, 101, None)],
-        SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(
-        actions,
-        vec![SyncAction::Skip {
-            rel_path: "file.txt".to_string()
-        }]
-    );
-}
-
-#[test]
 fn test_local_to_cloud_skips_on_equal_size_ignores_mtime() {
     let actions = compute_diff(
-        &[entry("file.txt", 42, 100, None)],
-        &[entry("file.txt", 42, 999, None)],
+        &[entry("file.txt", 42, 100)],
+        &[entry("file.txt", 42, 999)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -355,12 +295,11 @@ fn test_local_to_cloud_skips_on_equal_size_ignores_mtime() {
 #[test]
 fn test_local_to_cloud_detects_size_change() {
     let actions = compute_diff(
-        &[entry("file.txt", 100, 100, None)],
-        &[entry("file.txt", 42, 100, None)],
+        &[entry("file.txt", 100, 100)],
+        &[entry("file.txt", 42, 100)],
         SyncDiffOptions {
             direction: SyncDirection::LocalToCloud,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -377,12 +316,11 @@ fn test_local_to_cloud_detects_size_change() {
 #[test]
 fn test_cloud_to_local_detects_mtime_change() {
     let actions = compute_diff(
-        &[entry("file.txt", 42, 100, None)],
-        &[entry("file.txt", 42, 105, None)],
+        &[entry("file.txt", 42, 100)],
+        &[entry("file.txt", 42, 105)],
         SyncDiffOptions {
             direction: SyncDirection::CloudToLocal,
             delete: false,
-            checksum: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },
@@ -399,122 +337,11 @@ fn test_cloud_to_local_detects_mtime_change() {
 #[test]
 fn test_cloud_to_local_skips_on_equal_size_and_mtime() {
     let actions = compute_diff(
-        &[entry("file.txt", 42, 100, None)],
-        &[entry("file.txt", 42, 101, None)],
+        &[entry("file.txt", 42, 100)],
+        &[entry("file.txt", 42, 101)],
         SyncDiffOptions {
             direction: SyncDirection::CloudToLocal,
             delete: false,
-            checksum: false,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(
-        actions,
-        vec![SyncAction::Skip {
-            rel_path: "file.txt".to_string()
-        }]
-    );
-}
-
-#[test]
-fn test_checksum_mode_falls_back_detects_size_change() {
-    let actions = compute_diff(
-        &[entry("file.txt", 100, 100, Some("abc123"))],
-        &[entry("file.txt", 42, 101, None)],
-        SyncDiffOptions {
-            direction: SyncDirection::CloudToLocal,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(actions.len(), 1);
-    assert!(matches!(
-        &actions[0],
-        SyncAction::Download { rel_path, change: ChangeKind::SizeOrTime, .. }
-        if rel_path == "file.txt"
-    ));
-}
-
-#[test]
-fn test_checksum_mode_falls_back_detects_mtime_change() {
-    let actions = compute_diff(
-        &[entry("file.txt", 42, 100, Some("abc123"))],
-        &[entry("file.txt", 42, 105, None)],
-        SyncDiffOptions {
-            direction: SyncDirection::CloudToLocal,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(actions.len(), 1);
-    assert!(matches!(
-        &actions[0],
-        SyncAction::Download { rel_path, change: ChangeKind::SizeOrTime, .. }
-        if rel_path == "file.txt"
-    ));
-}
-
-#[test]
-fn test_checksum_mode_both_none_falls_back_to_size_mtime() {
-    let actions = compute_diff(
-        &[entry("file.txt", 42, 100, None)],
-        &[entry("file.txt", 42, 101, None)],
-        SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(
-        actions,
-        vec![SyncAction::Skip {
-            rel_path: "file.txt".to_string()
-        }]
-    );
-}
-
-#[test]
-fn test_checksum_mode_detects_change_when_both_sides_have_checksum() {
-    let actions = compute_diff(
-        &[entry("file.txt", 42, 100, Some("abc123"))],
-        &[entry("file.txt", 42, 100, Some("def456"))],
-        SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
-            delete: false,
-            checksum: true,
-            local_root: std::path::PathBuf::from("local"),
-            cloud_root: "/remote".to_string(),
-        },
-    );
-
-    assert_eq!(actions.len(), 1);
-    assert!(matches!(
-        &actions[0],
-        SyncAction::Upload { rel_path, change: ChangeKind::Checksum, .. }
-        if rel_path == "file.txt"
-    ));
-}
-
-#[test]
-fn test_checksum_mode_skips_when_both_checksums_match() {
-    let actions = compute_diff(
-        &[entry("file.txt", 42, 100, Some("abc123"))],
-        &[entry("file.txt", 42, 100, Some("abc123"))],
-        SyncDiffOptions {
-            direction: SyncDirection::LocalToCloud,
-            delete: false,
-            checksum: true,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
         },

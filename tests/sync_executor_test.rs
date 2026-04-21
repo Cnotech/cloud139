@@ -104,7 +104,4 @@ async fn upload_new_file_does_not_call_delete_api() {
     assert!(
         cloud139::application::services::sync_executor::should_pre_delete(ChangeKind::SizeOrTime)
     );
-    assert!(
-        cloud139::application::services::sync_executor::should_pre_delete(ChangeKind::Checksum)
-    );
 }

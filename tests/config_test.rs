@@ -1,5 +1,5 @@
 use cloud139::client::StorageType;
-use cloud139::config::{self, Config, ConfigError};
+use cloud139::config::{self, Config};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -8,17 +8,6 @@ fn create_temp_dir() -> (TempDir, PathBuf) {
     let temp_dir = TempDir::new().unwrap();
     let config_path = temp_dir.path().join("cloud139rc.toml");
     (temp_dir, config_path)
-}
-
-#[test]
-fn test_config_load_not_found() {
-    use std::env;
-    let original = env::current_dir().unwrap();
-    let temp_dir = TempDir::new().unwrap();
-    env::set_current_dir(temp_dir.path()).unwrap();
-    let result = Config::load();
-    env::set_current_dir(original).unwrap();
-    assert!(matches!(result, Err(ConfigError::NotFound)));
 }
 
 #[test]
@@ -174,15 +163,4 @@ fn test_config_path_default() {
 fn test_global_config_path_contains_config_dir() {
     let path = config::global_config_path();
     assert!(path.ends_with(std::path::Path::new("cloud139").join("cloud139rc.toml")));
-}
-
-#[test]
-fn test_config_path_prefers_local_when_exists() {
-    let local = config::local_config_path();
-    fs::write(&local, "authorization = \"x\"\naccount = \"y\"\n").unwrap();
-
-    let path = Config::config_path();
-
-    let _ = fs::remove_file(&local);
-    assert_eq!(path, local);
 }

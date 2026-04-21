@@ -1,7 +1,7 @@
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
-use crate::{debug, warn};
+use crate::debug;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +13,6 @@ use std::time::UNIX_EPOCH;
 pub struct SyncDiffOptions {
     pub direction: SyncDirection,
     pub delete: bool,
-    pub checksum: bool,
     pub local_root: PathBuf,
     pub cloud_root: String,
 }
@@ -107,7 +106,7 @@ pub fn compute_diff(
                 }
             }
             (Some(src), Some(dst)) => {
-                if let Some(change) = change_kind(src, dst, options.checksum, options.direction) {
+                if let Some(change) = change_kind(src, dst, options.direction) {
                     actions.push(transfer_action(src, &options, change));
                 } else {
                     actions.push(SyncAction::Skip {
@@ -149,12 +148,7 @@ pub fn compute_diff(
     actions
 }
 
-fn change_kind(
-    source: &FileEntry,
-    target: &FileEntry,
-    checksum: bool,
-    direction: SyncDirection,
-) -> Option<ChangeKind> {
+fn change_kind(source: &FileEntry, target: &FileEntry, direction: SyncDirection) -> Option<ChangeKind> {
     // Directories don't need re-creation; their content changes are handled by children
     if source.kind == SyncEntryKind::Directory && target.kind == SyncEntryKind::Directory {
         return None;
@@ -165,34 +159,9 @@ fn change_kind(
     }
 
     // LocalToCloud: cloud mtime reflects upload time, not the local file's
-    // original mtime, so mtime comparison is unreliable. Compare sizes only,
-    // unless both sides have checksums and checksum mode is enabled.
+    // original mtime, so mtime comparison is unreliable. Compare sizes only.
     if direction == SyncDirection::LocalToCloud {
-        if checksum && let (Some(s), Some(t)) = (&source.checksum, &target.checksum) {
-            return if s != t {
-                Some(ChangeKind::Checksum)
-            } else {
-                None
-            };
-        }
-        // One or both checksums missing; mtime is unreliable for
-        // LocalToCloud. Fall back to size-only comparison.
-        if checksum {
-            warn!(
-                "checksum 模式下云端缺少 checksum，回退到仅按文件大小比较: {}",
-                source.rel_path
-            );
-        }
         return None;
-    }
-
-    // CloudToLocal (or generic): compare checksums when both sides have them.
-    if checksum && let (Some(s), Some(t)) = (&source.checksum, &target.checksum) {
-        return if s != t {
-            Some(ChangeKind::Checksum)
-        } else {
-            None
-        };
     }
 
     match (source.mtime, target.mtime) {
@@ -278,14 +247,12 @@ fn change_marker(change: ChangeKind) -> &'static str {
     match change {
         ChangeKind::New => ">f+++++++++",
         ChangeKind::SizeOrTime => ">f.st......",
-        ChangeKind::Checksum => ">f.c.......",
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct SyncScanOptions {
     pub recursive: bool,
-    pub checksum: bool,
     pub exclude: Vec<String>,
 }
 
@@ -303,11 +270,7 @@ pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow!("无法读取文件名: {}", root.display()))?;
         if !is_excluded(file_name, &patterns) {
-            items.push(file_entry_from_local(
-                root,
-                file_name.to_string(),
-                options.checksum,
-            )?);
+            items.push(file_entry_from_local(root, file_name.to_string())?);
         }
         return Ok(items);
     }
@@ -355,7 +318,6 @@ fn scan_local_dir(
                                 .ok()
                                 .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
                                 .map(|duration| duration.as_secs() as i64),
-                            checksum: None,
                             kind: SyncEntryKind::Directory,
                         },
                     );
@@ -365,7 +327,7 @@ fn scan_local_dir(
         }
 
         if metadata.is_file() {
-            items.push(file_entry_from_local(&path, rel_path, options.checksum)?);
+            items.push(file_entry_from_local(&path, rel_path)?);
         }
     }
 
@@ -378,7 +340,7 @@ fn dir_is_truly_empty(dir: &Path) -> Result<bool> {
     Ok(entries.next().is_none())
 }
 
-fn file_entry_from_local(path: &Path, rel_path: String, checksum: bool) -> Result<FileEntry> {
+fn file_entry_from_local(path: &Path, rel_path: String) -> Result<FileEntry> {
     let metadata = fs::metadata(path)?;
     let mtime = metadata
         .modified()
@@ -390,11 +352,6 @@ fn file_entry_from_local(path: &Path, rel_path: String, checksum: bool) -> Resul
         rel_path,
         size: metadata.len(),
         mtime,
-        checksum: if checksum {
-            Some(sha256_file(path)?)
-        } else {
-            None
-        },
         kind: SyncEntryKind::File,
     })
 }
@@ -438,13 +395,6 @@ fn to_forward_slash(path: &Path) -> String {
         .join("/")
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| anyhow!("路径不是合法 UTF-8: {}", path.display()))?;
-    Ok(crate::utils::crypto::calc_file_sha256(path_str)?)
-}
-
 pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileItem) -> bool {
     matches!(
         item.file_type.as_deref(),
@@ -467,7 +417,6 @@ pub fn cloud_child_path(parent: &str, name: &str) -> String {
 pub fn personal_item_to_file_entry(
     rel_parent: &str,
     item: &crate::models::PersonalFileItem,
-    checksum: bool,
 ) -> Result<FileEntry> {
     let name = item
         .name
@@ -479,19 +428,10 @@ pub fn personal_item_to_file_entry(
         format!("{}/{}", rel_parent.trim_matches('/'), name)
     };
 
-    let checksum = if checksum && item.content_hash_algorithm.as_deref() == Some("SHA256") {
-        item.content_hash
-            .clone()
-            .map(|value| value.to_ascii_lowercase())
-    } else {
-        None
-    };
-
     Ok(FileEntry {
         rel_path,
         size: item.size.unwrap_or(0).max(0) as u64,
         mtime: parse_cloud_mtime(item),
-        checksum,
         kind: SyncEntryKind::File,
     })
 }
@@ -628,7 +568,7 @@ fn scan_cloud_personal_dir_inner<'a>(
                                 rel_path: rel_path.clone(),
                                 size: 0,
                                 mtime: parse_cloud_mtime(&item),
-                                checksum: None,
+                            
                                 kind: SyncEntryKind::Directory,
                             });
                             scan_cloud_personal_dir(
@@ -645,20 +585,7 @@ fn scan_cloud_personal_dir_inner<'a>(
                         }
                     }
                 } else {
-                    let mut entry =
-                        personal_item_to_file_entry(rel_parent, &item, options.checksum)?;
-
-                    if options.checksum
-                        && entry.checksum.is_none()
-                        && let Some(file_id) = item.file_id.as_deref()
-                        && let Ok(detail) =
-                            crate::client::api::get_personal_file_detail(config, file_id).await
-                        && detail.content_hash_algorithm.as_deref() == Some("SHA256")
-                    {
-                        entry.checksum =
-                            detail.content_hash.map(|value| value.to_ascii_lowercase());
-                    }
-
+                    let entry = personal_item_to_file_entry(rel_parent, &item)?;
                     items.push(entry);
                 }
             }

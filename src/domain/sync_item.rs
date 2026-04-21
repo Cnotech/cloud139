@@ -23,7 +23,6 @@ pub struct FileEntry {
     pub rel_path: String,
     pub size: u64,
     pub mtime: Option<i64>,
-    pub checksum: Option<String>,
     pub kind: SyncEntryKind,
 }
 
@@ -31,7 +30,6 @@ pub struct FileEntry {
 pub enum ChangeKind {
     New,
     SizeOrTime,
-    Checksum,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
