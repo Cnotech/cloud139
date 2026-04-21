@@ -269,6 +269,13 @@ rm -rf cloud139_e2e_download_test
 | 9.3 | `./target/release/cloud139.exe rm /not_exist.txt --yes` | **边界**：文件不存在 |
 | 9.4 | `./target/release/cloud139.exe rm /Cargo.toml` | 不带 --yes 应提示确认 |
 | 9.5 | `./target/release/cloud139.exe rm / --yes` | **边界**：不能删除根目录 |
+| 9.6 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rm_empty_dir` | 准备：创建待删除的空目录 |
+| 9.7 | `./target/release/cloud139.exe rm /e2e_test_xxx/rm_empty_dir --yes` | 删除空目录成功 |
+| 9.8 | `./target/release/cloud139.exe ls /e2e_test_xxx` | rm_empty_dir 已删除 |
+| 9.9 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rm_nonempty_dir && echo "dir_file" > rm_dir_file.txt && ./target/release/cloud139.exe upload rm_dir_file.txt /e2e_test_xxx/rm_nonempty_dir/` | 准备：创建非空目录 |
+| 9.10 | `./target/release/cloud139.exe rm /e2e_test_xxx/rm_nonempty_dir --yes` | 删除非空目录成功 |
+| 9.11 | `./target/release/cloud139.exe ls /e2e_test_xxx` | rm_nonempty_dir 已删除 |
+| 9.12 | `./target/release/cloud139.exe rm /e2e_test_xxx/not_exist_dir --yes` | **边界**：目录不存在 |
 
 #### 阶段 10: 同步测试 (sync)
 
