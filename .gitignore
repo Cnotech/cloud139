@@ -11,4 +11,4 @@
 /bot-database.json
 /docs/superpowers
 /review_tmp_target
-/target_review*
+/target_review*.worktrees/
