@@ -52,6 +52,15 @@ async fn rename_personal(
         return Err(ClientError::CannotOperateOnRoot);
     }
 
+    let current_name = std::path::Path::new(source)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if current_name == new_name {
+        warn!("新名称「{}」与当前名称一致，无需执行重命名", new_name);
+        return Ok(());
+    }
+
     let file_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if file_id.is_empty() {
         error!("无效的文件路径");
@@ -110,6 +119,15 @@ async fn rename_family(
     source: &str,
     new_name: &str,
 ) -> Result<(), ClientError> {
+    let current_name = std::path::Path::new(source)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if current_name == new_name {
+        warn!("新名称「{}」与当前名称一致，无需执行重命名", new_name);
+        return Ok(());
+    }
+
     let client = Client::new(config.clone());
 
     let source = source.trim_start_matches('/');
@@ -231,6 +249,15 @@ async fn rename_group(
     source: &str,
     new_name: &str,
 ) -> Result<(), ClientError> {
+    let current_name = std::path::Path::new(source)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if current_name == new_name {
+        warn!("新名称「{}」与当前名称一致，无需执行重命名", new_name);
+        return Ok(());
+    }
+
     let source = source.trim_start_matches('/');
     let parent_path = std::path::Path::new(source);
     let parent_dir = parent_path
