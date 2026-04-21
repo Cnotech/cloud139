@@ -33,15 +33,15 @@ pub async fn login(
 
 fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
     let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, token)
-        .map_err(|e| ClientError::Other(format!("Failed to decode token: {}", e)))?;
+        .map_err(|_| ClientError::Other("Token 格式错误，无法解析".to_string()))?;
 
     let decode_str = String::from_utf8(decoded)
-        .map_err(|e| ClientError::Other(format!("Invalid token encoding: {}", e)))?;
+        .map_err(|_| ClientError::Other("Token 编码无效".to_string()))?;
 
     let parts: Vec<&str> = decode_str.split(':').collect();
     if parts.len() < 3 {
         return Err(ClientError::Other(
-            "Invalid token format: missing parts".to_string(),
+            "Token 格式不完整，缺少必要字段".to_string(),
         ));
     }
 
@@ -51,13 +51,13 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
     let token_parts: Vec<&str> = token_info.split('|').collect();
     if token_parts.len() < 4 {
         return Err(ClientError::Other(
-            "Invalid token format: missing token info parts".to_string(),
+            "Token 信息不完整，可能已损坏".to_string(),
         ));
     }
 
     let expire_time = token_parts[3]
         .parse::<i64>()
-        .map_err(|_| ClientError::Other("Invalid expiration timestamp".to_string()))?;
+        .map_err(|_| ClientError::Other("Token 过期时间无效".to_string()))?;
 
     Ok((account, token_info, expire_time))
 }
