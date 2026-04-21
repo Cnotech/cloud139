@@ -116,7 +116,7 @@ cloud139 sync cloud:/remote/path ./local/path -r
 登录139云盘账号。
 
 ```bash
-cloud139 login -t <TOKEN> [-s <存储类型>] [-c <云盘ID>]
+cloud139 login -t <TOKEN>
 ```
 
 **参数说明：**
@@ -124,17 +124,12 @@ cloud139 login -t <TOKEN> [-s <存储类型>] [-c <云盘ID>]
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
 | --token | -t | 是 | 授权Token |
-| --storage-type | -s | 否 | 存储类型，默认：personal_new |
-| --cloud-id | -c | 否 | 云盘ID，家庭云/和家亲时需要 |
 
 **示例：**
 
 ```bash
-# 基础登录
+# 登录
 cloud139 login -t your_authorization_token
-
-# 使用家庭云登录
-cloud139 login -t token -s family -c cloud123
 ```
 
 ### ls
