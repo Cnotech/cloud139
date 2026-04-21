@@ -43,7 +43,7 @@ async fn cp_personal(
 ) -> Result<(), ClientError> {
     let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if source_id.is_empty() {
-        error!("错误: 无效的源文件路径");
+        error!("无效的源文件路径");
         return Err(ClientError::InvalidSourcePath);
     }
     debug!("cp_personal: source_id={}", source_id);
@@ -214,7 +214,7 @@ async fn cp_group(
     }
 
     if found_id.is_empty() {
-        error!("错误: 文件不存在");
+        error!("文件不存在");
         return Err(ClientError::FileNotFound);
     }
 

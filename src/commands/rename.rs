@@ -44,13 +44,13 @@ async fn rename_personal(
     new_name: &str,
 ) -> Result<(), ClientError> {
     if source == "/" || source.is_empty() {
-        error!("错误: 不能重命名根目录");
+        error!("不能重命名根目录");
         return Err(ClientError::CannotOperateOnRoot);
     }
 
     let file_id = crate::client::api::get_file_id_by_path(config, source).await?;
     if file_id.is_empty() {
-        error!("错误: 无效的文件路径");
+        error!("无效的文件路径");
         return Err(ClientError::InvalidFilePath);
     }
     debug!("rename_personal: file_id={}", file_id);
@@ -160,13 +160,13 @@ async fn rename_family(
     }
 
     if found_id.is_empty() {
-        error!("错误: 文件不存在");
+        error!("文件不存在");
         return Err(ClientError::FileNotFound);
     }
 
     // 家庭云不支持重命名文件夹
     if is_dir {
-        error!("错误: 家庭云不支持重命名文件夹");
+        error!("家庭云不支持重命名文件夹");
         return Err(ClientError::UnsupportedFamilyRenameFolder);
     }
 
@@ -288,7 +288,7 @@ async fn rename_group(
     }
 
     if found_id.is_empty() {
-        error!("错误: 文件不存在");
+        error!("文件不存在");
         return Err(ClientError::FileNotFound);
     }
 

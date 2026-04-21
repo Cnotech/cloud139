@@ -18,12 +18,12 @@ pub struct MvArgs {
 
 pub async fn execute(args: MvArgs) -> anyhow::Result<()> {
     if args.source.is_empty() {
-        error!("错误: 请指定至少一个源文件");
+        error!("请指定至少一个源文件");
         return Err(ClientError::NoSourceFiles.into());
     }
 
     if args.source.iter().any(|s| s == "/") {
-        error!("错误: 不能移动根目录");
+        error!("不能移动根目录");
         return Err(ClientError::CannotOperateOnRoot.into());
     }
 
@@ -94,7 +94,7 @@ async fn mv_personal(
     }
 
     if source_ids.is_empty() {
-        error!("错误: 没有有效的源文件需要移动");
+        error!("没有有效的源文件需要移动");
         return Err(ClientError::NoSourceFiles);
     }
 
@@ -237,7 +237,7 @@ async fn mv_family(
     }
 
     if found_id.is_empty() {
-        error!("错误: 文件不存在");
+        error!("文件不存在");
         return Err(ClientError::FileNotFound);
     }
 
@@ -394,7 +394,7 @@ async fn mv_group(
     }
 
     if found_id.is_empty() {
-        error!("错误: 文件不存在");
+        error!("文件不存在");
         return Err(ClientError::FileNotFound);
     }
 
