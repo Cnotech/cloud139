@@ -15,14 +15,13 @@ pub struct LoginArgs {
     pub token: String,
 
     #[arg(
-        short,
         long,
         default_value = "personal_new",
         help = "存储类型: personal_new, family, group"
     )]
     pub storage_type: String,
 
-    #[arg(short, long, help = "云盘ID (家庭云/和家亲时需要)")]
+    #[arg(long, help = "云盘ID (家庭云/和家亲时需要)")]
     pub cloud_id: Option<String>,
 }
 
