@@ -260,7 +260,7 @@ cloud139 mkdir <路径> [-f]
 **示例：**
 
 ```bash
-# 创建根目录
+# 创建目录
 cloud139 mkdir /newfolder
 
 # 创建嵌套目录
