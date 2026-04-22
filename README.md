@@ -78,11 +78,8 @@ cloud139 rm /file.txt -y
 # 删除目录
 cloud139 rm /folder -y
 
-# 创建根目录
-cloud139 mkdir /newfolder
-
-# 创建嵌套目录
-cloud139 mkdir /parent/child
+# 创建目录
+cloud139 mkdir /parent/newFolder
 
 # 移动单个文件
 cloud139 mv /old.txt /new.txt
@@ -108,7 +105,7 @@ cloud139 sync cloud:/remote/path ./local/path -r
 | 参数 | 简写 | 默认值 | 说明 |
 |------|------|--------|------|
 | --verbose | -v | info | 日志级别 (trace, debug, info, warn, error) |
-| --config | - | - | 指定配置文件路径。读取时优先使用该路径；`login` 时也写入该路径 |
+| --config | -c | - | 指定配置文件路径。读取时优先使用该路径；`login` 时也写入该路径 |
 
 ## 命令参考
 

@@ -15,7 +15,7 @@ pub struct Cli {
     pub verbose: String,
 
     /// 指定配置文件路径 (覆盖默认查找顺序)
-    #[arg(long, global = true, value_name = "PATH")]
+    #[arg(short, long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 }
 
