@@ -304,7 +304,7 @@ cloud139 mv /file.txt /folder/ -f
 复制文件或目录。
 
 ```bash
-cloud139 cp <源路径> <目标路径> [-m] [-f]
+cloud139 cp <源路径> <目标路径> [-f]
 ```
 
 **参数说明：**
