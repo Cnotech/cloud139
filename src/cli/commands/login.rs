@@ -20,7 +20,7 @@ pub struct LoginArgs {
     )]
     pub storage_type: String,
 
-    #[arg(short, long, help = "云盘ID (家庭云/群组云时需要)")]
+    #[arg(long, help = "云盘ID (家庭云/群组云时需要)")]
     pub cloud_id: Option<String>,
 }
 
