@@ -483,7 +483,6 @@ cloud139/
 - [aes-gcm](https://docs.rs/aes-gcm/) - 加密
 - [chrono](https://chrono.rs/) - 日期时间处理
 - [directories](https://docs.rs/directories/) - 目录路径处理
-- [env_logger](https://docs.rs/env_logger/) - 日志输出
 
 ## 许可证
 
