@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
 use cloud139::commands::download;
+use cloud139::utils::resolve_local_path;
 
 #[test]
 fn test_resolve_local_path_none() {
     let remote_path = "/test/file.txt";
     let local_path = None;
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "file.txt");
 }
 
@@ -14,7 +15,7 @@ fn test_resolve_local_path_none() {
 fn test_resolve_local_path_some_with_file() {
     let remote_path = "/test/file.txt";
     let local_path = Some("/local/path.txt".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/path.txt");
 }
 
@@ -22,7 +23,7 @@ fn test_resolve_local_path_some_with_file() {
 fn test_resolve_local_path_with_directory() {
     let remote_path = "/test/file.txt";
     let local_path = Some("/local/dir/".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir/file.txt");
 }
 
@@ -30,7 +31,7 @@ fn test_resolve_local_path_with_directory() {
 fn test_resolve_local_path_with_dir_no_slash() {
     let remote_path = "/test/file.txt";
     let local_path = Some("/local/dir".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir");
 }
 
@@ -38,7 +39,7 @@ fn test_resolve_local_path_with_dir_no_slash() {
 fn test_resolve_local_path_no_extension() {
     let remote_path = "/test/myfile";
     let local_path = Some("/local/dir".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir");
 }
 
@@ -46,7 +47,7 @@ fn test_resolve_local_path_no_extension() {
 fn test_resolve_local_path_empty_remote() {
     let remote_path = "";
     let local_path = None;
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "download");
 }
 
@@ -54,7 +55,7 @@ fn test_resolve_local_path_empty_remote() {
 fn test_resolve_local_path_only_slash() {
     let remote_path = "/";
     let local_path = None;
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "download");
 }
 
@@ -62,7 +63,7 @@ fn test_resolve_local_path_only_slash() {
 fn test_resolve_local_path_with_txt_extension() {
     let remote_path = "/test/file";
     let local_path = Some("/local/dir/file.txt".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir/file.txt");
 }
 
@@ -70,7 +71,7 @@ fn test_resolve_local_path_with_txt_extension() {
 fn test_resolve_local_path_nested() {
     let remote_path = "/a/b/c/d/file.txt";
     let local_path = None;
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "file.txt");
 }
 
@@ -78,7 +79,7 @@ fn test_resolve_local_path_nested() {
 fn test_resolve_local_path_target_is_dir() {
     let remote_path = "/test/file.txt";
     let local_path = Some("/local/dir/".to_string());
-    let result = download::resolve_local_path(remote_path, &local_path);
+    let result = resolve_local_path(remote_path, &local_path);
     assert_eq!(result, "/local/dir/file.txt");
 }
 

@@ -73,7 +73,7 @@ mod download_mock_test {
 }
 
 mod download_path_tests {
-    use cloud139::commands::download::resolve_local_path;
+    use cloud139::utils::resolve_local_path;
 
     #[test]
     fn test_resolve_local_path_with_directory() {

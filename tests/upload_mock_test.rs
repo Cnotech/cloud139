@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 mod upload_mock_test {
-    use cloud139::commands::download::resolve_local_path;
+    use cloud139::utils::resolve_local_path;
     use httpmock::prelude::*;
     use serde_json::json;
 
