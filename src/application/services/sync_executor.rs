@@ -289,7 +289,7 @@ async fn execute_one_action(
                     .await
                     .ok();
             }
-            crate::commands::upload::personal::upload(
+            crate::application::services::upload::personal::upload(
                 config,
                 local_abs,
                 &remote_dir,

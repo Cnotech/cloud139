@@ -1,0 +1,166 @@
+use crate::client::{ClientError, StorageType};
+
+pub async fn get_upload_urls(
+    config: &crate::config::Config,
+    host: &str,
+    file_id: &str,
+    upload_id: &str,
+    part_count: i64,
+    part_size: i64,
+    file_size: i64,
+) -> Result<std::collections::HashMap<i32, String>, ClientError> {
+    use std::collections::HashMap;
+
+    let mut upload_urls: HashMap<i32, String> = HashMap::new();
+
+    for batch_start in (0..part_count as usize).step_by(100) {
+        let batch_end = std::cmp::min(batch_start + 100, part_count as usize);
+
+        let url = format!("{}/file/getUploadUrl", host);
+
+        let part_infos: Vec<serde_json::Value> = (batch_start..batch_end)
+            .map(|i| {
+                let start = i as i64 * part_size;
+                let byte_size = if file_size - start > part_size {
+                    part_size
+                } else {
+                    file_size - start
+                };
+                serde_json::json!({
+                    "partNumber": (i + 1) as i32,
+                    "partSize": byte_size
+                })
+            })
+            .collect();
+
+        let body = serde_json::json!({
+            "fileId": file_id,
+            "uploadId": upload_id,
+            "partInfos": part_infos,
+            "commonAccountInfo": {
+                "account": config.account,
+                "accountType": 1
+            }
+        });
+
+        let resp_json: serde_json::Value =
+            crate::client::api::personal_api_request(config, &url, body, StorageType::PersonalNew)
+                .await?;
+
+        if let Some(part_infos) = resp_json
+            .get("data")
+            .and_then(|d| d.get("partInfos"))
+            .and_then(|p| p.as_array())
+        {
+            for info in part_infos {
+                if let (Some(part_num), Some(url)) = (
+                    info.get("partNumber").and_then(|n| n.as_i64()),
+                    info.get("uploadUrl").and_then(|u| u.as_str()),
+                ) {
+                    upload_urls.insert(part_num as i32, url.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(upload_urls)
+}
+
+pub async fn upload_single_part(
+    upload_urls: &std::collections::HashMap<i32, String>,
+    part_number: i32,
+    buffer: &[u8],
+    pb: Option<indicatif::ProgressBar>,
+) -> Result<(), ClientError> {
+    let upload_url = upload_urls
+        .get(&part_number)
+        .cloned()
+        .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
+
+    let total_size = buffer.len();
+    const CHUNK_SIZE: usize = 64 * 1024;
+
+    // Bounded channel (capacity=1): producer blocks until hyper consumes the previous
+    // chunk from its send buffer, so pb.inc() fires in step with actual network sends.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
+    let owned: Vec<u8> = buffer.to_vec();
+
+    tokio::spawn(async move {
+        for chunk in owned.chunks(CHUNK_SIZE) {
+            let n = chunk.len();
+            if tx.send(Ok(chunk.to_vec())).await.is_err() {
+                break;
+            }
+            if let Some(ref p) = pb {
+                p.inc(n as u64);
+            }
+        }
+    });
+
+    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+    let body = reqwest::Body::wrap_stream(stream);
+
+    let resp = reqwest::Client::new()
+        .put(&upload_url)
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Length", total_size.to_string())
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| ClientError::Api(format!("分片 {} 上传失败: {}", part_number, e)))?;
+
+    let status = resp.status().as_u16();
+    if status != 200 {
+        return Err(ClientError::Api(format!(
+            "分片 {} 上传失败: HTTP {}",
+            part_number, status
+        )));
+    }
+
+    Ok(())
+}
+
+pub async fn confirm_upload(
+    config: &crate::config::Config,
+    host: &str,
+    file_id: &str,
+    upload_id: &str,
+    content_hash: &str,
+) -> Result<(), ClientError> {
+    use crate::debug;
+
+    debug!("所有分片上传完成");
+
+    let complete_url = format!("{}/file/complete", host);
+
+    let body = serde_json::json!({
+        "contentHash": content_hash,
+        "contentHashAlgorithm": "SHA256",
+        "uploadId": upload_id,
+        "fileId": file_id,
+    });
+
+    let resp_json: serde_json::Value = crate::client::api::personal_api_request(
+        config,
+        &complete_url,
+        body,
+        StorageType::PersonalNew,
+    )
+    .await?;
+
+    if let Some(success_flag) = resp_json.get("success").and_then(|s| s.as_bool()) {
+        if success_flag {
+            debug!("完成响应: {:?}", resp_json);
+        } else {
+            let message = resp_json
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("完成上传失败");
+            return Err(ClientError::Api(format!("完成上传失败: {}", message)));
+        }
+    } else {
+        debug!("完成响应: {:?}", resp_json);
+    }
+
+    Ok(())
+}
