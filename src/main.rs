@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     if let Err(err) = result {
-        if let Some(exit) = err.downcast_ref::<cloud139::commands::sync::CommandExit>() {
+        if let Some(exit) = err.downcast_ref::<cloud139::commands::CommandExit>() {
             error!("{}", exit);
             std::process::exit(exit.code());
         } else if let Some(client_err) = err.downcast_ref::<ClientError>() {

@@ -110,7 +110,8 @@ fn test_resolve_sync_direction_rejects_same_kind() {
     assert!(cloud_err.to_string().contains("云端路径"));
 }
 
-use cloud139::commands::sync::{CommandExit, SyncArgs as CommandSyncArgs};
+use cloud139::commands::CommandExit;
+use cloud139::commands::sync::SyncArgs as CommandSyncArgs;
 
 #[test]
 fn test_command_exit_reports_configured_code() {

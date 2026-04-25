@@ -3,11 +3,11 @@ use crate::application::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
     resolve_sync_direction, scan_cloud_personal, scan_local,
 };
+use crate::commands::CommandExit;
 use crate::domain::StorageType;
-use crate::domain::{SyncDirection, SyncEndpoint, SyncSummary};
-use crate::{debug, step, success};
+use crate::domain::{SyncDirection, SyncEndpoint};
+use crate::{debug, step};
 use clap::Parser;
-use std::fmt;
 use std::io::IsTerminal;
 
 fn parse_jobs(value: &str) -> Result<usize, String> {
@@ -43,33 +43,6 @@ pub struct SyncArgs {
     #[arg(short = 'j', long, default_value = "4", value_parser = parse_jobs, help = "并发传输数量上限")]
     pub jobs: usize,
 }
-
-#[derive(Debug)]
-pub struct CommandExit {
-    code: i32,
-    message: String,
-}
-
-impl CommandExit {
-    pub fn new(code: i32, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-
-    pub fn code(&self) -> i32 {
-        self.code
-    }
-}
-
-impl fmt::Display for CommandExit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CommandExit {}
 
 pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     let direction = resolve_sync_direction(&args.src, &args.dest)
@@ -163,35 +136,11 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     )
     .await?;
 
-    print_summary(&summary);
+    crate::presentation::renderers::print_summary(&summary);
 
     if summary.failed > 0 {
         return Err(CommandExit::new(1, format!("{} 个文件同步失败", summary.failed)).into());
     }
 
     Ok(())
-}
-
-fn print_summary(summary: &SyncSummary) {
-    let mut parts = Vec::new();
-    if summary.transferred > 0 {
-        parts.push(format!("{} 个文件传输", summary.transferred));
-    }
-    if summary.created_dirs > 0 {
-        parts.push(format!("{} 个目录创建", summary.created_dirs));
-    }
-    if summary.deleted > 0 {
-        parts.push(format!("{} 个删除", summary.deleted));
-    }
-    if summary.skipped > 0 {
-        parts.push(format!("{} 个跳过", summary.skipped));
-    }
-    if summary.failed > 0 {
-        parts.push(format!("{} 个失败", summary.failed));
-    }
-    if parts.is_empty() {
-        success!("同步完成: 无变化");
-    } else {
-        success!("同步完成: {}", parts.join(", "));
-    }
 }
