@@ -13,16 +13,16 @@ async fn main() -> anyhow::Result<()> {
     }
     cloud139::utils::logger::init_verbose(&cli.verbose);
     let result = match cli.command {
-        Commands::Login(args) => cloud139::commands::login::execute(args.into()).await,
+        Commands::Login(args) => cloud139::commands::login::execute(args).await,
         Commands::Ls(args) => cloud139::commands::list::execute(args).await,
-        Commands::Upload(args) => cloud139::commands::upload::execute(args.into()).await,
-        Commands::Download(args) => cloud139::commands::download::execute(args.into()).await,
-        Commands::Rm(args) => cloud139::commands::delete::execute(args.into()).await,
+        Commands::Upload(args) => cloud139::commands::upload::execute(args).await,
+        Commands::Download(args) => cloud139::commands::download::execute(args).await,
+        Commands::Rm(args) => cloud139::commands::delete::execute(args).await,
         Commands::Mkdir(args) => cloud139::commands::mkdir::execute(args).await,
         Commands::Mv(args) => cloud139::commands::mv::execute(args).await,
         Commands::Cp(args) => cloud139::commands::cp::execute(args).await,
         Commands::Rename(args) => cloud139::commands::rename::execute(args).await,
-        Commands::Sync(args) => cloud139::commands::sync::execute(args.into()).await,
+        Commands::Sync(args) => cloud139::commands::sync::execute(args).await,
     };
 
     if let Err(err) = result {

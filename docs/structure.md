@@ -5,17 +5,7 @@ src/
 ├── main.rs                    # 程序入口
 ├── lib.rs                     # 库入口
 ├── cli/                       # CLI 层：命令行参数定义
-│   ├── app.rs                 # CLI 应用定义 (Cli, Commands)
-│   └── commands/              # 各命令的参数结构
-│       ├── cp.rs              # 复制命令参数
-│       ├── delete.rs          # 删除命令参数
-│       ├── download.rs        # 下载命令参数
-│       ├── list.rs            # 列表命令参数
-│       ├── login.rs           # 登录命令参数
-│       ├── mkdir.rs           # 创建目录命令参数
-│       ├── mv.rs              # 移动命令参数
-│       ├── rename.rs          # 重命名命令参数
-│       └── upload.rs          # 上传命令参数
+│   └── app.rs                 # CLI 应用定义 (Cli, Commands)
 ├── application/               # 应用层：业务逻辑服务
 │   └── services/              # 业务服务实现
 │       └── list_service.rs    # 列表服务
@@ -71,9 +61,9 @@ src/
 - 解析用户输入，传递给命令层
 
 ### 2. 命令层 (commands/)
-- 作为适配器，连接 CLI 层和应用层
+- 包含各命令的 Args 定义和 thin execute 适配器
+- 连接 CLI 层和应用层
 - 调用应用层服务执行业务逻辑
-- 处理命令特定的逻辑
 
 ### 3. 应用层 (application/)
 - 包含业务逻辑服务
