@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 
-use cloud139::commands::list;
+use cloud139::commands::list::ListArgs;
+use cloud139::presentation::renderers::list_renderer::format_size;
+use cloud139::utils::parse_personal_time;
 
 #[test]
 fn test_list_args_defaults() {
-    let args = list::ListArgs {
+    let args = ListArgs {
         path: "/".to_string(),
         page: 1,
         page_size: 100,
@@ -18,7 +20,7 @@ fn test_list_args_defaults() {
 
 #[test]
 fn test_list_args_with_output() {
-    let args = list::ListArgs {
+    let args = ListArgs {
         path: "/test".to_string(),
         page: 2,
         page_size: 50,
@@ -29,7 +31,7 @@ fn test_list_args_with_output() {
 
 #[test]
 fn test_list_args_custom_page() {
-    let args = list::ListArgs {
+    let args = ListArgs {
         path: "/".to_string(),
         page: 5,
         page_size: 20,
@@ -41,19 +43,19 @@ fn test_list_args_custom_page() {
 
 #[test]
 fn test_format_size_zero() {
-    assert_eq!(list::format_size(0), "0 B");
+    assert_eq!(format_size(0), "0 B");
 }
 
 #[test]
 fn test_format_size_very_large() {
-    assert_eq!(list::format_size(10737418240), "10.00 GB");
-    assert_eq!(list::format_size(107374182400), "100.00 GB");
+    assert_eq!(format_size(10737418240), "10.00 GB");
+    assert_eq!(format_size(107374182400), "100.00 GB");
 }
 
 #[test]
 fn test_parse_personal_time_edge_cases() {
-    assert_eq!(list::parse_personal_time(""), "");
-    assert!(list::parse_personal_time("2024-01-01T10:00:00Z").contains("2024"));
-    assert!(list::parse_personal_time("2024-01-01T10:00:00.000").contains("2024"));
-    assert!(list::parse_personal_time("2024-01-01 10:00:00").contains("2024"));
+    assert_eq!(parse_personal_time(""), "");
+    assert!(parse_personal_time("2024-01-01T10:00:00Z").contains("2024"));
+    assert!(parse_personal_time("2024-01-01T10:00:00.000").contains("2024"));
+    assert!(parse_personal_time("2024-01-01 10:00:00").contains("2024"));
 }

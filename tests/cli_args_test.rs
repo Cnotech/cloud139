@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use cloud139::cli::commands::list::ListArgs;
+use cloud139::commands::list::ListArgs;
 
 #[test]
 fn test_list_args_parse_defaults() {

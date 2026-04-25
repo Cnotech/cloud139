@@ -1,4 +1,4 @@
-use crate::cli::commands::list::ListArgs as CliListArgs;
+use crate::commands::list::ListArgs as CliListArgs;
 use crate::client::endpoints::{family, group};
 use crate::client::{Client, StorageType};
 use crate::debug;

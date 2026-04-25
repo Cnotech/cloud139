@@ -1,11 +1,11 @@
 use cloud139::application::services::mkdir_service;
-use cloud139::commands::list;
+use cloud139::presentation::renderers::list_renderer::format_size;
 
 #[test]
 fn test_format_size_large_values() {
-    assert_eq!(list::format_size(1073741824 * 5), "5.00 GB");
-    assert_eq!(list::format_size(1073741824 * 10), "10.00 GB");
-    assert_eq!(list::format_size(1073741824 * 100), "100.00 GB");
+    assert_eq!(format_size(1073741824 * 5), "5.00 GB");
+    assert_eq!(format_size(1073741824 * 10), "10.00 GB");
+    assert_eq!(format_size(1073741824 * 100), "100.00 GB");
 }
 
 #[test]

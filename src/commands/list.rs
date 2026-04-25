@@ -1,10 +1,22 @@
-pub use crate::cli::commands::list::ListArgs;
-pub use crate::presentation::renderers::list_renderer::format_size;
-pub use crate::utils::parse_personal_time;
-
+use clap::Parser;
 use crate::debug;
 use crate::presentation::renderers::list_renderer;
 use std::fs;
+
+#[derive(Parser, Debug, Clone)]
+pub struct ListArgs {
+    #[arg(default_value = "/", help = "远程目录路径")]
+    pub path: String,
+
+    #[arg(short, long, default_value = "1", help = "页码")]
+    pub page: i32,
+
+    #[arg(short = 's', long, default_value = "100", help = "每页数量")]
+    pub page_size: i32,
+
+    #[arg(short, long, help = "将JSON输出到指定文件")]
+    pub output: Option<String>,
+}
 
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
     let config = crate::commands::dispatch::load_config()?;

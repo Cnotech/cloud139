@@ -4,7 +4,7 @@ use crate::success;
 use crate::warn;
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 pub struct LoginArgs {
     #[arg(
         short,
@@ -15,6 +15,7 @@ pub struct LoginArgs {
     pub token: String,
 
     #[arg(
+        short,
         long,
         default_value = "personal_new",
         help = "存储类型: personal_new, family, group"
@@ -37,9 +38,8 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
 
     config.save()?;
 
-    // 后置校验：执行一次 ls / 确认 Token 实际可用
     info!("正在校验 Token 可用性 (ls /) ...");
-    let list_args = crate::cli::commands::list::ListArgs {
+    let list_args = crate::commands::list::ListArgs {
         path: "/".to_string(),
         page: 1,
         page_size: 10,
@@ -47,7 +47,6 @@ pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
     };
     if let Err(e) = crate::application::services::list(&config, &list_args).await {
         warn!("ls / 执行失败: {}", e);
-        // 验证失败，删除已写入的配置文件（含子调用中缓存触发的写入）
         let _ = std::fs::remove_file(crate::config::Config::save_path());
         return Err(anyhow::anyhow!("Token 校验失败，可能已过期: {}", e));
     }
