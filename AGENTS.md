@@ -26,19 +26,72 @@ src/
 ├── main.rs               # 程序入口
 ├── lib.rs                # 库入口
 ├── cli/                  # CLI 层：命令行参数定义
-│   ├── app.rs            # CLI 应用定义
-│   └── commands/         # 各命令的参数结构
+│   ├── app.rs            # CLI 应用定义 (Commands, Cli)
+│   └── mod.rs            # CLI 模块导出
 ├── application/          # 应用层：业务逻辑服务
 │   └── services/         # 业务服务实现
+│       ├── copy_service.rs
+│       ├── delete_service.rs
+│       ├── download_service.rs
+│       ├── list_service.rs
+│       ├── login_service.rs
+│       ├── mkdir_service.rs
+│       ├── move_service.rs
+│       ├── rename_service.rs
+│       ├── sync_service.rs
+│       ├── sync_executor.rs
+│       ├── upload_service.rs
+│       └── upload/       # 上传子模块（按存储类型拆分）
+│           ├── family.rs
+│           ├── group.rs
+│           ├── mod.rs
+│           ├── personal.rs
+│           └── personal_parts.rs
 ├── domain/               # 领域层：核心业务模型
+│   ├── file_item.rs      # 文件项模型 (FileItem, EntryKind)
+│   ├── storage_type.rs   # 存储类型枚举 (StorageType)
+│   └── sync_item.rs      # 同步项模型 (SyncItem, SyncAction)
 ├── presentation/         # 展示层：输出格式化
-│   ├── error.rs          # 错误格式化
-│   └── renderers/        # 输出渲染器
-├── commands/             # 命令层：命令执行逻辑
+│   ├── list_renderer.rs  # 列表渲染器
+│   ├── sync_renderer.rs  # 同步结果渲染器
+│   └── progress.rs       # 进度条辅助
+├── commands/             # 命令层：命令执行逻辑（各命令 Args + execute）
+│   ├── cp.rs
+│   ├── delete.rs
+│   ├── download.rs
+│   ├── list.rs
+│   ├── login.rs
+│   ├── mkdir.rs
+│   ├── mod.rs
+│   ├── mv.rs
+│   ├── rename.rs
+│   ├── sync.rs
+│   └── upload.rs
 ├── client/               # 基础设施：API 客户端
+│   ├── api.rs            # API 实现
+│   ├── api_trait.rs      # API trait 定义
+│   ├── auth.rs           # 认证相关
+│   ├── endpoints.rs      # API 端点常量
+│   ├── error.rs          # 客户端错误
+│   ├── headers.rs        # 请求头构造
+│   └── mod.rs
 ├── models/               # 数据模型（API 请求/响应）
+│   ├── auth.rs
+│   ├── batch_ops.rs
+│   ├── common.rs
+│   ├── list.rs
+│   ├── mod.rs
+│   └── upload.rs
 ├── config/               # 配置管理
+│   └── mod.rs
 └── utils/                # 工具函数
+    ├── crypto.rs         # 加密/解密工具
+    ├── logger.rs         # 日志宏与进度条封装
+    ├── mod.rs
+    ├── path.rs           # 路径解析辅助
+    ├── rand.rs           # 随机数工具
+    ├── time.rs           # 时间工具
+    └── width.rs          # 终端宽度计算
 ```
 
 详细结构见 [docs/structure.md](docs/structure.md)
