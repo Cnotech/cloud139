@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
 
-use crate::client::StorageType;
+use crate::domain::StorageType;
 
 static CONFIG_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 

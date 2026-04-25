@@ -1,6 +1,7 @@
 use crate::commands::list::ListArgs as CliListArgs;
 use crate::client::endpoints::{family, group};
-use crate::client::{Client, StorageType};
+use crate::client::{Client};
+use crate::domain::StorageType;
 use crate::debug;
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;

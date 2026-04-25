@@ -1,5 +1,6 @@
 use crate::client::endpoints::group;
-use crate::client::{Client, ClientError, StorageType};
+use crate::client::{Client, ClientError};
+use crate::domain::StorageType;
 use crate::models::BatchCopyResp;
 use crate::{debug, error, success, warn};
 

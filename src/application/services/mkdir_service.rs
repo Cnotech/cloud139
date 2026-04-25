@@ -1,4 +1,5 @@
-use crate::client::{Client, ClientError, StorageType};
+use crate::client::{Client, ClientError};
+use crate::domain::StorageType;
 use crate::models::PersonalUploadResp;
 use crate::{debug, error, success, warn};
 

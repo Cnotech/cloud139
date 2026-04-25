@@ -426,7 +426,7 @@ pub(crate) async fn ensure_personal_cloud_dir(
         &config_for_create,
         &format!("{}/file/create", host),
         body,
-        crate::client::StorageType::PersonalNew,
+        crate::domain::StorageType::PersonalNew,
     )
     .await?;
 

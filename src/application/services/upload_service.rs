@@ -1,5 +1,5 @@
 use crate::client::ClientError;
-use crate::client::StorageType;
+use crate::domain::StorageType;
 use indicatif::ProgressBar;
 use std::path::Path;
 

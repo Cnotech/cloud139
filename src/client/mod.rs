@@ -4,7 +4,6 @@ pub mod auth;
 pub mod endpoints;
 pub mod error;
 pub mod headers;
-pub mod storage_type;
 
 use crate::client::endpoints::group;
 pub use crate::debug;
@@ -13,7 +12,6 @@ pub use crate::utils::rand::{generate_rand_str, sort_json_value_to_string};
 pub use endpoints::family;
 pub use error::ClientError;
 use serde::Deserialize;
-pub use storage_type::StorageType;
 
 const KEY_HEX_1: &str = "73634235495062495331515373756c734e7253306c673d3d";
 

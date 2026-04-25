@@ -1,4 +1,5 @@
-use crate::client::{ClientError, StorageType};
+use crate::client::{ClientError};
+use crate::domain::StorageType;
 
 pub async fn get_upload_urls(
     config: &crate::config::Config,

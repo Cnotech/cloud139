@@ -1,4 +1,5 @@
-use crate::client::{ClientError, StorageType};
+use crate::client::{ClientError};
+use crate::domain::StorageType;
 use crate::models::PersonalUploadResp;
 use crate::utils::logger::{pb_debug, pb_error, pb_step, pb_success, pb_warn};
 use indicatif::ProgressBar;

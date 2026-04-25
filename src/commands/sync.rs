@@ -3,7 +3,7 @@ use crate::application::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
     resolve_sync_direction, scan_cloud_personal, scan_local,
 };
-use crate::client::StorageType;
+use crate::domain::StorageType;
 use crate::domain::{SyncDirection, SyncEndpoint, SyncSummary};
 use crate::{debug, step, success};
 use clap::Parser;

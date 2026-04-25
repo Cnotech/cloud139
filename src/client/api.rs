@@ -121,7 +121,7 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         });
 
         let list_resp: crate::models::PersonalListResp =
-            personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew)
+            personal_api_request(&config, &url, body, crate::domain::StorageType::PersonalNew)
                 .await?;
 
         let items = list_resp.data.map(|d| d.items).unwrap_or_default();
@@ -170,7 +170,7 @@ pub async fn personal_api_request<T: for<'de> serde::Deserialize<'de>>(
     config: &Config,
     url: &str,
     body: serde_json::Value,
-    storage_type: crate::client::StorageType,
+    storage_type: crate::domain::StorageType,
 ) -> Result<T, ClientError> {
     personal_api_request_with_client(config, url, body, storage_type, &HttpClientWrapper::new())
         .await
@@ -180,13 +180,13 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     config: &Config,
     url: &str,
     body: serde_json::Value,
-    storage_type: crate::client::StorageType,
+    storage_type: crate::domain::StorageType,
     http_client: &HttpClientWrapper,
 ) -> Result<T, ClientError> {
     let svctype = match storage_type {
-        crate::client::StorageType::PersonalNew => "1",
-        crate::client::StorageType::Family => "2",
-        crate::client::StorageType::Group => "3",
+        crate::domain::StorageType::PersonalNew => "1",
+        crate::domain::StorageType::Family => "2",
+        crate::domain::StorageType::Group => "3",
     };
 
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
@@ -266,7 +266,7 @@ pub async fn list_personal_files_with_client(
             &config,
             &url,
             body,
-            crate::client::StorageType::PersonalNew,
+            crate::domain::StorageType::PersonalNew,
             http_client,
         )
         .await?;
@@ -477,7 +477,7 @@ pub async fn get_personal_file_detail(
     });
 
     let resp: crate::models::QueryFileResp =
-        personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+        personal_api_request(&config, &url, body, crate::domain::StorageType::PersonalNew).await?;
 
     if !resp.base.success {
         let msg = resp
@@ -504,7 +504,7 @@ pub async fn get_personal_download_link(
     });
 
     let resp: serde_json::Value =
-        personal_api_request(&config, &url, body, crate::client::StorageType::PersonalNew).await?;
+        personal_api_request(&config, &url, body, crate::domain::StorageType::PersonalNew).await?;
 
     let cdn_url = resp
         .pointer("/data/cdnUrl")

@@ -529,7 +529,7 @@ fn scan_cloud_personal_dir_inner<'a>(
                 config,
                 &url,
                 body,
-                crate::client::StorageType::PersonalNew,
+                crate::domain::StorageType::PersonalNew,
             )
             .await?;
 
