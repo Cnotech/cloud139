@@ -25,7 +25,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
         return Err(ClientError::ConfirmationRequired.into());
     }
 
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
 
     debug!("delete: path={}, permanent={}", args.path, args.permanent);
     crate::application::services::delete(&config, &args.path, args.permanent).await?;

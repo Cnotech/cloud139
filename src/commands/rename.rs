@@ -13,7 +13,7 @@ pub struct RenameArgs {
 }
 
 pub async fn execute(args: RenameArgs) -> anyhow::Result<()> {
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
     crate::application::services::rename_service::rename(
         &config,
         &args.source,

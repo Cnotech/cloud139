@@ -19,7 +19,7 @@ pub struct ListArgs {
 }
 
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
     debug!(
         "list: path={}, page={}, page_size={}",
         args.path, args.page, args.page_size

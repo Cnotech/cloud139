@@ -58,7 +58,7 @@ fn make_download_progress(remote_path: &str) -> Option<ProgressBar> {
 }
 
 pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
 
     let remote_path = &args.remote_path;
     let local_path = resolve_local_path(remote_path, &args.local_path);

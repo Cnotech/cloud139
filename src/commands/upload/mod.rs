@@ -35,7 +35,7 @@ fn make_upload_progress(
 }
 
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
 
     let local_path = std::path::Path::new(&args.local_path);
     if !local_path.exists() {

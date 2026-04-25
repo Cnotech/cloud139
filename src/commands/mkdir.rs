@@ -10,7 +10,7 @@ pub struct MkdirArgs {
 }
 
 pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {
-    let config = crate::commands::dispatch::load_config()?;
+    let config = crate::config::Config::load()?;
     crate::application::services::mkdir_service::mkdir(&config, &args.path, args.force).await?;
     Ok(())
 }
