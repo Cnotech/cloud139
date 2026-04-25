@@ -1,6 +1,6 @@
 use clap::Parser;
 use crate::debug;
-use crate::presentation::renderers::list_renderer;
+use crate::presentation::list_renderer;
 use std::fs;
 
 #[derive(Parser, Debug, Clone)]

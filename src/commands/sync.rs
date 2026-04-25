@@ -136,7 +136,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     )
     .await?;
 
-    crate::presentation::renderers::print_summary(&summary);
+    crate::presentation::print_summary(&summary);
 
     if summary.failed > 0 {
         return Err(CommandExit::new(1, format!("{} 个文件同步失败", summary.failed)).into());

@@ -1,6 +1,6 @@
 use cloud139::application::services::mkdir_service;
 use cloud139::application::services::upload_service;
-use cloud139::presentation::renderers::list_renderer::format_size;
+use cloud139::presentation::list_renderer::format_size;
 use cloud139::utils::parse_personal_time;
 
 #[test]

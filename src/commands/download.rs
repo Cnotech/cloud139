@@ -19,7 +19,7 @@ pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
     debug!("下载: remote={}, local={}", remote_path, local_path);
     step!("开始下载到: {:?}", local_path);
 
-    let pb = crate::presentation::renderers::make_download_progress(remote_path);
+    let pb = crate::presentation::make_download_progress(remote_path);
     crate::application::services::download(&config, remote_path, &local_path, pb).await?;
 
     success!("下载完成!");

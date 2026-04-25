@@ -40,7 +40,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     crate::debug!("文件大小: {} bytes", file_size);
 
     let mp = MultiProgress::new();
-    let pb = crate::presentation::renderers::make_upload_progress(&mp, file_name, file_size as u64);
+    let pb = crate::presentation::make_upload_progress(&mp, file_name, file_size as u64);
 
     crate::application::services::upload_service::upload(
         &config,
