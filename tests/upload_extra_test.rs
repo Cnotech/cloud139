@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 
+use cloud139::application::services::upload_service;
 use cloud139::commands::upload;
 
 #[test]
 fn test_get_part_size_custom() {
     let size = 1000;
     let custom = 512 * 1024 * 1024;
-    let result = upload::get_part_size(size, custom);
+    let result = upload_service::get_part_size(size, custom);
     assert_eq!(result, custom);
 }
 
@@ -14,7 +15,7 @@ fn test_get_part_size_custom() {
 fn test_get_part_size_small_file() {
     let size = 1024 * 1024; // 1MB
     let custom = 0;
-    let result = upload::get_part_size(size, custom);
+    let result = upload_service::get_part_size(size, custom);
     assert_eq!(result, 100 * 1024 * 1024); // default 100MB
 }
 
@@ -22,7 +23,7 @@ fn test_get_part_size_small_file() {
 fn test_get_part_size_large_file() {
     let size = 31 * 1024 * 1024 * 1024; // 31GB
     let custom = 0;
-    let result = upload::get_part_size(size, custom);
+    let result = upload_service::get_part_size(size, custom);
     assert_eq!(result, 512 * 1024 * 1024); // 512MB for files > 30GB
 }
 
@@ -30,7 +31,7 @@ fn test_get_part_size_large_file() {
 fn test_get_part_size_boundary_30gb() {
     let size = 30 * 1024 * 1024 * 1024; // exactly 30GB
     let custom = 0;
-    let result = upload::get_part_size(size, custom);
+    let result = upload_service::get_part_size(size, custom);
     assert_eq!(result, 100 * 1024 * 1024); // still default for 30GB
 }
 
@@ -38,7 +39,7 @@ fn test_get_part_size_boundary_30gb() {
 fn test_get_part_size_just_over_30gb() {
     let size = 31 * 1024 * 1024 * 1024; // 31GB
     let custom = 0;
-    let result = upload::get_part_size(size, custom);
+    let result = upload_service::get_part_size(size, custom);
     assert_eq!(result, 512 * 1024 * 1024); // 512MB for > 30GB
 }
 

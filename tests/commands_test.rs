@@ -1,10 +1,10 @@
+use cloud139::application::services::mkdir_service;
+use cloud139::application::services::upload_service;
 use cloud139::commands::list;
-use cloud139::commands::mkdir;
-use cloud139::commands::upload;
 
 #[test]
 fn test_parse_path_root() {
-    let result = mkdir::parse_path("/test");
+    let result = mkdir_service::parse_path("/test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -13,7 +13,7 @@ fn test_parse_path_root() {
 
 #[test]
 fn test_parse_path_nested() {
-    let result = mkdir::parse_path("/parent/child");
+    let result = mkdir_service::parse_path("/parent/child");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/parent");
@@ -22,7 +22,7 @@ fn test_parse_path_nested() {
 
 #[test]
 fn test_parse_path_deep_nested() {
-    let result = mkdir::parse_path("/a/b/c/d");
+    let result = mkdir_service::parse_path("/a/b/c/d");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/a/b/c");
@@ -31,7 +31,7 @@ fn test_parse_path_deep_nested() {
 
 #[test]
 fn test_parse_path_single_name() {
-    let result = mkdir::parse_path("test");
+    let result = mkdir_service::parse_path("test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -40,25 +40,25 @@ fn test_parse_path_single_name() {
 
 #[test]
 fn test_parse_path_empty() {
-    let result = mkdir::parse_path("");
+    let result = mkdir_service::parse_path("");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_only_slash() {
-    let result = mkdir::parse_path("/");
+    let result = mkdir_service::parse_path("/");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_whitespace() {
-    let result = mkdir::parse_path("  ");
+    let result = mkdir_service::parse_path("  ");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_with_spaces() {
-    let result = mkdir::parse_path("/my folder/file");
+    let result = mkdir_service::parse_path("/my folder/file");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/my folder");
@@ -127,19 +127,19 @@ fn test_parse_personal_time_already_formatted() {
 #[test]
 fn test_get_part_size_large_file() {
     let size_31gb: i64 = 31 * 1024 * 1024 * 1024;
-    assert_eq!(upload::get_part_size(size_31gb, 0), 512 * 1024 * 1024);
+    assert_eq!(upload_service::get_part_size(size_31gb, 0), 512 * 1024 * 1024);
     let size_100gb: i64 = 100 * 1024 * 1024 * 1024;
-    assert_eq!(upload::get_part_size(size_100gb, 0), 512 * 1024 * 1024);
+    assert_eq!(upload_service::get_part_size(size_100gb, 0), 512 * 1024 * 1024);
 }
 
 #[test]
 fn test_get_part_size_small_file() {
     assert_eq!(
-        upload::get_part_size(1024 * 1024 * 10, 0),
+        upload_service::get_part_size(1024 * 1024 * 10, 0),
         100 * 1024 * 1024
     );
     assert_eq!(
-        upload::get_part_size(1024 * 1024 * 30, 0),
+        upload_service::get_part_size(1024 * 1024 * 30, 0),
         100 * 1024 * 1024
     );
 }

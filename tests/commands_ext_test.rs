@@ -1,4 +1,5 @@
-use cloud139::commands::{list, mkdir};
+use cloud139::application::services::mkdir_service;
+use cloud139::commands::list;
 
 #[test]
 fn test_format_size_large_values() {
@@ -9,13 +10,13 @@ fn test_format_size_large_values() {
 
 #[test]
 fn test_mkdir_parse_path_edge_cases_new() {
-    let result = mkdir::parse_path("/folder/subfolder");
+    let result = mkdir_service::parse_path("/folder/subfolder");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/folder");
     assert_eq!(name, "subfolder");
 
-    let result2 = mkdir::parse_path("/single");
+    let result2 = mkdir_service::parse_path("/single");
     assert!(result2.is_ok());
     let (parent2, name2) = result2.unwrap();
     assert_eq!(parent2, "/");

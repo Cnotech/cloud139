@@ -3,16 +3,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::io::IsTerminal;
 use std::time::Duration;
 
-use crate::client::StorageType;
-
-pub mod family;
-pub mod group;
-pub mod personal;
-pub mod personal_parts;
-
-pub use crate::client::ClientError;
-
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 pub struct UploadArgs {
     #[arg(help = "本地文件路径")]
     pub local_path: String,
@@ -22,18 +13,6 @@ pub struct UploadArgs {
 
     #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
     pub force: bool,
-}
-
-/// 上传分片参数
-pub struct UploadPartParams<'a> {
-    pub upload_url: &'a str,
-    pub upload_task_id: &'a str,
-    pub buffer: &'a [u8],
-    pub part_number: i64,
-    pub part_offset: i64,
-    pub read_size: i64,
-    pub file_name: &'a str,
-    pub total_size: i64,
 }
 
 fn make_upload_progress(
@@ -57,12 +36,11 @@ fn make_upload_progress(
 
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     let config = crate::commands::dispatch::load_config()?;
-    let storage_type = config.storage_type();
 
     let local_path = std::path::Path::new(&args.local_path);
     if !local_path.exists() {
         crate::error!("文件不存在: {}", args.local_path);
-        return Err(ClientError::FileNotFound.into());
+        return Err(crate::client::ClientError::FileNotFound.into());
     }
 
     let file_name = local_path
@@ -79,47 +57,22 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         args.remote_path.trim_end_matches('/').to_string()
     };
 
-    crate::debug!(
-        "上传文件: {} -> {}/{}",
-        args.local_path,
-        remote_dir,
-        file_name
-    );
+    crate::debug!("上传文件: {} -> {}/{}", args.local_path, remote_dir, file_name);
     crate::debug!("文件大小: {} bytes", file_size);
 
     let mp = MultiProgress::new();
     let pb = make_upload_progress(&mp, file_name, file_size as u64);
 
-    match storage_type {
-        StorageType::PersonalNew => {
-            personal::upload(
-                &config,
-                local_path,
-                &remote_dir,
-                file_name,
-                file_size,
-                args.force,
-                pb,
-            )
-            .await?
-        }
-        StorageType::Family => {
-            family::upload(&config, local_path, &remote_dir, file_name, file_size, pb).await?
-        }
-        StorageType::Group => {
-            group::upload(&config, local_path, &remote_dir, file_name, file_size, pb).await?
-        }
-    }
+    crate::application::services::upload_service::upload(
+        &config,
+        local_path,
+        &remote_dir,
+        file_name,
+        file_size,
+        args.force,
+        pb,
+    )
+    .await?;
 
     Ok(())
-}
-
-pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
-    if custom_size != 0 {
-        return custom_size;
-    }
-    if size / (1024 * 1024 * 1024) > 30 {
-        return 512 * 1024 * 1024;
-    }
-    100 * 1024 * 1024
 }

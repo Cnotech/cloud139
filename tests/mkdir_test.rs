@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use cloud139::application::services::mkdir_service;
 use cloud139::commands::mkdir;
 
 #[test]
@@ -23,7 +24,7 @@ fn test_mkdir_args_with_force() {
 
 #[test]
 fn test_parse_path_single() {
-    let result = mkdir::parse_path("test");
+    let result = mkdir_service::parse_path("test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -32,7 +33,7 @@ fn test_parse_path_single() {
 
 #[test]
 fn test_parse_path_root() {
-    let result = mkdir::parse_path("/test");
+    let result = mkdir_service::parse_path("/test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -41,7 +42,7 @@ fn test_parse_path_root() {
 
 #[test]
 fn test_parse_path_nested() {
-    let result = mkdir::parse_path("/parent/child");
+    let result = mkdir_service::parse_path("/parent/child");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/parent");
@@ -50,7 +51,7 @@ fn test_parse_path_nested() {
 
 #[test]
 fn test_parse_path_deep_nested() {
-    let result = mkdir::parse_path("/a/b/c/d");
+    let result = mkdir_service::parse_path("/a/b/c/d");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/a/b/c");
@@ -59,25 +60,25 @@ fn test_parse_path_deep_nested() {
 
 #[test]
 fn test_parse_path_empty() {
-    let result = mkdir::parse_path("");
+    let result = mkdir_service::parse_path("");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_only_slash() {
-    let result = mkdir::parse_path("/");
+    let result = mkdir_service::parse_path("/");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_whitespace() {
-    let result = mkdir::parse_path("  ");
+    let result = mkdir_service::parse_path("  ");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_with_spaces() {
-    let result = mkdir::parse_path("/my folder/file");
+    let result = mkdir_service::parse_path("/my folder/file");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/my folder");
