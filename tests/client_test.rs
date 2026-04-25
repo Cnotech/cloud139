@@ -1,4 +1,5 @@
-use cloud139::client::{Client, ClientError, StorageType};
+use cloud139::client::{Client, ClientError};
+use cloud139::domain::StorageType;
 use cloud139::config::Config;
 
 #[test]
@@ -149,13 +150,13 @@ fn test_storage_type_deserialize() {
 #[test]
 fn test_client_error_display() {
     let err = ClientError::NotLoggedIn;
-    assert_eq!(err.to_string(), "Not logged in");
+    assert_eq!(err.to_string(), "未登录");
 
     let err = ClientError::TokenExpired;
-    assert_eq!(err.to_string(), "Token expired");
+    assert_eq!(err.to_string(), "Token 已过期");
 
     let err = ClientError::Other("test error".to_string());
-    assert_eq!(err.to_string(), "Other error: test error");
+    assert_eq!(err.to_string(), "其他错误: test error");
 }
 
 #[test]
@@ -270,7 +271,7 @@ fn test_client_error_from_json() {
 #[test]
 fn test_client_error_other_new() {
     let err = ClientError::Other("custom error".to_string());
-    assert_eq!(err.to_string(), "Other error: custom error");
+    assert_eq!(err.to_string(), "其他错误: custom error");
 }
 
 #[test]

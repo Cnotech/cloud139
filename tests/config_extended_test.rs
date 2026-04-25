@@ -161,7 +161,7 @@ user_domain_id = "domain123"
     #[test]
     fn test_config_error_display_not_found() {
         let err = ConfigError::NotFound;
-        assert_eq!(err.to_string(), "Config not found");
+        assert_eq!(err.to_string(), "配置文件未找到");
     }
 
     #[test]

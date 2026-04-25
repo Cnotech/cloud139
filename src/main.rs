@@ -3,7 +3,6 @@ use clap::Parser;
 use cloud139::cli::app::{Cli, Commands};
 use cloud139::client::ClientError;
 use cloud139::error;
-use cloud139::presentation::error::format_error;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
             error!("{}", exit);
             std::process::exit(exit.code());
         } else if let Some(client_err) = err.downcast_ref::<ClientError>() {
-            error!("{}", format_error(client_err));
+            error!("{}", client_err);
             std::process::exit(1);
         } else {
             error!("{}", err);

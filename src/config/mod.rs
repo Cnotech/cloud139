@@ -37,13 +37,13 @@ pub fn global_config_path() -> PathBuf {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("IO error: {0}")]
+    #[error("IO 错误: {0}")]
     Io(#[from] std::io::Error),
-    #[error("TOML error: {0}")]
+    #[error("TOML 解析错误: {0}")]
     TomlDe(#[from] toml::de::Error),
-    #[error("TOML serialize error: {0}")]
+    #[error("TOML 序列化错误: {0}")]
     TomlSer(#[from] toml::ser::Error),
-    #[error("Config not found")]
+    #[error("配置文件未找到")]
     NotFound,
 }
 

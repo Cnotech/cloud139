@@ -3,7 +3,8 @@
 pub mod mock_api_client {
     use async_trait::async_trait;
     use cloud139::client::api_trait::ApiClient;
-    use cloud139::client::{ClientError, StorageType};
+    use cloud139::client::ClientError;
+    use cloud139::domain::StorageType;
     use cloud139::config::Config;
     use cloud139::models::*;
     use mockall::mock;

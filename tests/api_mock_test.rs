@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::client::StorageType;
+use cloud139::domain::StorageType;
 use cloud139::client::api::get_personal_cloud_host_with_client;
 use cloud139::config::Config;
 

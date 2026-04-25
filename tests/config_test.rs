@@ -1,4 +1,4 @@
-use cloud139::client::StorageType;
+use cloud139::domain::StorageType;
 use cloud139::config::{self, Config};
 use std::fs;
 use std::path::PathBuf;

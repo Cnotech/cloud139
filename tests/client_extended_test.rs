@@ -2,8 +2,9 @@
 
 mod client_test_extended {
     use cloud139::client::{
-        Client, ClientError, StorageType, generate_rand_str, sort_json_value_to_string,
+        Client, ClientError, generate_rand_str, sort_json_value_to_string,
     };
+    use cloud139::domain::StorageType;
     use cloud139::config::Config;
     use serde_json::json;
 
@@ -162,10 +163,10 @@ mod client_test_extended {
     #[test]
     fn test_client_error_display() {
         let err = ClientError::NotLoggedIn;
-        assert_eq!(err.to_string(), "Not logged in");
+        assert_eq!(err.to_string(), "未登录");
 
         let err = ClientError::TokenExpired;
-        assert_eq!(err.to_string(), "Token expired");
+        assert_eq!(err.to_string(), "Token 已过期");
     }
 
     #[test]
