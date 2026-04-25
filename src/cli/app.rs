@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::cli::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
+use crate::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
