@@ -10,6 +10,7 @@ pub mod sync_executor;
 pub mod sync_service;
 pub mod upload_service;
 pub mod upload;
+pub mod login_service;
 
 pub use copy_service::cp;
 pub use delete_service::delete;
