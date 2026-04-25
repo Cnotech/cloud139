@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 mod mkdir_mock_test {
-    use cloud139::commands::mkdir::parse_path;
+    use cloud139::application::services::mkdir_service::parse_path;
     use httpmock::prelude::*;
     use serde_json::json;
 
