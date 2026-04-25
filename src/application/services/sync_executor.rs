@@ -377,7 +377,7 @@ pub(crate) async fn ensure_personal_cloud_dir(
     config: &crate::config::Config,
     path: &str,
 ) -> Result<()> {
-    let (parent, name) = crate::commands::mkdir::parse_path(path)?;
+    let (parent, name) = crate::application::services::mkdir_service::parse_path(path)?;
     let config = config.clone();
 
     let parent_file_id = if parent == "/" {
