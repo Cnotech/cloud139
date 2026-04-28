@@ -1,5 +1,5 @@
-use crate::application::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
-use crate::application::services::sync_service::{
+use crate::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
+use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
     resolve_sync_direction, scan_cloud_personal, scan_local,
 };

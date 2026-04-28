@@ -24,7 +24,7 @@ pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
         "list: path={}, page={}, page_size={}",
         args.path, args.page, args.page_size
     );
-    let result = crate::application::services::list(&config, &args).await?;
+    let result = crate::services::list(&config, &args).await?;
     list_renderer::render_terminal(&result);
 
     if let Some(output) = &args.output {

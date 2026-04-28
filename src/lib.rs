@@ -1,4 +1,4 @@
-pub mod application;
+pub mod services;
 pub mod cli;
 pub mod client;
 pub mod commands;

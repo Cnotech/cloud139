@@ -28,7 +28,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
     let config = crate::config::Config::load()?;
 
     debug!("delete: path={}, permanent={}", args.path, args.permanent);
-    crate::application::services::delete(&config, &args.path, args.permanent).await?;
+    crate::services::delete(&config, &args.path, args.permanent).await?;
 
     if args.permanent {
         success!("文件已永久删除");

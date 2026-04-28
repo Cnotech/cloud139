@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::application::services::upload_service;
+use cloud139::services::upload_service;
 use cloud139::commands::upload;
 
 #[test]

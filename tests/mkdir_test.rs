@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::application::services::mkdir_service;
+use cloud139::services::mkdir_service;
 use cloud139::commands::mkdir;
 
 #[test]

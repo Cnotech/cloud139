@@ -1,4 +1,4 @@
-use crate::application::services::list_service::ListResult;
+use crate::services::list_service::ListResult;
 use crate::domain::file_item::EntryKind;
 use crate::print;
 use serde::Serialize;

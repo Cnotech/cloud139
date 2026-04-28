@@ -42,7 +42,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     let mp = MultiProgress::new();
     let pb = crate::presentation::make_upload_progress(&mp, file_name, file_size as u64);
 
-    crate::application::services::upload_service::upload(
+    crate::services::upload_service::upload(
         &config,
         local_path,
         &remote_dir,

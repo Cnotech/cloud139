@@ -1,4 +1,4 @@
-use cloud139::application::services::sync_service::{
+use cloud139::services::sync_service::{
     compute_diff, format_action_line, SyncDiffOptions,
 };
 use cloud139::domain::{

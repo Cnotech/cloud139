@@ -23,7 +23,7 @@ pub struct LoginArgs {
 }
 
 pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
-    crate::application::services::login_service::login(
+    crate::services::login_service::login(
         &args.token,
         &args.storage_type,
         args.cloud_id.as_deref(),

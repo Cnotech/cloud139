@@ -112,7 +112,7 @@ mod upload_mock_test {
 }
 
 mod upload_part_size_tests {
-    use cloud139::application::services::upload_service::get_part_size;
+    use cloud139::services::upload_service::get_part_size;
 
     const MB: i64 = 1024 * 1024;
     const GB: i64 = 1024 * MB;

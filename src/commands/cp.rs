@@ -14,7 +14,7 @@ pub struct CpArgs {
 
 pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
     let config = crate::config::Config::load()?;
-    crate::application::services::copy_service::cp(
+    crate::services::copy_service::cp(
         &config,
         &args.source,
         &args.target,

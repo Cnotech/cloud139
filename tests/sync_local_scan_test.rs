@@ -1,4 +1,4 @@
-use cloud139::application::services::sync_service::{scan_local, SyncScanOptions};
+use cloud139::services::sync_service::{scan_local, SyncScanOptions};
 use cloud139::domain::SyncEntryKind;
 use std::fs;
 use std::io::Write;
