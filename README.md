@@ -87,8 +87,11 @@ cloud139 mv /old.txt /new.txt
 # 移动多个文件到目录
 cloud139 mv /file1.txt /file2.txt /folder/
 
-# 复制文件到指定目录
+# 复制单个文件到指定目录
 cloud139 cp /file.txt /backup/
+
+# 复制多个文件到目录
+cloud139 cp /file1.txt /file2.txt /backup/
 
 # 重命名文件
 cloud139 rename /oldname.txt newname.txt
@@ -304,22 +307,25 @@ cloud139 mv /file.txt /folder/ -f
 复制文件或目录。
 
 ```bash
-cloud139 cp <源路径> <目标路径> [-f]
+cloud139 cp <源路径...> <目标路径> [-f]
 ```
 
 **参数说明：**
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 源路径 | - | 是 | 源文件路径 |
+| 源路径 | - | 是 | 源文件路径，支持多个，用空格分隔 |
 | 目标路径 | - | 是 | 目标路径 |
 | --force | -f | 否 | 强制继续，如果云端存在同名文件则自动重命名 |
 
 **示例：**
 
 ```bash
-# 复制文件到指定目录
+# 复制单个文件到指定目录
 cloud139 cp /file.txt /backup/
+
+# 复制多个文件到目录
+cloud139 cp /file1.txt /file2.txt /backup/
 
 # 强制复制（云端自动重命名）
 cloud139 cp /file.txt /backup/ -f
