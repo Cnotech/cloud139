@@ -1,6 +1,6 @@
 use cloud139::client::{Client, ClientError};
-use cloud139::domain::StorageType;
 use cloud139::config::Config;
+use cloud139::domain::StorageType;
 
 #[test]
 fn test_generate_rand_str() {

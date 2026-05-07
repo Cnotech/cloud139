@@ -1,5 +1,5 @@
-use cloud139::domain::StorageType;
 use cloud139::config::{self, Config};
+use cloud139::domain::StorageType;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;

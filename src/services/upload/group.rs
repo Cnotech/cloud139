@@ -1,7 +1,7 @@
 use crate::client::ClientError;
 use crate::client::endpoints::group;
-use crate::services::upload_service::UploadPartParams;
 use crate::debug;
+use crate::services::upload_service::UploadPartParams;
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 

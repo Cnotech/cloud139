@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
 mod client_test_extended {
-    use cloud139::client::{
-        Client, ClientError, generate_rand_str, sort_json_value_to_string,
-    };
-    use cloud139::domain::StorageType;
+    use cloud139::client::{Client, ClientError, generate_rand_str, sort_json_value_to_string};
     use cloud139::config::Config;
+    use cloud139::domain::StorageType;
     use serde_json::json;
 
     #[test]

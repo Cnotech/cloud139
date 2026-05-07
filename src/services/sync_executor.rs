@@ -1,6 +1,6 @@
-use crate::services::sync_service::format_action_line;
 use crate::debug;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
+use crate::services::sync_service::format_action_line;
 use crate::utils::logger::{mp_error, mp_step};
 use anyhow::Result;
 use futures_util::StreamExt;
@@ -285,9 +285,7 @@ async fn execute_one_action(
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             if should_pre_delete(*change) {
-                crate::services::delete(config, remote_abs, true)
-                    .await
-                    .ok();
+                crate::services::delete(config, remote_abs, true).await.ok();
             }
             crate::services::upload::personal::upload(
                 config,
@@ -313,13 +311,7 @@ async fn execute_one_action(
             if local_abs.is_dir() {
                 tokio::fs::remove_dir_all(local_abs).await?;
             }
-            crate::services::download(
-                config,
-                remote_abs,
-                &local_abs.to_string_lossy(),
-                pb,
-            )
-            .await?;
+            crate::services::download(config, remote_abs, &local_abs.to_string_lossy(), pb).await?;
             if let Some(mtime) = cloud_mtime {
                 let file_time = filetime::FileTime::from_unix_time(*mtime, 0);
                 filetime::set_file_mtime(local_abs, file_time)?;

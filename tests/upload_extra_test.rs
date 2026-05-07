@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use cloud139::services::upload_service;
 use cloud139::commands::upload;
+use cloud139::services::upload_service;
 
 #[test]
 fn test_get_part_size_custom() {

@@ -1,7 +1,7 @@
+use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
-use crate::debug;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
@@ -148,7 +148,11 @@ pub fn compute_diff(
     actions
 }
 
-fn change_kind(source: &FileEntry, target: &FileEntry, direction: SyncDirection) -> Option<ChangeKind> {
+fn change_kind(
+    source: &FileEntry,
+    target: &FileEntry,
+    direction: SyncDirection,
+) -> Option<ChangeKind> {
     // Directories don't need re-creation; their content changes are handled by children
     if source.kind == SyncEntryKind::Directory && target.kind == SyncEntryKind::Directory {
         return None;
@@ -568,7 +572,7 @@ fn scan_cloud_personal_dir_inner<'a>(
                                 rel_path: rel_path.clone(),
                                 size: 0,
                                 mtime: parse_cloud_mtime(&item),
-                            
+
                                 kind: SyncEntryKind::Directory,
                             });
                             scan_cloud_personal_dir(

@@ -1,5 +1,5 @@
-use cloud139::services::sync_service::{scan_local, SyncScanOptions};
 use cloud139::domain::SyncEntryKind;
+use cloud139::services::sync_service::{SyncScanOptions, scan_local};
 use std::fs;
 use std::io::Write;
 use tempfile::tempdir;
@@ -54,9 +54,11 @@ fn test_scan_local_recursive_uses_forward_slash_relative_paths() {
         .collect();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].rel_path, "nested/child.txt");
-    assert!(items
-        .iter()
-        .any(|i| i.rel_path == "nested" && i.kind == SyncEntryKind::Directory));
+    assert!(
+        items
+            .iter()
+            .any(|i| i.rel_path == "nested" && i.kind == SyncEntryKind::Directory)
+    );
 }
 
 #[test]
@@ -81,9 +83,11 @@ fn test_scan_local_excludes_glob_patterns() {
         .collect();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].rel_path, "src/main.rs");
-    assert!(items
-        .iter()
-        .any(|i| i.rel_path == "src" && i.kind == SyncEntryKind::Directory));
+    assert!(
+        items
+            .iter()
+            .any(|i| i.rel_path == "src" && i.kind == SyncEntryKind::Directory)
+    );
 }
 
 #[test]
@@ -100,12 +104,16 @@ fn test_scan_local_recursive_keeps_empty_directories() {
     )
     .unwrap();
 
-    assert!(items
-        .iter()
-        .any(|item| item.rel_path == "empty" && item.kind == SyncEntryKind::Directory));
-    assert!(items
-        .iter()
-        .any(|item| item.rel_path == "empty/sub" && item.kind == SyncEntryKind::Directory));
+    assert!(
+        items
+            .iter()
+            .any(|item| item.rel_path == "empty" && item.kind == SyncEntryKind::Directory)
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item.rel_path == "empty/sub" && item.kind == SyncEntryKind::Directory)
+    );
 }
 
 #[test]
@@ -134,7 +142,9 @@ fn test_scan_local_excludes_empty_directories_with_glob() {
     );
 
     // "src" should still appear
-    assert!(items
-        .iter()
-        .any(|item| item.rel_path == "src" && item.kind == SyncEntryKind::Directory));
+    assert!(
+        items
+            .iter()
+            .any(|item| item.rel_path == "src" && item.kind == SyncEntryKind::Directory)
+    );
 }

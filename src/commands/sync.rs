@@ -1,11 +1,11 @@
+use crate::commands::CommandExit;
+use crate::domain::StorageType;
+use crate::domain::{SyncDirection, SyncEndpoint};
 use crate::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
     resolve_sync_direction, scan_cloud_personal, scan_local,
 };
-use crate::commands::CommandExit;
-use crate::domain::StorageType;
-use crate::domain::{SyncDirection, SyncEndpoint};
 use crate::{debug, step};
 use clap::Parser;
 use std::io::IsTerminal;
@@ -48,8 +48,8 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     let direction = resolve_sync_direction(&args.src, &args.dest)
         .map_err(|err| CommandExit::new(2, err.to_string()))?;
 
-    let config = crate::config::Config::load()
-        .map_err(|err| CommandExit::new(2, err.to_string()))?;
+    let config =
+        crate::config::Config::load().map_err(|err| CommandExit::new(2, err.to_string()))?;
 
     if config.storage_type() != StorageType::PersonalNew {
         return Err(CommandExit::new(2, "sync 当前仅支持个人云").into());

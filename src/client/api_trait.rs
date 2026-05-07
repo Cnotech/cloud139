@@ -1,6 +1,6 @@
 use crate::client::ClientError;
-use crate::domain::StorageType;
 use crate::config::Config;
+use crate::domain::StorageType;
 use crate::models::*;
 use async_trait::async_trait;
 

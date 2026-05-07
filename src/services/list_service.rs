@@ -1,8 +1,8 @@
-use crate::commands::list::ListArgs as CliListArgs;
+use crate::client::Client;
 use crate::client::endpoints::{family, group};
-use crate::client::{Client};
-use crate::domain::StorageType;
+use crate::commands::list::ListArgs as CliListArgs;
 use crate::debug;
+use crate::domain::StorageType;
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::models::PersonalListResp;
 use crate::utils::parse_personal_time;

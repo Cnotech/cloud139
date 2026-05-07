@@ -1,4 +1,4 @@
-use crate::client::{ClientError};
+use crate::client::ClientError;
 use crate::domain::StorageType;
 use crate::models::PersonalUploadResp;
 use crate::utils::logger::{pb_debug, pb_error, pb_step, pb_success, pb_warn};
@@ -302,7 +302,14 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         .await?;
     }
 
-    crate::services::upload::personal_parts::confirm_upload(config, host, file_id, upload_id, content_hash).await
+    crate::services::upload::personal_parts::confirm_upload(
+        config,
+        host,
+        file_id,
+        upload_id,
+        content_hash,
+    )
+    .await
 }
 
 async fn handle_name_conflict(

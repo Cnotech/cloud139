@@ -36,7 +36,12 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         args.remote_path.trim_end_matches('/').to_string()
     };
 
-    crate::debug!("上传文件: {} -> {}/{}", args.local_path, remote_dir, file_name);
+    crate::debug!(
+        "上传文件: {} -> {}/{}",
+        args.local_path,
+        remote_dir,
+        file_name
+    );
     crate::debug!("文件大小: {} bytes", file_size);
 
     let mp = MultiProgress::new();

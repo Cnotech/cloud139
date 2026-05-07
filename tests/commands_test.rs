@@ -1,6 +1,6 @@
+use cloud139::presentation::list_renderer::format_size;
 use cloud139::services::mkdir_service;
 use cloud139::services::upload_service;
-use cloud139::presentation::list_renderer::format_size;
 use cloud139::utils::parse_personal_time;
 
 #[test]
@@ -128,9 +128,15 @@ fn test_parse_personal_time_already_formatted() {
 #[test]
 fn test_get_part_size_large_file() {
     let size_31gb: i64 = 31 * 1024 * 1024 * 1024;
-    assert_eq!(upload_service::get_part_size(size_31gb, 0), 512 * 1024 * 1024);
+    assert_eq!(
+        upload_service::get_part_size(size_31gb, 0),
+        512 * 1024 * 1024
+    );
     let size_100gb: i64 = 100 * 1024 * 1024 * 1024;
-    assert_eq!(upload_service::get_part_size(size_100gb, 0), 512 * 1024 * 1024);
+    assert_eq!(
+        upload_service::get_part_size(size_100gb, 0),
+        512 * 1024 * 1024
+    );
 }
 
 #[test]

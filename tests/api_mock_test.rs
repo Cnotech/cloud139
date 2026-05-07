@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use cloud139::domain::StorageType;
 use cloud139::client::api::get_personal_cloud_host_with_client;
 use cloud139::config::Config;
+use cloud139::domain::StorageType;
 
 #[tokio::test]
 async fn test_get_file_id_by_path_root() {

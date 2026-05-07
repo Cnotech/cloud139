@@ -35,8 +35,8 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
     let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, token)
         .map_err(|_| ClientError::Other("Token 格式错误，无法解析".to_string()))?;
 
-    let decode_str = String::from_utf8(decoded)
-        .map_err(|_| ClientError::Other("Token 编码无效".to_string()))?;
+    let decode_str =
+        String::from_utf8(decoded).map_err(|_| ClientError::Other("Token 编码无效".to_string()))?;
 
     let parts: Vec<&str> = decode_str.split(':').collect();
     if parts.len() < 3 {

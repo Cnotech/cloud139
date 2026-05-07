@@ -1,8 +1,8 @@
+use crate::client::ClientError;
 use crate::client::endpoints::{family, group};
-use crate::client::{ClientError};
-use crate::domain::StorageType;
 use crate::config::Config;
 use crate::debug;
+use crate::domain::StorageType;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
 use indicatif::ProgressBar;

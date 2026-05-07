@@ -1,5 +1,5 @@
-use crate::{success};
 use crate::domain::SyncSummary;
+use crate::success;
 
 /// 打印同步结果摘要。
 pub fn print_summary(summary: &SyncSummary) {

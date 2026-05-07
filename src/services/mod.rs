@@ -3,14 +3,14 @@ pub mod copy_service;
 pub mod delete_service;
 pub mod download_service;
 pub mod list_service;
+pub mod login_service;
 pub mod mkdir_service;
 pub mod move_service;
 pub mod rename_service;
 pub mod sync_executor;
 pub mod sync_service;
-pub mod upload_service;
 pub mod upload;
-pub mod login_service;
+pub mod upload_service;
 
 pub use copy_service::cp;
 pub use delete_service::delete;

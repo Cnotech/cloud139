@@ -1,8 +1,8 @@
+use cloud139::models::PersonalFileItem;
 use cloud139::services::sync_service::{
     cloud_child_path, normalize_cloud_path, personal_item_to_file_entry,
     should_treat_personal_item_as_folder,
 };
-use cloud139::models::PersonalFileItem;
 
 fn item(
     name: &str,

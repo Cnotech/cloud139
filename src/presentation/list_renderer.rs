@@ -1,6 +1,6 @@
-use crate::services::list_service::ListResult;
 use crate::domain::file_item::EntryKind;
 use crate::print;
+use crate::services::list_service::ListResult;
 use serde::Serialize;
 
 pub fn format_size(size: i64) -> String {

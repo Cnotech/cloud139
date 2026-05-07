@@ -37,19 +37,35 @@ pub async fn upload(
     match storage_type {
         StorageType::PersonalNew => {
             crate::services::upload::personal::upload(
-                config, local_path, remote_path, file_name, file_size, force, pb,
+                config,
+                local_path,
+                remote_path,
+                file_name,
+                file_size,
+                force,
+                pb,
             )
             .await
         }
         StorageType::Family => {
             crate::services::upload::family::upload(
-                config, local_path, remote_path, file_name, file_size, pb,
+                config,
+                local_path,
+                remote_path,
+                file_name,
+                file_size,
+                pb,
             )
             .await
         }
         StorageType::Group => {
             crate::services::upload::group::upload(
-                config, local_path, remote_path, file_name, file_size, pb,
+                config,
+                local_path,
+                remote_path,
+                file_name,
+                file_size,
+                pb,
             )
             .await
         }

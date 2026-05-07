@@ -1,6 +1,6 @@
-use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use cloud139::config::Config;
 use cloud139::domain::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
+use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -100,8 +100,10 @@ async fn upload_new_file_does_not_call_delete_api() {
     // 验证 ChangeKind::New 的上传不触发 delete API
     // 由于实际 upload 需要真实文件和 token，此测试改为单元测试验证 ChangeKind 的判断逻辑：
     // 直接测试 should_pre_delete 辅助函数（在 Step 3 中提取）。
-    assert!(!cloud139::services::sync_executor::should_pre_delete(ChangeKind::New));
-    assert!(
-        cloud139::services::sync_executor::should_pre_delete(ChangeKind::SizeOrTime)
-    );
+    assert!(!cloud139::services::sync_executor::should_pre_delete(
+        ChangeKind::New
+    ));
+    assert!(cloud139::services::sync_executor::should_pre_delete(
+        ChangeKind::SizeOrTime
+    ));
 }

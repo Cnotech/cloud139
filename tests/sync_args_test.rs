@@ -1,8 +1,8 @@
 use clap::{CommandFactory, Parser};
-use cloud139::services::sync_service::{parse_sync_endpoint, resolve_sync_direction};
 use cloud139::cli::app::{Cli, Commands};
 use cloud139::commands::sync::SyncArgs;
 use cloud139::domain::{SyncDirection, SyncEndpoint};
+use cloud139::services::sync_service::{parse_sync_endpoint, resolve_sync_direction};
 
 #[test]
 fn test_sync_args_parse_defaults() {
