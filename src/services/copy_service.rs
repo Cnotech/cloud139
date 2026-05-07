@@ -6,37 +6,60 @@ use crate::{debug, error, success, warn};
 
 pub async fn cp(
     config: &crate::config::Config,
-    source: &str,
+    sources: &[String],
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
+    if sources.is_empty() {
+        error!("没有有效的源文件需要复制");
+        return Err(ClientError::NoSourceFiles);
+    }
+
     let storage_type = config.storage_type();
     match storage_type {
-        StorageType::PersonalNew => cp_personal(config, source, target, force).await?,
-        StorageType::Family => cp_family(config, source, target).await?,
-        StorageType::Group => cp_group(config, source, target).await?,
+        StorageType::PersonalNew => cp_personal(config, sources, target, force).await?,
+        StorageType::Family => cp_family(config, sources, target).await?,
+        StorageType::Group => cp_group(config, sources, target).await?,
     }
     Ok(())
 }
 
 async fn cp_personal(
     config: &crate::config::Config,
-    source: &str,
+    sources: &[String],
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
-    let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
-    if source_id.is_empty() {
-        error!("无效的源文件路径");
-        return Err(ClientError::InvalidSourcePath);
-    }
-    debug!("cp_personal: source_id={}", source_id);
+    let mut source_ids: Vec<String> = Vec::new();
+    let mut file_names: Vec<String> = Vec::new();
 
-    let source_path = std::path::Path::new(source);
-    let file_name = source_path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
+    for source in sources {
+        let source_id = crate::client::api::get_file_id_by_path(config, source).await?;
+        if source_id.is_empty() {
+            if sources.len() == 1 {
+                error!("无效的源文件路径");
+                return Err(ClientError::InvalidSourcePath);
+            }
+            warn!("无效的源文件路径: {}", source);
+            continue;
+        }
+
+        debug!("cp_personal: source={}, id={}", source, source_id);
+
+        let source_path = std::path::Path::new(source);
+        let file_name = source_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        source_ids.push(source_id);
+        file_names.push(file_name);
+    }
+
+    if source_ids.is_empty() {
+        error!("没有有效的源文件需要复制");
+        return Err(ClientError::NoSourceFiles);
+    }
 
     let target_id = if target == "/" || target.is_empty() {
         "/".to_string()
@@ -46,14 +69,27 @@ async fn cp_personal(
     debug!("cp_personal: target_id={}", target_id);
 
     if !force {
-        let exists = crate::client::api::check_file_exists(config, &target_id, &file_name).await?;
-        if exists {
-            warn!(
-                "云端已存在「{}」，如果继续则云端会自动进行重命名",
-                file_name
-            );
-            error!("请使用 --force 参数确认继续");
-            return Err(ClientError::ForceRequired);
+        let mut seen_names = std::collections::HashSet::new();
+        for file_name in &file_names {
+            if !seen_names.insert(file_name.clone()) {
+                warn!(
+                    "复制列表中存在重名文件「{}」，继续时云端会自动重命名",
+                    file_name
+                );
+                error!("请使用 --force 参数确认继续");
+                return Err(ClientError::ForceRequired);
+            }
+
+            let exists =
+                crate::client::api::check_file_exists(config, &target_id, file_name).await?;
+            if exists {
+                warn!(
+                    "云端已存在「{}」，如果继续则云端会自动进行重命名",
+                    file_name
+                );
+                error!("请使用 --force 参数确认继续");
+                return Err(ClientError::ForceRequired);
+            }
         }
     }
 
@@ -62,7 +98,7 @@ async fn cp_personal(
     let url = format!("{}/file/batchCopy", host);
 
     let body = serde_json::json!({
-        "fileIds": [source_id],
+        "fileIds": source_ids,
         "toParentFileId": target_id
     });
 
@@ -83,10 +119,16 @@ async fn cp_personal(
 
 async fn cp_family(
     config: &crate::config::Config,
-    source: &str,
+    sources: &[String],
     target: &str,
 ) -> Result<(), ClientError> {
+    if sources.len() > 1 {
+        error!("家庭云暂不支持批量复制");
+        return Err(ClientError::UnsupportedFamilyBatchCopy);
+    }
+
     let client = Client::new(config.clone());
+    let source = &sources[0];
 
     let body = serde_json::json!({
         "commonAccountInfo": {
@@ -110,10 +152,16 @@ async fn cp_family(
 
 async fn cp_group(
     config: &crate::config::Config,
-    source: &str,
+    sources: &[String],
     target: &str,
 ) -> Result<(), ClientError> {
+    if sources.len() > 1 {
+        error!("群组云暂不支持批量复制");
+        return Err(ClientError::UnsupportedGroupBatchCopy);
+    }
+
     let client = Client::new(config.clone());
+    let source = &sources[0];
 
     let source = source.trim_start_matches('/');
     let target = target.trim_start_matches('/');

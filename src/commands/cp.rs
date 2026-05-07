@@ -2,8 +2,8 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 pub struct CpArgs {
-    #[arg(help = "源文件路径")]
-    pub source: String,
+    #[arg(required = true, help = "源文件路径（支持多个，用空格分隔）")]
+    pub source: Vec<String>,
 
     #[arg(help = "目标目录")]
     pub target: String,
@@ -14,12 +14,6 @@ pub struct CpArgs {
 
 pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
     let config = crate::config::Config::load()?;
-    crate::services::copy_service::cp(
-        &config,
-        &args.source,
-        &args.target,
-        args.force,
-    )
-    .await?;
+    crate::services::copy_service::cp(&config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

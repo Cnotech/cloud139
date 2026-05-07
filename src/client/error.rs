@@ -34,6 +34,10 @@ pub enum ClientError {
     UnsupportedFamilyBatchMove,
     #[error("群组云暂不支持批量移动")]
     UnsupportedGroupBatchMove,
+    #[error("家庭云暂不支持批量复制")]
+    UnsupportedFamilyBatchCopy,
+    #[error("群组云暂不支持批量复制")]
+    UnsupportedGroupBatchCopy,
     #[error("家庭云不支持重命名文件夹")]
     UnsupportedFamilyRenameFolder,
     #[error("不支持下载目录，请使用 ls 命令查看目录内容")]

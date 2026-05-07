@@ -8,7 +8,15 @@ use cloud139::commands::mv::MvArgs;
 #[test]
 fn test_cp_args_parse() {
     let args = CpArgs::try_parse_from(["cp", "source.txt", "/dest/"]).unwrap();
-    assert_eq!(args.source, "source.txt");
+    assert_eq!(args.source, vec!["source.txt"]);
+    assert_eq!(args.target, "/dest/");
+    assert!(!args.force);
+}
+
+#[test]
+fn test_cp_args_parse_multiple_sources() {
+    let args = CpArgs::try_parse_from(["cp", "file1.txt", "file2.txt", "/dest/"]).unwrap();
+    assert_eq!(args.source, vec!["file1.txt", "file2.txt"]);
     assert_eq!(args.target, "/dest/");
     assert!(!args.force);
 }
@@ -16,6 +24,7 @@ fn test_cp_args_parse() {
 #[test]
 fn test_cp_args_parse_with_force() {
     let args = CpArgs::try_parse_from(["cp", "source.txt", "/dest/", "--force"]).unwrap();
+    assert_eq!(args.source, vec!["source.txt"]);
     assert!(args.force);
 }
 

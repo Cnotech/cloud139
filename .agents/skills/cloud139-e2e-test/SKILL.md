@@ -1,11 +1,6 @@
 ---
 name: cloud139-e2e-test
 description: Use when 需要对 cloud139 CLI 做完整端到端回归，且测试会创建大量本地与云端临时文件、配置文件和同步目录
-license: MIT
-compatibility: opencode
-metadata:
-  audience: developers
-  workflow: testing
 ---
 
 ## 功能描述
@@ -37,7 +32,7 @@ sub agent 职责：
 建议拆分的 sub agent 阶段：
 1. 预检与登录：工作树检查通过后，检查配置文件、构建、登录、准备测试目录
 2. 基础命令测试：`ls`、`upload`、`download`
-3. 变更类命令测试：`cp`、`rename`、`mv`、`mkdir`、`rm`
+3. 变更类命令测试：`cp`（含多源复制）、`rename`、`mv`、`mkdir`、`rm`
 4. `sync` 专项测试
 5. 清理与工作树复核
 
@@ -338,14 +333,26 @@ rm -rf cloud139_e2e_download_test
 
 #### 阶段 6: 复制测试 (cp)
 
+> `cp` 现已采用与 `mv` 一致的参数格式：`cp <源1> <源2> ... <目标目录>`。
+> 对 `personal_new`，支持真正的多源复制。
+> 对 `family` / `group`，若传入多个源路径，应明确报“不支持批量复制”。
+
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 6.1 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | 复制到测试目录；**注意**：个人云下若目标目录已存在同名文件，需使用 `--force` 才能继续，云端会自动重命名 |
-| 6.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 3 个文件（含自动重命名的文件） |
-| 6.3 | `./target/release/cloud139.exe cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
-| 6.4 | `./target/release/cloud139.exe cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
-| 6.5 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/` | **边界**：复制同名文件，云端已存在；应提示警告且退出码为1 |
-| 6.6 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/ --force` | 强制复制，云端会自动重命名 |
+| 6.1 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/cp_target` | 准备独立目标目录，避免与前面上传步骤互相污染 |
+| 6.2 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/` | 单源复制成功 |
+| 6.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 应包含 `Cargo.toml` |
+| 6.4 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/` | 多源复制成功；目标目录新增两个文件 |
+| 6.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 应同时包含 `README.md`、`Cargo.toml`，以及来自 6.2 的既有文件；若云端重名策略触发，需记录实际命名结果 |
+| 6.6 | `./target/release/cloud139.exe cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
+| 6.7 | `./target/release/cloud139.exe cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
+| 6.8 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：复制到已有同名文件的目录；应提示警告且退出码为 1 |
+| 6.9 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/ --force` | 强制复制，云端会自动重命名 |
+| 6.10 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：多源复制到已存在同名文件的目录；未加 `--force` 应失败，退出码为 1 |
+| 6.11 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/ --force` | 多源强制复制成功，云端会自动重命名 |
+| 6.12 | `./target/release/cloud139.exe cp /README.md /docs/Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：多源列表内 basename 冲突（同名 `Cargo.toml`）时，未加 `--force` 应失败；若仓库当前不存在 `docs/Cargo.toml`，改用两个同名源文件复现该场景 |
+| 6.13 | `./target/release/cloud139.exe cp /README.md /docs/Cargo.toml /e2e_test_xxx/cp_target/ --force` | **边界**：多源列表内 basename 冲突时，加 `--force` 后成功，由云端自动重命名；若仓库当前不存在 `docs/Cargo.toml`，改用两个同名源文件复现该场景 |
+| 6.14 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 复核最终文件列表，记录自动重命名结果，供清理阶段使用 |
 
 #### 阶段 7: 重命名测试 (rename)
 

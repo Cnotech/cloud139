@@ -76,7 +76,14 @@ mod commands_args_test_extended {
     #[test]
     fn test_cp_args() {
         let args = CpArgs::parse_from(&["cp", "source.txt", "dest.txt"]);
-        assert_eq!(args.source, "source.txt");
+        assert_eq!(args.source, vec!["source.txt"]);
+        assert_eq!(args.target, "dest.txt");
+    }
+
+    #[test]
+    fn test_cp_args_multiple_sources() {
+        let args = CpArgs::parse_from(&["cp", "source1.txt", "source2.txt", "dest.txt"]);
+        assert_eq!(args.source, vec!["source1.txt", "source2.txt"]);
         assert_eq!(args.target, "dest.txt");
     }
 
