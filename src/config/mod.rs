@@ -27,10 +27,7 @@ pub fn local_config_path() -> PathBuf {
 
 pub fn global_config_path() -> PathBuf {
     if let Some(base) = directories::BaseDirs::new() {
-        return base
-            .config_dir()
-            .join(GLOBAL_CONFIG_SUBDIR)
-            .join(CONFIG_FILE);
+        return base.home_dir().join(".config").join(GLOBAL_CONFIG_SUBDIR).join(CONFIG_FILE);
     }
     PathBuf::from(CONFIG_FILE)
 }

@@ -392,7 +392,7 @@ cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
 
 ## 配置文件
 
-登录成功后，配置信息默认保存到 `~/.config/cloud139/cloud139rc.toml`（Windows 下为 `%APPDATA%\cloud139\cloud139rc.toml`）。
+登录成功后，配置信息默认保存到 `~/.config/cloud139/cloud139rc.toml`。
 
 读取时按以下优先级查找：
 
