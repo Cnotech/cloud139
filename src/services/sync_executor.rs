@@ -568,31 +568,6 @@ mod tests {
             }));
         });
 
-        let list_for_delete_lookup = server.mock(|when, then| {
-            when.method(POST).path("/file/list").json_body(json!({
-                "parentFileId": "/",
-                "pageInfo": {
-                    "pageCursor": "",
-                    "pageSize": 100
-                },
-                "orderBy": "updated_at",
-                "orderDirection": "DESC"
-            }));
-            then.status(200).json_body(json!({
-                "success": true,
-                "data": {
-                    "items": [
-                        {
-                            "fileId": "file_1",
-                            "name": "conflict",
-                            "size": 0,
-                            "type": "file"
-                        }
-                    ]
-                }
-            }));
-        });
-
         let delete_file = server.mock(|when, then| {
             when.method(POST)
                 .path("/recyclebin/batchTrash")
@@ -625,8 +600,8 @@ mod tests {
             .await
             .expect("cloud dir creation should replace same-name file");
 
-        list_for_existing.assert_calls(1);
-        list_for_delete_lookup.assert_calls(1);
+        // 路径解析与「检查是否已存在」现在共用同一个翻页 list，所以调用两次。
+        list_for_existing.assert_calls(2);
         delete_file.assert_calls(1);
         create_dir.assert_calls(1);
     }
@@ -639,32 +614,6 @@ mod tests {
         config.account = "13800138000".to_string();
         config.storage_type = "personal".to_string();
         config.personal_cloud_host = Some(server.url(""));
-
-        let root_list = server.mock(|when, then| {
-            when.method(POST).path("/file/list").json_body(json!({
-                "parentFileId": "/",
-                "pageInfo": {
-                    "pageCursor": "",
-                    "pageSize": 100
-                },
-                "orderBy": "updated_at",
-                "orderDirection": "DESC"
-            }));
-            then.status(200).json_body(json!({
-                "success": true,
-                "data": {
-                    "items": [
-                        {
-                            "fileId": "dir_remote",
-                            "name": "remote",
-                            "size": 0,
-                            "type": "folder"
-                        }
-                    ],
-                    "nextPageCursor": ""
-                }
-            }));
-        });
 
         let root_existing_list = server.mock(|when, then| {
             when.method(POST).path("/file/list").json_body(json!({
@@ -745,8 +694,8 @@ mod tests {
         parent_result.expect("upload parent ensure should succeed");
         create_result.expect("create dir action should succeed");
 
-        root_list.assert_calls(1);
-        root_existing_list.assert_calls(1);
+        // 同上：路径解析不再单独发一个 list 请求。
+        root_existing_list.assert_calls(2);
         remote_list.assert_calls(1);
         create_dir.assert_calls(1);
     }

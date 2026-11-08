@@ -94,8 +94,6 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
     }
 
     debug!("get_file_id_by_path: 解析路径={}", path);
-    let mut config = config.clone();
-    let host = get_personal_cloud_host(&mut config).await?;
 
     let parts: Vec<&str> = path
         .trim_start_matches('/')
@@ -103,6 +101,10 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         .filter(|s| !s.is_empty())
         .collect();
 
+    // host 只解析一次：逐层解析时不再重复请求路由（缓存未命中时省掉 N-1 次请求）。
+    let mut config = config.clone();
+    let host = get_personal_cloud_host(&mut config).await?;
+    let http_client = HttpClientWrapper::new();
     let mut current_parent_id = String::new();
 
     for (i, part) in parts.iter().enumerate() {
@@ -113,27 +115,10 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
             current_parent_id.clone()
         };
 
-        let url = format!("{}/file/list", host);
-
-        let body = serde_json::json!({
-            "parentFileId": parent_id,
-            "pageInfo": {
-                "pageCursor": "",
-                "pageSize": 100
-            },
-            "orderBy": "updated_at",
-            "orderDirection": "DESC"
-        });
-
-        let list_resp: crate::models::PersonalListResp =
-            personal_api_request(&config, &url, body, crate::domain::StorageType::PersonalNew)
-                .await?;
-
-        let items = list_resp.data.map(|d| d.items).unwrap_or_default();
-
-        let target_id = items
-            .into_iter()
-            .find(|item| item.name.as_deref() == Some(part))
+        // 按页查找，命中即停：不再把父目录所有页取完再找。第一页命中时，
+        // 后续页的失败不会拖垮本来可以解析的路径。
+        let target_id = find_personal_child(&config, &host, &parent_id, part, &http_client)
+            .await?
             .map(|item| item.file_id.unwrap_or_default());
 
         match target_id {
@@ -154,6 +139,58 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
     }
 
     Ok(current_parent_id)
+}
+
+/// 在一个父目录下按页查找子项，命中就返回，不再请求后续页。
+pub(crate) async fn find_personal_child(
+    config: &Config,
+    host: &str,
+    parent_file_id: &str,
+    name: &str,
+    http_client: &HttpClientWrapper,
+) -> Result<Option<crate::models::PersonalFileItem>, ClientError> {
+    let url = format!("{}/file/list", host);
+    let mut next_cursor = String::new();
+
+    loop {
+        let body = serde_json::json!({
+            "imageThumbnailStyleList": ["Small", "Large"],
+            "orderBy": "updated_at",
+            "orderDirection": "DESC",
+            "pageInfo": {
+                "pageCursor": next_cursor,
+                "pageSize": 100
+            },
+            "parentFileId": parent_file_id
+        });
+
+        let resp: crate::models::PersonalListResp = personal_api_request_with_client(
+            config,
+            &url,
+            body,
+            crate::domain::StorageType::PersonalNew,
+            http_client,
+        )
+        .await?;
+
+        let data = match resp.data {
+            Some(data) => data,
+            None => return Ok(None),
+        };
+
+        if let Some(item) = data
+            .items
+            .into_iter()
+            .find(|item| item.name.as_deref() == Some(name))
+        {
+            return Ok(Some(item));
+        }
+
+        next_cursor = data.next_page_cursor.unwrap_or_default();
+        if next_cursor.is_empty() {
+            return Ok(None);
+        }
+    }
 }
 
 pub fn parse_path_segments(path: &str) -> Vec<&str> {
