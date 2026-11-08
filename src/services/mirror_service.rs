@@ -1,7 +1,12 @@
-//! `mirror`: 把本地 restic 仓推到云端，进程内完成遍历、差集、上传、校验、自愈。
+//! `mirror`: 把本地目录镜像到云端（补齐 → 校验 → 可选删除），进程内完成。
 //!
-//! 设计约束（与备份任务约定的契约）：
-//! - **只增不删**：远端多出来的对象不会被删除（append-only），只在 JSON 里报告 `remoteOnly`。
+//! 设计约束：
+//! - **默认只补缺失**：远端多出来的文件不动；只有显式 `--delete` 才删，使远端 = 本地。
+//! - **删除集合在任何上传之前算好并冻结**（来源是第一次远端扫描），上传阶段不重算；
+//!   本轮上传的都来自本地，天然不在删除集合里，所以不需要删除前重列。
+//! - **只有全部校验通过才删**：任何上传/校验失败 → 一个都不删、退出码 1。
+//! - 唯一保护：本地目录不存在（参数校验）或为空（`--delete` 时）→ 退出码 2 且不删；
+//!   `--no-verify --delete` 直接拒绝（没有「校验通过」这个前提）。
 //! - 远端根目录由本命令逐级创建（cloud139 的 mkdir 没有 `-p`，同名加 `-f` 会改名），禁止 `-f`。
 //! - 校验按 size + contentHash（统一小写比对）；缺哈希只计入 hashMissing，不判失败。
 //! - 失败也要输出完整 JSON，由调用方写 latest.json。
@@ -12,7 +17,7 @@ use crate::config::Config;
 use crate::domain::SyncEntryKind;
 use crate::models::PersonalFileItem;
 use crate::services::sync_service::{SyncScanOptions, parse_sync_endpoint, scan_local};
-use crate::{debug, warn};
+use crate::{debug, info, warn};
 use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -24,6 +29,8 @@ pub struct MirrorOptions {
     pub verify: bool,
     pub heal: u32,
     pub dry_run: bool,
+    /// 删除「远端有、本地没有」的文件，使远端 = 本地。
+    pub delete: bool,
     pub page_size: i32,
     pub retries: u32,
     pub retry_backoff_secs: u64,
@@ -42,13 +49,9 @@ pub struct MirrorReport {
     pub objects: usize,
     pub uploaded: usize,
     pub skipped: usize,
-    pub verified: usize,
+    /// `--delete` 时实际删除的文件数；`--dry-run` 时是「计划删除数」。
+    pub deleted: usize,
     pub hash_missing: usize,
-    /// 本轮**修复**的对象数：远端本来有、内容不符，删掉重传后复核通过。
-    /// 新对象只计入 `uploaded`——正常夜里这里应当是 0，非 0 才需要看。
-    pub healed: usize,
-    pub remote_only: usize,
-    pub bytes_uploaded: u64,
     pub seconds: f64,
     pub failures: Vec<MirrorFailure>,
 }
@@ -58,6 +61,18 @@ impl MirrorReport {
         self.failures.is_empty()
     }
 }
+
+/// 前置条件不满足：调用方按 exit 2 处理（参数/配置错误），不是对象传输失败。
+#[derive(Debug)]
+pub struct PreconditionError(pub String);
+
+impl std::fmt::Display for PreconditionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for PreconditionError {}
 
 #[derive(Debug, Clone)]
 struct LocalObject {
@@ -101,13 +116,24 @@ pub async fn run(
     let locals = scan_local_objects(&local_root)?;
     report.objects = locals.len();
 
+    // 唯一的「本地为空」保护：只在 --delete 时才需要（不删的时候空目录无害）。
+    if options.delete && locals.is_empty() {
+        return Err(anyhow::Error::new(PreconditionError(format!(
+            "本地目录为空，拒绝执行 --delete（不做任何删除）: {}",
+            local_root.display()
+        ))));
+    }
+
     if options.dry_run {
-        // 演练：只算差异，不发任何写请求（远端根也不建）。
+        // --dry-run：只算差异，不发任何写请求（远端根也不建）。
         let remote = match scan_remote(config, &remote_root, options).await {
             Ok(remote) => remote,
             Err(err) if is_not_found(&err) => BTreeMap::new(),
             Err(err) => return Err(err),
         };
+        // --dry-run 用与正式跑完全相同的冻结集合，所以这里报的 deleted 就是会删的那批。
+        let delete_set = plan_delete_set(&remote, &locals, options.delete);
+        report.deleted = delete_set.len();
         for local in &locals {
             let entry = match remote.get(&local.rel_path) {
                 Some(entry) => entry,
@@ -119,24 +145,19 @@ pub async fn run(
             match classify_existing(local, entry, options.verify) {
                 ExistingAction::Unchanged => report.skipped += 1,
                 ExistingAction::UnchangedHashMissing => {
-                    // 口径与正式跑一致：演练也要反映「有多少对象只能靠文件名保证」。
+                    // 口径与正式跑一致：--dry-run 也要反映「有多少对象只能靠文件名保证」。
                     report.skipped += 1;
                     report.hash_missing += 1;
                 }
-                // 演练只报告「正式跑会失败」，便于一次看全，不中断。
+                // --dry-run 只报告「正式跑会失败」，便于一次看全，不中断。
                 ExistingAction::Fail(error) => report.failures.push(MirrorFailure {
                     path: local.rel_path.clone(),
                     error,
                     retries: 0,
                 }),
-                ExistingAction::Reupload => {
-                    // 远端本来有、内容不符：这是一次计划中的修复，不是新对象。
-                    report.uploaded += 1;
-                    report.healed += 1;
-                }
+                ExistingAction::Reupload => report.uploaded += 1,
             }
         }
-        report.remote_only = count_remote_only(&remote, &locals);
         report.seconds = started.elapsed().as_secs_f64();
         return Ok(report);
     }
@@ -144,20 +165,17 @@ pub async fn run(
     let mut ensured = std::collections::HashSet::new();
     ensure_path(config, &remote_root, options, &mut ensured).await?;
     let remote = scan_remote(config, &remote_root, options).await?;
+    // 删除集合在两次扫描都成功之后立刻算好并冻结；后面只读它，不重算、不再看远端。
+    let delete_set = plan_delete_set(&remote, &locals, options.delete);
 
     for local in &locals {
         let remote_path = join_remote(&remote_root, &local.rel_path);
         let existing = remote.get(&local.rel_path);
-        // 只有「远端本来有、内容不符 → 删掉重传」才算修复；新对象只计入 uploaded。
-        let mut replaced_broken_object = false;
 
         if let Some(entry) = existing {
             match classify_existing(local, entry, options.verify) {
                 ExistingAction::Unchanged => {
                     report.skipped += 1;
-                    if options.verify {
-                        report.verified += 1;
-                    }
                     continue;
                 }
                 ExistingAction::UnchangedHashMissing => {
@@ -195,25 +213,17 @@ pub async fn run(
                         });
                         continue;
                     }
-                    replaced_broken_object = true;
                 }
             }
         }
 
         match upload_one(config, local, &remote_root, options, &mut ensured).await {
-            Ok(bytes) => {
+            Ok(_) => {
                 report.uploaded += 1;
-                report.bytes_uploaded += bytes;
-                if replaced_broken_object {
-                    report.healed += 1;
-                }
                 if options.verify {
                     match verify_one(config, &remote_root, local, options).await {
-                        Ok(ExistingAction::Unchanged) => report.verified += 1,
-                        Ok(ExistingAction::UnchangedHashMissing) => {
-                            report.verified += 1;
-                            report.hash_missing += 1;
-                        }
+                        Ok(ExistingAction::Unchanged) => {}
+                        Ok(ExistingAction::UnchangedHashMissing) => report.hash_missing += 1,
                         // 普通文件拿不到哈希：刚传上去也证明不了内容相同，按失败处理。
                         Ok(ExistingAction::Fail(error)) => {
                             report.failures.push(MirrorFailure {
@@ -241,10 +251,7 @@ pub async fn run(
                                     break;
                                 }
                             }
-                            if healed {
-                                // 上传后复核不一致、重传后修好：这也是修复，不只是新上传。
-                                report.healed += 1;
-                            } else {
+                            if !healed {
                                 report.failures.push(MirrorFailure {
                                     path: local.rel_path.clone(),
                                     error: "校验失败且自愈未成功".to_string(),
@@ -263,9 +270,75 @@ pub async fn run(
         }
     }
 
-    report.remote_only = count_remote_only(&remote, &locals);
+    // 删除阶段：只有全部校验通过才动远端。
+    if !delete_set.is_empty() {
+        if report.failures.is_empty() {
+            info!("本轮计划删除 {} 个远端文件", delete_set.len());
+            let (deleted, failures) =
+                delete_extra_objects(config, &remote_root, &delete_set, options).await;
+            report.deleted = deleted;
+            report.failures.extend(failures);
+        } else {
+            info!(
+                "有 {} 个对象处理失败，本轮不执行删除（计划删除 {} 个）",
+                report.failures.len(),
+                delete_set.len()
+            );
+        }
+    }
+
     report.seconds = started.elapsed().as_secs_f64();
     Ok(report)
+}
+
+/// 「远端有、本地没有」的文件（不含目录）。executor: 这是删除集合，调用方在两次扫描后立刻冻结。
+fn plan_delete_set(
+    remote: &BTreeMap<String, RemoteObject>,
+    locals: &[LocalObject],
+    delete: bool,
+) -> Vec<String> {
+    if !delete {
+        return Vec::new();
+    }
+    let local_paths: std::collections::HashSet<&str> =
+        locals.iter().map(|item| item.rel_path.as_str()).collect();
+    remote
+        .iter()
+        .filter(|(path, item)| !item.is_folder && !local_paths.contains(path.as_str()))
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
+/// 逐个删除；失败的继续删其它并记录，返回（成功删除数, 失败列表）。
+async fn delete_extra_objects(
+    config: &Config,
+    remote_root: &str,
+    delete_set: &[String],
+    options: &MirrorOptions,
+) -> (usize, Vec<MirrorFailure>) {
+    let mut deleted = 0;
+    let mut failures = Vec::new();
+    for rel_path in delete_set {
+        let remote_path = join_remote(remote_root, rel_path);
+        match crate::utils::retry::with_retries(
+            options.retries,
+            options.retry_backoff_secs,
+            || async { crate::services::delete_service::delete(config, &remote_path, true).await },
+        )
+        .await
+        {
+            Ok(()) => {
+                debug!("已删除远端多余文件: {}", remote_path);
+                deleted += 1;
+            }
+            Err(err) => failures.push(MirrorFailure {
+                path: rel_path.clone(),
+                error: format!("删除失败: {err:#}"),
+                retries: options.retries,
+            }),
+        }
+    }
+    (deleted, failures)
 }
 
 fn scan_local_objects(root: &Path) -> Result<Vec<LocalObject>> {
@@ -355,15 +428,6 @@ fn check_hash(remote_hash: Option<&str>, algorithm: Option<&str>, expected: &str
 }
 
 /// 远端独有 = 远端有、本地没有的**文件**（目录不算，目录只是容器的骨架）。
-fn count_remote_only(remote: &BTreeMap<String, RemoteObject>, locals: &[LocalObject]) -> usize {
-    let local_paths: std::collections::HashSet<&str> =
-        locals.iter().map(|item| item.rel_path.as_str()).collect();
-    remote
-        .iter()
-        .filter(|(path, item)| !item.is_folder && !local_paths.contains(path.as_str()))
-        .count()
-}
-
 fn needs_upload(local: &LocalObject, remote: &RemoteObject, verify: bool) -> bool {
     if remote.is_folder {
         return true;
@@ -896,17 +960,32 @@ mod tests {
         );
     }
 
+    /// 删除集合 = 远端有、本地没有的**文件**；目录不算，`--delete` 关闭时恒为空。
     #[test]
-    #[test]
-    fn remote_only_counts_files_not_folders() {
+    fn delete_set_is_remote_files_missing_locally() {
         let mut remote_map = BTreeMap::new();
         remote_map.insert("data".to_string(), remote(0, None, None, true));
         remote_map.insert("data/aa".to_string(), remote(0, None, None, true));
         remote_map.insert("data/aa/x".to_string(), remote(1, None, None, false));
-        remote_map.insert("extra".to_string(), remote(2, None, None, false));
+        remote_map.insert("index/old".to_string(), remote(2, None, None, false));
         let locals = vec![local("data/aa/x", 1, "aa")];
-        // 只有 extra 是远端独有文件；data / data/aa 是目录，不算
-        assert_eq!(count_remote_only(&remote_map, &locals), 1);
+
+        // 关闭 --delete：一个都不删
+        assert!(plan_delete_set(&remote_map, &locals, false).is_empty());
+
+        // 打开 --delete：只剩远端多出来的那个文件（目录不参与）
+        let plan = plan_delete_set(&remote_map, &locals, true);
+        assert_eq!(plan, vec!["index/old".to_string()]);
+    }
+
+    /// 本地为空时，删除集合就是远端全部文件——所以调用方必须先用 exit 2 拦住它。
+    #[test]
+    fn delete_set_with_empty_local_covers_everything() {
+        let mut remote_map = BTreeMap::new();
+        remote_map.insert("data/aa/x".to_string(), remote(1, None, None, false));
+        remote_map.insert("config".to_string(), remote(2, None, None, false));
+        let plan = plan_delete_set(&remote_map, &[], true);
+        assert_eq!(plan.len(), 2);
     }
 
     #[test]

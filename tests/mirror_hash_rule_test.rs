@@ -69,9 +69,17 @@ fn options_dry_run() -> MirrorOptions {
         verify: true,
         heal: 3,
         dry_run: true,
+        delete: false,
         page_size: 100,
         retries: 0,
         retry_backoff_secs: 0,
+    }
+}
+
+fn options_dry_run_delete() -> MirrorOptions {
+    MirrorOptions {
+        delete: true,
+        ..options_dry_run()
     }
 }
 
@@ -122,8 +130,8 @@ async fn regular_file_without_remote_hash_is_failure() {
     // 内容寻址对象缺哈希不判失败，只计入 hashMissing
     assert_eq!(report.hash_missing, 1);
     assert_eq!(report.skipped, 1);
-    // 没有任何修复：healed 必须为 0（旧口径会把它算成「远端已有仓 → 自愈」）
-    assert_eq!(report.healed, 0);
+    // 没开 --delete：不应出现删除计划
+    assert_eq!(report.deleted, 0);
 
     // 只有目录列举，没有任何上传/删除请求
     root.assert_calls(1);
@@ -173,9 +181,8 @@ async fn conflict_handling_depends_on_content_addressing() {
         "实际: {}",
         report.failures[0].error
     );
-    // 内容寻址那份走「重传」，不是失败；这是真正的修复，计入 healed
+    // 内容寻址那份走「重传」，不是失败
     assert_eq!(report.uploaded, 1);
-    assert_eq!(report.healed, 1, "远端坏对象被重传 = 修复");
 
     root.assert_calls(1);
     repo.assert_calls(1);
@@ -183,10 +190,9 @@ async fn conflict_handling_depends_on_content_addressing() {
     aa.assert_calls(1);
 }
 
-/// 正常的一夜：远端没有这个新对象 → 只算 uploaded，`healed` 必须是 0。
-/// （旧口径「远端已有仓时任何上传都算 self-heal」会让正常夜也报 `healed=N`，是假警报源。）
+/// 正常的一夜：远端没有这个新对象 → 只算 uploaded，不删任何东西。
 #[tokio::test]
-async fn new_object_is_uploaded_but_not_healed() {
+async fn new_object_is_uploaded_without_deleting() {
     let server = MockServer::start();
     let addressed = "d".repeat(64);
     let root = mock_list(&server, "/", vec![folder("id-repo", "repo")]);
@@ -209,11 +215,146 @@ async fn new_object_is_uploaded_but_not_healed() {
 
     assert_eq!(report.objects, 1);
     assert_eq!(report.uploaded, 1, "新对象要上传");
-    assert_eq!(report.healed, 0, "新对象不是修复，不能计入 healed");
+    assert_eq!(report.deleted, 0, "没开 --delete 不应删除任何东西");
     assert!(report.failures.is_empty());
 
     root.assert_calls(1);
     repo.assert_calls(1);
     data.assert_calls(1);
     aa.assert_calls(1);
+}
+
+/// `--dry-run --delete`：报计划删除数（远端有、本地没有），且**不发任何删除请求**。
+#[tokio::test]
+async fn dry_run_delete_reports_plan_without_touching_remote() {
+    let server = MockServer::start();
+    let kept = "e".repeat(64);
+    let extra = "f".repeat(64);
+    let root = mock_list(&server, "/", vec![folder("id-repo", "repo")]);
+    let repo = mock_list(&server, "id-repo", vec![folder("id-data", "data")]);
+    let data = mock_list(&server, "id-data", vec![folder("id-aa", "aa")]);
+    let aa = mock_list(
+        &server,
+        "id-aa",
+        vec![
+            file("id-keep2", &kept, 5, None),
+            file("id-extra", &extra, 7, None),
+        ],
+    );
+
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), &format!("data/aa/{kept}"), &[1u8; 5]);
+
+    let report = mirror_service::run(
+        &config_for(&server),
+        tmp.path().to_str().unwrap(),
+        "cloud:/repo",
+        &options_dry_run_delete(),
+    )
+    .await
+    .expect("dry-run 不该变成致命错误");
+
+    assert_eq!(report.objects, 1);
+    assert_eq!(report.uploaded, 0);
+    assert_eq!(report.deleted, 1, "plan: 只有一个远端多余文件");
+    assert!(report.failures.is_empty());
+
+    // 只列目录：没有任何删除/上传请求
+    root.assert_calls(1);
+    repo.assert_calls(1);
+    data.assert_calls(1);
+    aa.assert_calls(1);
+}
+
+/// 不开 `--delete` 时，即使远端有多余文件也不删、deleted=0。
+#[tokio::test]
+async fn default_mode_never_deletes() {
+    let server = MockServer::start();
+    let kept = "1".repeat(64);
+    let extra = "2".repeat(64);
+    let root = mock_list(&server, "/", vec![folder("id-repo", "repo")]);
+    let repo = mock_list(&server, "id-repo", vec![folder("id-data", "data")]);
+    let data = mock_list(&server, "id-data", vec![folder("id-aa", "aa")]);
+    let aa = mock_list(
+        &server,
+        "id-aa",
+        vec![
+            file("id-keep", &kept, 5, None),
+            file("id-extra", &extra, 7, None),
+        ],
+    );
+
+    let tmp = tempfile::tempdir().unwrap();
+    write(tmp.path(), &format!("data/aa/{kept}"), &[1u8; 5]);
+
+    let report = mirror_service::run(
+        &config_for(&server),
+        tmp.path().to_str().unwrap(),
+        "cloud:/repo",
+        &options_dry_run(),
+    )
+    .await
+    .expect("dry-run 不该变成致命错误");
+
+    assert_eq!(report.deleted, 0, "默认不删");
+    root.assert_calls(1);
+    repo.assert_calls(1);
+    data.assert_calls(1);
+    aa.assert_calls(1);
+}
+
+fn options_real_delete() -> MirrorOptions {
+    MirrorOptions {
+        dry_run: false,
+        delete: true,
+        ..options_dry_run()
+    }
+}
+
+/// 上传失败时**一个都不删**：deleted=0，failures 里有那条上传失败。
+#[tokio::test]
+async fn upload_failure_blocks_all_deletions() {
+    let server = MockServer::start();
+    let kept = "3".repeat(64);
+    let extra = "4".repeat(64);
+    let root = mock_list(&server, "/", vec![folder("id-repo", "repo")]);
+    let _repo = mock_list(&server, "id-repo", vec![folder("id-data", "data")]);
+    let _data = mock_list(&server, "id-data", vec![folder("id-aa", "aa")]);
+    let aa = mock_list(
+        &server,
+        "id-aa",
+        vec![
+            file("id-keep", &kept, 5, Some(&kept)),
+            file("id-extra", &extra, 7, Some(&extra)),
+        ],
+    );
+    // 上传一定会失败（创建上传任务 500）
+    let create = server.mock(|when, then| {
+        when.method(POST).path("/file/create");
+        then.status(500)
+            .body("{\"success\":false,\"code\":\"5000\",\"message\":\"boom\"}");
+    });
+
+    let tmp = tempfile::tempdir().unwrap();
+    // 本地：一个已存在的对象 + 一个需要上传的新对象
+    write(tmp.path(), &format!("data/aa/{kept}"), &[1u8; 5]);
+    let new_obj = "5".repeat(64);
+    write(tmp.path(), &format!("data/aa/{new_obj}"), &[2u8; 9]);
+
+    let report = mirror_service::run(
+        &config_for(&server),
+        tmp.path().to_str().unwrap(),
+        "cloud:/repo",
+        &options_real_delete(),
+    )
+    .await
+    .expect("失败应体现在 failures 里，不是致命错误");
+
+    assert_eq!(report.uploaded, 0, "上传失败，不应计入 uploaded");
+    assert_eq!(report.failures.len(), 1, "应有一条上传失败");
+    assert_eq!(report.deleted, 0, "有失败时一个都不删");
+    assert!(create.calls() >= 1, "应当尝试过上传");
+    // 正式跑会多次列目录（建路径、扫描、复核），这里只要求确实列过
+    assert!(root.calls() >= 1 && aa.calls() >= 1);
+    // 关键：没有任何删除动作发生（否则 deleted 就不会是 0）
 }

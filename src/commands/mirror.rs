@@ -7,22 +7,26 @@ use std::io::IsTerminal;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    about = "把本地目录推到云端仓（只增不删，不删除远端已有对象）",
-    long_about = "把本地目录推到云端仓：进程内完成遍历、差集、上传、校验、自愈。\n\n\
-**只增不删**：远端有、本地没有的对象不会被删除（append-only），只在 JSON 的 remoteOnly 里报告数量。\n\n\
-按文件名分流（不假定仓的类型）：\n\
+    about = "把本地目录镜像到云端（默认只补缺失，--delete 时使远端与本地一致）",
+    long_about = "把本地目录镜像到云端：进程内完成遍历、差集、上传、校验、（可选）删除。\n\n\
+**默认只补缺失**：远端有、本地没有的文件不动。加 `--delete` 才删除它们，使远端 = 本地。\n\n\
+**删除只在全部校验通过后发生**：先补齐、再校验，任何上传/校验失败 → 一个都不删、退出码 1。\n\
+删除集合在任何上传之前算好并冻结（来源是第一次远端扫描），所以不需要删除前重列。\n\n\
+按文件名分流（不假定目录里是什么）：\n\
 - 文件名是 64 位十六进制 = 内容寻址对象，名字即内容 sha256；远端同名但大小/哈希不一致，说明远端那份坏了，删掉重传（自愈，次数由 --heal 限制）。\n\
-- 其它文件名 = 普通文件；同名但内容不同、或远端拿不到 contentHash 时**记失败并退出 1**，不覆盖、不删除远端对象（路径配错时靠这条拦住，避免写坏别人的仓库）。\n\
-- 普通文件缺哈希不会降级为「按相同处理」：证明不了相同就报错，这是有意的。\n\n\
-远端仓根不存在时会逐级创建（不会用 mkdir -f 改名）。\n\n\
---json 时 stdout 只输出这一行 JSON，其余日志（含重试告警、上传进度行）全部走 stderr，调用方可以直接解析 stdout。\n\n\
-退出码：0 全部成功；1 有对象失败（继续处理其它对象后统一返回）；2 参数或配置错误。"
+- 其它文件名 = 普通文件；同名但内容不同、或远端拿不到 contentHash 时**记失败并退出 1**，不覆盖、不删除远端对象（路径配错时靠这条拦住，避免写坏别人的目录）。\n\n\
+`--delete` 的前提是「本地目录是本机真实完整副本」：本地目录不存在或为空 → 退出码 2、不做任何删除；\n\
+`--no-verify --delete` 直接拒绝（没有「校验通过」这个前提）。若目录放在网络挂载上，执行前自行确认挂载正常。\n\n\
+远端根不存在时会逐级创建（不会用 mkdir -f 改名）。\n\n\
+--json 时 stdout 只输出这一行 JSON，其余日志（含重试告警、删除计划、上传进度行）全部走 stderr，调用方可以直接解析 stdout。\n\n\
+JSON 字段：objects / uploaded / skipped / deleted / hashMissing / seconds / failures；`deleted` 在 --dry-run 时是计划删除数。\n\n\
+退出码：0 全部成功；1 有对象失败（继续处理其它对象后统一返回）；2 参数/配置错误或 --delete 的前置条件不满足。"
 )]
 pub struct MirrorArgs {
-    #[arg(help = "本地仓根目录，例如 /var/lib/beecodeai-backup/restic")]
+    #[arg(help = "本地仓根目录，例如 /path/to/local/repo")]
     pub local: String,
 
-    #[arg(help = "远端仓根，形如 cloud:/beecodeai-backup/prod/restic")]
+    #[arg(help = "远端仓根，形如 cloud:/path/to/remote/repo")]
     pub remote: String,
 
     #[arg(
@@ -34,6 +38,12 @@ pub struct MirrorArgs {
 
     #[arg(long, default_value_t = 3, value_name = "N", help = "自愈上限次数")]
     pub heal: u32,
+
+    #[arg(
+        long,
+        help = "删除「远端有、本地没有」的文件，使远端 = 本地（默认不删；只在全部校验通过后执行）"
+    )]
+    pub delete: bool,
 
     #[arg(long, help = "只算差异，不发任何写请求")]
     pub dry_run: bool,
@@ -84,6 +94,7 @@ pub async fn execute(args: MirrorArgs) -> anyhow::Result<()> {
         verify: args.verify,
         heal: args.heal,
         dry_run: args.dry_run,
+        delete: args.delete,
         page_size: args.page_size,
         retries: args.retries,
         retry_backoff_secs: args.retry_backoff,
@@ -97,12 +108,21 @@ pub async fn execute(args: MirrorArgs) -> anyhow::Result<()> {
     let report = match mirror_service::run(&config, &args.local, &args.remote, &options).await {
         Ok(report) => report,
         Err(err) => {
-            // 契约：失败也要给调用方一份可解析的汇总（44659 用它写 latest.json）。
+            // 契约：失败也要给调用方一份可解析的汇总（调用方用它写 latest.json）。
             let message = format!("{err:#}");
             if args.json {
                 crate::print!("{}", fatal_report_json(&args.local, &message));
             }
-            return Err(CommandExit::new(1, message).into());
+            // 前置条件不满足（例如 --delete 时本地为空）属于 2，不是对象传输失败。
+            let code = if err
+                .downcast_ref::<mirror_service::PreconditionError>()
+                .is_some()
+            {
+                2
+            } else {
+                1
+            };
+            return Err(CommandExit::new(code, message).into());
         }
     };
 
@@ -110,15 +130,12 @@ pub async fn execute(args: MirrorArgs) -> anyhow::Result<()> {
         crate::print!("{}", serde_json::to_string(&report)?);
     } else {
         info!(
-            "对象 {} 个：上传 {}、跳过 {}、校验 {}、缺哈希 {}、自愈 {}、远端独有 {}、上传 {} 字节、耗时 {:.1}s",
+            "对象 {} 个：上传 {}、跳过 {}、删除 {}、缺哈希 {}、耗时 {:.1}s",
             report.objects,
             report.uploaded,
             report.skipped,
-            report.verified,
+            report.deleted,
             report.hash_missing,
-            report.healed,
-            report.remote_only,
-            report.bytes_uploaded,
             report.seconds
         );
         for failure in &report.failures {
@@ -146,6 +163,13 @@ pub async fn execute(args: MirrorArgs) -> anyhow::Result<()> {
 
 /// 参数校验：全部返回 exit 2（参数错误），与「对象传输失败」的 1 区分开。
 pub fn validate_args(args: &MirrorArgs) -> Result<(), CommandExit> {
+    // 没有校验就没有「校验通过」这个前提，删除就变成赌博。
+    if args.delete && !args.verify {
+        return Err(CommandExit::new(
+            2,
+            "--delete 不能与 --no-verify 一起用：删除必须以「校验全部通过」为前提",
+        ));
+    }
     if args.jobs != 1 {
         return Err(CommandExit::new(
             2,
@@ -164,7 +188,7 @@ pub fn validate_args(args: &MirrorArgs) -> Result<(), CommandExit> {
         crate::domain::SyncEndpoint::Local(_) => {
             return Err(CommandExit::new(
                 2,
-                "远端必须是 cloud:/path 形式，例如 cloud:/beecodeai-backup/prod/restic",
+                "远端必须是 cloud:/path 形式，例如 cloud:/path/to/remote/repo",
             ));
         }
     }
@@ -186,11 +210,8 @@ pub fn fatal_report_json(local: &str, message: &str) -> serde_json::Value {
         "objects": 0,
         "uploaded": 0,
         "skipped": 0,
-        "verified": 0,
+        "deleted": 0,
         "hashMissing": 0,
-        "healed": 0,
-        "remoteOnly": 0,
-        "bytesUploaded": 0,
         "seconds": 0.0,
         "failures": [{
             "path": local,
@@ -216,6 +237,7 @@ mod tests {
             remote: "cloud:/repo".to_string(),
             verify: true,
             heal: 3,
+            delete: false,
             dry_run: false,
             json: true,
             page_size: 100,
@@ -235,11 +257,8 @@ mod tests {
             "objects",
             "uploaded",
             "skipped",
-            "verified",
+            "deleted",
             "hashMissing",
-            "healed",
-            "remoteOnly",
-            "bytesUploaded",
             "seconds",
             "failures",
         ] {
@@ -278,6 +297,19 @@ mod tests {
         let mut args = default_args();
         args.local = "/definitely/not/here-44768".to_string();
         assert_eq!(validate_args(&args).unwrap_err().code(), 2);
+
+        // --delete 必须带校验：没有「校验通过」这个前提就不许删
+        let mut args = default_args();
+        args.delete = true;
+        args.verify = false;
+        let err = validate_args(&args).unwrap_err();
+        assert_eq!(err.code(), 2);
+        assert!(err.to_string().contains("--no-verify"), "实际: {err}");
+
+        // --delete + 校验开启：合法
+        let mut args = default_args();
+        args.delete = true;
+        assert!(validate_args(&args).is_ok());
 
         // 合法参数通过校验
         assert!(validate_args(&default_args()).is_ok());

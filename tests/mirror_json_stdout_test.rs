@@ -78,7 +78,18 @@ fn json_stdout_stays_parseable_when_retrying() {
         .unwrap_or_else(|err| panic!("stdout 不是 JSON: {err}\n{stdout}"));
     // 2) 失败的语义仍然如实表达：failures 至少一条、退出码 1
     assert_eq!(value["failures"].as_array().map(Vec::len), Some(1));
-    assert!(value.get("objects").is_some() && value.get("remoteOnly").is_some());
+    // 七字段齐全（v49 契约）
+    for field in [
+        "objects",
+        "uploaded",
+        "skipped",
+        "deleted",
+        "hashMissing",
+        "seconds",
+        "failures",
+    ] {
+        assert!(value.get(field).is_some(), "missing field {field}");
+    }
     assert_eq!(output.status.code(), Some(1));
     // 3) 重试告警必须落在 stderr
     assert!(
