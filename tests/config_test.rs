@@ -98,42 +98,42 @@ fn test_config_storage_type_default() {
 }
 
 #[test]
-fn test_config_is_token_expired_no_time() {
+fn test_config_needs_refresh_no_time() {
     let config = Config {
         token_expire_time: None,
         ..Default::default()
     };
-    assert!(config.is_token_expired());
+    assert!(config.needs_refresh());
 }
 
 #[test]
-fn test_config_is_token_expired_expired() {
+fn test_config_needs_refresh_expired() {
     let past_time = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
     let config = Config {
         token_expire_time: Some(past_time),
         ..Default::default()
     };
-    assert!(config.is_token_expired());
+    assert!(config.needs_refresh());
 }
 
 #[test]
-fn test_config_is_token_expired_not_expired() {
+fn test_config_needs_refresh_not_expired() {
     let future_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
     let config = Config {
         token_expire_time: Some(future_time),
         ..Default::default()
     };
-    assert!(!config.is_token_expired());
+    assert!(!config.needs_refresh());
 }
 
 #[test]
-fn test_config_is_token_expired_near_expiry() {
-    let near_time = chrono::Utc::now().timestamp_millis() + 10 * 24 * 60 * 60 * 1000;
+fn test_config_needs_refresh_near_expiry() {
+    let near_time = chrono::Utc::now().timestamp_millis() + 3 * 24 * 60 * 60 * 1000;
     let config = Config {
         token_expire_time: Some(near_time),
         ..Default::default()
     };
-    assert!(config.is_token_expired());
+    assert!(config.needs_refresh());
 }
 
 #[test]

@@ -19,6 +19,12 @@ pub fn config_override() -> Option<&'static Path> {
 pub const CONFIG_FILE: &str = "cloud139rc.toml";
 pub const GLOBAL_CONFIG_SUBDIR: &str = "cloud139";
 
+/// 剩余不足这个时长时，在下一次命令启动时续期 token。
+///
+/// 这是「何时续期」的唯一阈值：续期接口每次滚动发放 30 天有效的新 token，
+/// 留 7 天余量可以容忍几次失败重试。
+pub const TOKEN_REFRESH_THRESHOLD_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
 pub fn local_config_path() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
@@ -143,13 +149,29 @@ impl Config {
         Err(ConfigError::NotFound)
     }
 
+    /// 实际会被 load() 读到的那个配置文件（override > 本地已存在 > 全局）。
+    pub fn loaded_path() -> Option<PathBuf> {
+        config_load_candidates()
+            .into_iter()
+            .find(|path| path.exists())
+    }
+
     pub fn save(&self) -> Result<(), ConfigError> {
-        let path = resolve_config_path(true);
+        self.save_to(&resolve_config_path(true))
+    }
+
+    /// 写回指定路径。配置文件里有 authorization/refresh_token，固定 0600。
+    pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let content = toml::to_string_pretty(self)?;
-        fs::write(&path, content)?;
+        fs::write(path, content)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 
@@ -161,12 +183,14 @@ impl Config {
         }
     }
 
-    pub fn is_token_expired(&self) -> bool {
-        if let Some(expire_time) = self.token_expire_time {
-            let now = chrono::Utc::now().timestamp_millis();
-            expire_time - now < 15 * 24 * 60 * 60 * 1000
-        } else {
-            true
+    /// 下一次命令启动时是否需要续期（唯一判断）。
+    /// 剩余不足阈值，或没有过期时间时返回 true。
+    pub fn needs_refresh(&self) -> bool {
+        match self.token_expire_time {
+            Some(expire_time) => {
+                expire_time - chrono::Utc::now().timestamp_millis() <= TOKEN_REFRESH_THRESHOLD_MS
+            }
+            None => true,
         }
     }
 }

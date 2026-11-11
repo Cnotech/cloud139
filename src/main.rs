@@ -11,6 +11,15 @@ async fn main() -> anyhow::Result<()> {
         cloud139::config::set_config_override(path);
     }
     cloud139::utils::logger::init_verbose(&cli.verbose);
+
+    // 除登录外的命令，启动时按需续期。139 的 refresh 接口每次滚动发放 30 天有效的新 token，
+    // 所以只要 CLI 每天被调用，就不需要额外的定时任务来维持登录态。
+    if !matches!(&cli.command, Commands::Login(_))
+        && let Err(err) = cloud139::client::auth::maybe_refresh_config().await
+    {
+        cloud139::warn!("自动续期检查失败: {}", err);
+    }
+
     let result = match cli.command {
         Commands::Login(args) => cloud139::commands::login::execute(args).await,
         Commands::Ls(args) => cloud139::commands::list::execute(args).await,

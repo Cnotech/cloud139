@@ -51,17 +51,6 @@ impl Client {
         Ok(Self::new(config))
     }
 
-    pub async fn refresh_token_if_needed(&mut self) -> Result<(), ClientError> {
-        if self.config.is_token_expired() {
-            debug!("Token expired, refreshing...");
-            let new_config = auth::refresh_token(&self.config).await?;
-            new_config.save()?;
-            self.config = new_config;
-            debug!("Token 刷新成功");
-        }
-        Ok(())
-    }
-
     pub async fn api_request_post<T: for<'de> Deserialize<'de>>(
         &self,
         url: &str,

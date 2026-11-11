@@ -63,19 +63,19 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
 }
 
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
+    refresh_token_at(config, AUTH_TOKEN_REFRESH_URL).await
+}
+
+/// 与 refresh_token 相同，但可以指定接口地址（测试用）。
+pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
     debug!("Refreshing token for account: {}", config.account);
 
-    if let Err(e) = check_token_expiration(config) {
-        warn!("Token may be expired or invalid: {}", e);
-        return Err(ClientError::TokenExpired);
-    }
-
+    // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
+    // 正是靠它来换取新 token；提前判死会让唯一能自愈的路径失效。
     let refresh_token = config
         .refresh_token
         .as_ref()
         .ok_or(ClientError::TokenExpired)?;
-
-    let url = AUTH_TOKEN_REFRESH_URL;
 
     let body = format!(
         r#"<root><token>{}</token><account>{}</account><clienttype>656</clienttype></root>"#,
@@ -107,9 +107,16 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     struct RefreshResp {
         #[serde(rename = "return")]
         return_code: String,
-        #[allow(dead_code)]
+        #[serde(default)]
+        desc: String,
+        /// 新 token；接口实际把新 token 放在这里
+        #[serde(default)]
         token: String,
-        #[serde(rename = "accessToken")]
+        /// 新 token 有效期（秒），实测固定返回 2592000（30 天）
+        #[serde(default, rename = "expiretime")]
+        expire_time: Option<i64>,
+        /// 部分场景为空，仅在 token 缺失时兜底使用
+        #[serde(default, rename = "accessToken")]
         access_token: String,
     }
 
@@ -118,55 +125,86 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
 
     if refresh_resp.return_code != "0" {
         return Err(ClientError::Other(format!(
-            "Token refresh failed with code: {}",
-            refresh_resp.return_code
+            "Token refresh failed: code={}, desc={}",
+            refresh_resp.return_code, refresh_resp.desc
         )));
     }
 
+    // 以 <token> 为准；<accessToken> 实测为空，只在 token 缺失时兜底。
+    let new_token = if refresh_resp.token.is_empty() {
+        refresh_resp.access_token
+    } else {
+        refresh_resp.token
+    };
+    if new_token.is_empty() {
+        return Err(ClientError::Other(
+            "Token refresh failed: empty token in response".to_string(),
+        ));
+    }
+
+    let expire_seconds = refresh_resp
+        .expire_time
+        .unwrap_or(DEFAULT_TOKEN_LIFETIME_SECS);
     let authorization = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        format!("pc:{}:{}", config.account, refresh_resp.access_token),
+        format!("pc:{}:{}", config.account, new_token),
     );
 
-    debug!("Token 刷新成功, 新过期时间已设置");
+    debug!("Token 刷新成功，新有效期 {} 天", expire_seconds / 86400);
 
     let mut new_config = config.clone();
     new_config.authorization = authorization;
-    new_config.refresh_token = Some(refresh_resp.access_token);
+    new_config.refresh_token = Some(new_token);
     new_config.token_expire_time =
-        Some(chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000);
+        Some(chrono::Utc::now().timestamp_millis() + expire_seconds * 1000);
 
     Ok(new_config)
 }
 
-fn check_token_expiration(config: &Config) -> Result<(), ClientError> {
-    let auth_parts: Vec<&str> = config.authorization.split(':').collect();
-    if auth_parts.len() < 3 {
-        return Err(ClientError::Other(
-            "Invalid authorization format".to_string(),
-        ));
+/// 接口没返回 expiretime 时的兜底有效期（实测固定 30 天）。
+const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
+
+/// 按需续期：需要续期时返回新配置，不需要时返回 None。
+pub async fn refresh_if_needed(config: &Config) -> Result<Option<Config>, ClientError> {
+    refresh_if_needed_at(config, AUTH_TOKEN_REFRESH_URL).await
+}
+
+/// 与 refresh_if_needed 相同，但可以指定接口地址（测试用）。
+pub async fn refresh_if_needed_at(
+    config: &Config,
+    url: &str,
+) -> Result<Option<Config>, ClientError> {
+    if !config.needs_refresh() {
+        return Ok(None);
     }
+    refresh_token_at(config, url).await.map(Some)
+}
 
-    let token_part = auth_parts[2];
-    let token_parts: Vec<&str> = token_part.split('|').collect();
+/// 命令启动时按需续期并落盘。
+///
+/// 失败只告警、不阻断：此刻的 authorization 可能仍然可用，
+/// 而续期失败最常见的原因是网络；真正过期后由命令自己报 401。
+pub async fn maybe_refresh_config() -> Result<(), ClientError> {
+    let config = match Config::load() {
+        Ok(config) => config,
+        // 没有配置时交给命令自己报「配置文件未找到」，这里不抢错误。
+        Err(_) => return Ok(()),
+    };
 
-    if token_parts.len() < 4 {
-        return Err(ClientError::Other("Invalid token format".to_string()));
-    }
-
-    let expiration = token_parts[3]
-        .parse::<i64>()
-        .map_err(|_| ClientError::Other("Invalid expiration timestamp".to_string()))?;
-
-    let now = chrono::Utc::now().timestamp_millis();
-    let remaining = expiration - now;
-
-    if remaining < 0 {
-        return Err(ClientError::TokenExpired);
-    }
-
-    if remaining > 15 * 24 * 60 * 60 * 1000 {
-        return Ok(());
+    match refresh_if_needed(&config).await {
+        Ok(Some(new_config)) => {
+            // 必须写回「实际被读取的那个文件」：save() 会写到当前目录，
+            // 在 cron 或任意 cwd 下会生成第二份配置，反而让下次读到旧 token。
+            let path = Config::loaded_path().unwrap_or_else(Config::save_path);
+            new_config
+                .save_to(&path)
+                .map_err(|err| ClientError::Other(format!("保存配置失败: {}", err)))?;
+            debug!("Token 已自动续期并写回配置: {}", path.display());
+        }
+        Ok(None) => {}
+        Err(err) => {
+            warn!("自动续期失败（继续使用现有 token）: {}", err);
+        }
     }
 
     Ok(())

@@ -231,22 +231,6 @@ async fn test_client_login_with_cloud_id() {
     assert_eq!(client.config.cloud_id, Some("cloud123".to_string()));
 }
 
-#[tokio::test]
-async fn test_client_refresh_token_invalid_token() {
-    let config = Config {
-        authorization: "invalid".to_string(),
-        account: "test".to_string(),
-        storage_type: "personal".to_string(),
-        refresh_token: None,
-        token_expire_time: None,
-        ..Default::default()
-    };
-
-    let mut client = Client::new(config);
-    let result = client.refresh_token_if_needed().await;
-    assert!(result.is_err());
-}
-
 #[test]
 fn test_client_error_from_reqwest() {
     let err: ClientError = std::io::Error::new(std::io::ErrorKind::NotFound, "test").into();
