@@ -34,14 +34,10 @@ fn concurrent_readers_see_only_complete_configurations() {
             .unwrap();
     }
     reader.join().unwrap();
-    // 原子写入的临时文件在完成后已清理（持久锁文件保留）。
-    assert!(fs::read_dir(dir.path()).unwrap().all(|entry| {
-        !entry
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".cloud139-config-")
-    }));
+    // 保存后只保留配置本身，不产生锁文件或遗留临时文件。
+    let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].as_ref().unwrap().file_name(), "config.toml");
 }
 
 #[cfg(unix)]
@@ -90,48 +86,47 @@ fn failed_atomic_replace_keeps_original_target_and_cleans_tempfile() {
     }));
 }
 
-// 独立测试进程持锁，父测试终止它以模拟写入进程崩溃。
 #[test]
-fn lock_holder_child() {
-    let Some(path) = std::env::var_os("CLOUD139_TEST_LOCK_PATH") else {
-        return;
-    };
-    let path = std::path::PathBuf::from(path);
-    let lock = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path.with_extension("toml.lock"))
-        .unwrap();
-    fs2::FileExt::lock_exclusive(&lock).unwrap();
-    fs::write(path.with_extension("ready"), "ready").unwrap();
-    std::thread::sleep(std::time::Duration::from_secs(30));
-}
-
-#[test]
-fn config_lock_is_cross_process_and_released_after_crash() {
+fn concurrent_first_saves_never_expose_empty_config_or_leave_lock_files() {
     use cloud139::config::ConfigError;
-    use std::time::{Duration, Instant};
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml");
-    config("first").save_to(&path).unwrap();
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "lock_holder_child"])
-        .env("CLOUD139_TEST_LOCK_PATH", &path)
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    let start = Instant::now();
-    while !path.with_extension("ready").exists() && start.elapsed() < Duration::from_secs(5) {
-        std::thread::sleep(Duration::from_millis(10));
+    let path = Arc::new(dir.path().join("config.toml"));
+    let barrier = Arc::new(Barrier::new(9));
+    let writers: Vec<_> = (0..8)
+        .map(|n| {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let config = config(&format!("writer-{n}"));
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                loop {
+                    match config.save_to(&path) {
+                        Ok(()) => return,
+                        Err(ConfigError::Busy) if std::time::Instant::now() < deadline => {
+                            std::thread::sleep(std::time::Duration::from_millis(1));
+                        }
+                        Err(err) => panic!("save failed: {err}"),
+                    }
+                }
+            })
+        })
+        .collect();
+    barrier.wait();
+    for _ in 0..1000 {
+        match fs::read_to_string(&*path) {
+            Ok(content) => {
+                let config: Config = toml::from_str(&content).unwrap();
+                assert!(config.account.starts_with("writer-"));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => panic!("read failed: {err}"),
+        }
     }
-    let ready = path.with_extension("ready").exists();
-    let result = config("second").save_to(&path);
-    // 无论断言结果如何先回收进程，避免测试失败时留下持锁子进程。
-    child.kill().unwrap();
-    child.wait().unwrap();
-    assert!(ready, "child did not acquire the config lock");
-    assert!(matches!(result, Err(ConfigError::Busy)));
-    let previous: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(previous.account, "first");
-    config("second").save_to(&path).unwrap();
+    for writer in writers {
+        writer.join().unwrap();
+    }
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    let saved: Config = toml::from_str(&fs::read_to_string(&*path).unwrap()).unwrap();
+    assert!(saved.account.starts_with("writer-"));
 }

@@ -1,12 +1,14 @@
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
 
 use crate::domain::StorageType;
+
+mod lock;
+use lock::ConfigLock;
 
 static CONFIG_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -176,11 +178,33 @@ impl Config {
     }
 
     /// 同目录临时文件完整写入并同步后原子替换。写入期间不会暴露空文件。
-    /// 所有写入者使用同一个旁路锁文件；锁忙时返回错误而非无限等待。
+    /// 使用系统锁协调写入，不创建锁文件；锁忙时返回错误而非无限等待。
     pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {
         let path = prepare_save_path(path)?;
-        let _lock = lock_config(&path)?;
-        save_atomically(self, &path)
+        #[cfg(windows)]
+        {
+            let _lock = ConfigLock::acquire(&path)?;
+            save_atomically(self, &path, true)
+        }
+        #[cfg(unix)]
+        {
+            for _ in 0..16 {
+                match ConfigLock::acquire(&path) {
+                    Ok(_lock) => return save_atomically(self, &path, true),
+                    // 没有可供加锁的文件时，直接原子创建完整配置。
+                    // 另一个进程抢先创建成功则重新打开并加锁。
+                    Err(ConfigError::Io(err)) if err.kind() == io::ErrorKind::NotFound => {
+                        match save_atomically(self, &path, false) {
+                            Err(ConfigError::Io(err))
+                                if err.kind() == io::ErrorKind::AlreadyExists => {}
+                            result => return result,
+                        }
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            Err(ConfigError::Busy)
+        }
     }
 
     /// 网络请求前为缓存更新固定来源；内存配置不属于当前文件时不落盘。
@@ -235,35 +259,34 @@ impl Config {
     }
 }
 
-/// 锁覆盖读取、判断、网络续期和写回。持有期间不能重新打开/删除锁文件。
-/// 使用独立锁文件，避免原子替换配置后锁仍指向旧 inode。
+/// 锁覆盖读取、判断、网络续期和写回；Unix 校验被锁文件仍为当前配置，
+/// Windows 使用与规范化配置路径对应的命名互斥量。
 pub(crate) struct ConfigUpdate {
     pub config: Config,
     path: PathBuf,
     original: String,
-    _lock: File,
+    lock: ConfigLock,
 }
 
 impl ConfigUpdate {
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
-        let lock = lock_config(path)?;
-        let original = fs::read_to_string(path)?;
+        let mut lock = ConfigLock::acquire(path)?;
+        let original = lock.read_to_string(path)?;
         let config = toml::from_str(&original)?;
         Ok(Self {
             config,
             path: path.to_path_buf(),
             original,
-            _lock: lock,
+            lock,
         })
     }
 
-    pub fn save(self, config: &Config) -> Result<(), ConfigError> {
-        // 也保护不遵循旁路锁的编辑器或旧版本程序在网络等待期间写入的内容。
-        // 这只是额外的冲突检测；跨进程互斥由旁路锁保证。
-        if fs::read_to_string(&self.path)? != self.original {
+    pub fn save(mut self, config: &Config) -> Result<(), ConfigError> {
+        // 也保护不遵循系统锁的编辑器或旧版本程序在网络等待期间写入的内容。
+        if self.lock.read_to_string(&self.path)? != self.original {
             return Err(ConfigError::Changed);
         }
-        save_atomically(config, &self.path)
+        save_atomically(config, &self.path, true)
     }
 }
 
@@ -285,31 +308,7 @@ fn prepare_save_path(path: &Path) -> Result<PathBuf, ConfigError> {
     Ok(fs::canonicalize(parent)?.join(name))
 }
 
-fn lock_config(path: &Path) -> Result<File, ConfigError> {
-    let mut name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "配置路径缺少文件名"))?
-        .to_os_string();
-    name.push(".lock");
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    // 锁文件必须保留：删除会让等待者和新进程锁住不同文件。
-    let lock = options.open(path.with_file_name(name))?;
-    match FileExt::try_lock_exclusive(&lock) {
-        Ok(()) => Ok(lock),
-        Err(err) if err.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
-            Err(ConfigError::Busy)
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn save_atomically(config: &Config, path: &Path) -> Result<(), ConfigError> {
+fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), ConfigError> {
     let content = toml::to_string_pretty(config)?;
     let parent = path
         .parent()
@@ -326,7 +325,11 @@ fn save_atomically(config: &Config, path: &Path) -> Result<(), ConfigError> {
     }
     temp.write_all(content.as_bytes())?;
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|err| err.error)?;
+    if overwrite {
+        temp.persist(path).map_err(|err| err.error)?;
+    } else {
+        temp.persist_noclobber(path).map_err(|err| err.error)?;
+    }
     // Unix 上同步目录，保证重命名的目录项也被持久化。
     #[cfg(unix)]
     File::open(parent)?.sync_all()?;

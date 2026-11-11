@@ -425,19 +425,19 @@ async fn startup_connection_failure_keeps_config_and_continues() {
 }
 
 #[tokio::test]
-async fn startup_lock_io_error_skips_refresh_without_request() {
+async fn startup_refresh_does_not_depend_on_legacy_sidecar_path() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.toml");
     let config = expiring_config("account-a");
     config.save_to(&path).unwrap();
-    let original = fs::read(&path).unwrap();
     let lock_path = dir.path().join("config.toml.lock");
-    fs::remove_file(&lock_path).unwrap();
     fs::create_dir(&lock_path).unwrap();
     let server = MockServer::start();
     let mock = server.mock(|when, then| {
         when.method(POST).path("/refresh");
-        then.status(500);
+        then.status(200).body(
+            "<root><return>0</return><token>new-token</token><expiretime>2592000</expiretime></root>",
+        );
     });
     maybe_refresh_config_at(
         std::slice::from_ref(&path),
@@ -446,8 +446,10 @@ async fn startup_lock_io_error_skips_refresh_without_request() {
     )
     .await
     .unwrap();
-    mock.assert_calls(0);
-    assert_eq!(fs::read(&path).unwrap(), original);
+    mock.assert_calls(1);
+    let saved: Config = toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved.refresh_token.as_deref(), Some("new-token"));
+    assert!(lock_path.is_dir());
 }
 
 #[tokio::test]
