@@ -198,6 +198,7 @@ mod unix {
 mod windows {
     use crate::config::ConfigError;
     use sha2::{Digest, Sha256};
+    #[cfg(test)]
     use std::fs;
     use std::io;
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -259,7 +260,7 @@ mod windows {
         }
 
         pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigError> {
-            Ok(fs::read_to_string(path)?)
+            Ok(super::super::read_config(path)?)
         }
     }
 

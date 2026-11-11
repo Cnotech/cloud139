@@ -164,12 +164,12 @@ impl Config {
         candidates: &[PathBuf],
     ) -> Result<(Self, PathBuf), ConfigError> {
         for path in candidates {
-            let path = match fs::canonicalize(path) {
+            let path = match canonicalize_config_path(path) {
                 Ok(path) => path,
                 Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
                 Err(err) => return Err(err.into()),
             };
-            let content = fs::read_to_string(&path)?;
+            let content = read_config(&path)?;
             return Ok((toml::from_str(&content)?, path));
         }
         Err(ConfigError::NotFound)
@@ -294,7 +294,7 @@ impl ConfigUpdate {
 
 fn prepare_save_path(path: &Path) -> Result<PathBuf, ConfigError> {
     // 保留已有符号链接的语义，并让相对路径和符号链接共享同一把锁。
-    match fs::canonicalize(path) {
+    match canonicalize_config_path(path) {
         Ok(path) => return Ok(path),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(err.into()),
@@ -307,7 +307,44 @@ fn prepare_save_path(path: &Path) -> Result<PathBuf, ConfigError> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "配置路径缺少文件名"))?;
-    Ok(fs::canonicalize(parent)?.join(name))
+    Ok(canonicalize_config_path(parent)?.join(name))
+}
+
+fn canonicalize_config_path(path: &Path) -> io::Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        retry_windows_file_operation(|| fs::canonicalize(path))
+    }
+    #[cfg(unix)]
+    {
+        fs::canonicalize(path)
+    }
+}
+
+fn read_config(path: &Path) -> io::Result<String> {
+    #[cfg(windows)]
+    {
+        retry_windows_file_operation(|| fs::read_to_string(path))
+    }
+    #[cfg(unix)]
+    {
+        fs::read_to_string(path)
+    }
+}
+
+#[cfg(windows)]
+fn retry_windows_file_operation<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    // Windows 替换已打开的文件时，其他句柄可能短暂得到
+    // ERROR_ACCESS_DENIED / ERROR_SHARING_VIOLATION。真实权限错误仍在有界重试后返回。
+    for attempt in 0..20 {
+        match operation() {
+            Err(err) if matches!(err.raw_os_error(), Some(5 | 32)) && attempt < 19 => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
 }
 
 fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), ConfigError> {
@@ -346,7 +383,7 @@ fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), 
         // std::fs::rename 在 Windows 上提供 FileRenameInfoEx 回退，
         // 可以替换仍有共享读取句柄打开的配置；tempfile::persist 没有该回退。
         // 失败时 temp 仍负责清理原路径，成功时原临时路径已不存在。
-        fs::rename(temp.path(), path)?;
+        retry_windows_file_operation(|| fs::rename(temp.path(), path))?;
     }
     #[cfg(unix)]
     if overwrite {
@@ -363,6 +400,46 @@ fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), 
 #[cfg(test)]
 mod refresh_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn transient_file_errors_are_retried_but_other_errors_are_not() {
+        for code in [5, 32] {
+            let mut attempts = 0;
+            let result = retry_windows_file_operation(|| {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(io::Error::from_raw_os_error(code))
+                } else {
+                    Ok("complete")
+                }
+            })
+            .unwrap();
+            assert_eq!(result, "complete");
+            assert_eq!(attempts, 3);
+        }
+        let mut attempts = 0;
+        let error = retry_windows_file_operation::<()>(|| {
+            attempts += 1;
+            Err(io::Error::from_raw_os_error(123))
+        })
+        .unwrap_err();
+        assert_eq!(attempts, 1);
+        assert_eq!(error.raw_os_error(), Some(123));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn persistent_file_permission_error_is_returned_after_bounded_retries() {
+        let mut attempts = 0;
+        let error = retry_windows_file_operation::<()>(|| {
+            attempts += 1;
+            Err(io::Error::from_raw_os_error(5))
+        })
+        .unwrap_err();
+        assert_eq!(attempts, 20);
+        assert_eq!(error.raw_os_error(), Some(5));
+    }
 
     #[cfg(windows)]
     #[test]
