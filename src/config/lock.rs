@@ -218,8 +218,8 @@ mod windows {
         // 大小写归一避免首次创建前后因拼写大小写不同而使用不同互斥量。
         let normalized = path.to_string_lossy().to_lowercase();
         Ok(format!(
-            "Global\\cloud139-config-{:x}",
-            Sha256::digest(normalized.as_bytes())
+            "Global\\cloud139-config-{}",
+            hex::encode(Sha256::digest(normalized.as_bytes()))
         ))
     }
 
