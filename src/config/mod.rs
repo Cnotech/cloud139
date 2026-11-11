@@ -1,5 +1,7 @@
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
@@ -33,7 +35,11 @@ pub fn local_config_path() -> PathBuf {
 
 pub fn global_config_path() -> PathBuf {
     if let Some(base) = directories::BaseDirs::new() {
-        return base.home_dir().join(".config").join(GLOBAL_CONFIG_SUBDIR).join(CONFIG_FILE);
+        return base
+            .home_dir()
+            .join(".config")
+            .join(GLOBAL_CONFIG_SUBDIR)
+            .join(CONFIG_FILE);
     }
     PathBuf::from(CONFIG_FILE)
 }
@@ -48,6 +54,10 @@ pub enum ConfigError {
     TomlSer(#[from] toml::ser::Error),
     #[error("配置文件未找到")]
     NotFound,
+    #[error("配置正在被另一个进程更新")]
+    Busy,
+    #[error("配置已被其他操作修改，放弃写回续期结果")]
+    Changed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,41 +148,69 @@ impl Config {
     }
 
     pub fn load() -> Result<Self, ConfigError> {
-        let candidates = config_load_candidates();
-        for path in &candidates {
-            if path.exists() {
-                let content = fs::read_to_string(path)?;
-                let config: Config = toml::from_str(&content)?;
-                return Ok(config);
-            }
-        }
-        Err(ConfigError::NotFound)
+        Self::load_with_path().map(|(config, _)| config)
     }
 
-    /// 实际会被 load() 读到的那个配置文件（override > 本地已存在 > 全局）。
-    pub fn loaded_path() -> Option<PathBuf> {
-        config_load_candidates()
-            .into_iter()
-            .find(|path| path.exists())
+    /// 一起返回配置及本次读取的固定来源路径，不能在网络请求后重新搜索路径。
+    pub fn load_with_path() -> Result<(Self, PathBuf), ConfigError> {
+        Self::load_from_candidates(&config_load_candidates())
+    }
+
+    pub(crate) fn load_from_candidates(
+        candidates: &[PathBuf],
+    ) -> Result<(Self, PathBuf), ConfigError> {
+        for path in candidates {
+            let path = match fs::canonicalize(path) {
+                Ok(path) => path,
+                Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+                Err(err) => return Err(err.into()),
+            };
+            let content = fs::read_to_string(&path)?;
+            return Ok((toml::from_str(&content)?, path));
+        }
+        Err(ConfigError::NotFound)
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
         self.save_to(&resolve_config_path(true))
     }
 
-    /// 写回指定路径。配置文件里有 authorization/refresh_token，固定 0600。
+    /// 同目录临时文件完整写入并同步后原子替换。写入期间不会暴露空文件。
+    /// 所有写入者使用同一个旁路锁文件；锁忙时返回错误而非无限等待。
     pub fn save_to(&self, path: &Path) -> Result<(), ConfigError> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+        let path = prepare_save_path(path)?;
+        let _lock = lock_config(&path)?;
+        save_atomically(self, &path)
+    }
+
+    /// 网络请求前为缓存更新固定来源；内存配置不属于当前文件时不落盘。
+    pub(crate) fn cache_path(&self) -> Option<PathBuf> {
+        let (current, path) = Self::load_with_path().ok()?;
+        (self.same_account(&current)
+            && self.authorization == current.authorization
+            && self.refresh_token == current.refresh_token)
+            .then_some(path)
+    }
+
+    /// 缓存更新只修改指定字段，不能把网络请求前的旧 token 全量写回。
+    pub(crate) fn update_cache(
+        &self,
+        path: &Path,
+        change: impl FnOnce(&mut Config),
+    ) -> Result<(), ConfigError> {
+        let update = ConfigUpdate::load(path)?;
+        if !self.same_account(&update.config) {
+            return Err(ConfigError::Changed);
         }
-        let content = toml::to_string_pretty(self)?;
-        fs::write(path, content)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-        }
-        Ok(())
+        let mut current = update.config.clone();
+        change(&mut current);
+        update.save(&current)
+    }
+
+    fn same_account(&self, other: &Config) -> bool {
+        self.account == other.account
+            && self.storage_type == other.storage_type
+            && self.cloud_id == other.cloud_id
     }
 
     pub fn storage_type(&self) -> StorageType {
@@ -193,4 +231,102 @@ impl Config {
             None => true,
         }
     }
+}
+
+/// 锁覆盖读取、判断、网络续期和写回。持有期间不能重新打开/删除锁文件。
+/// 使用独立锁文件，避免原子替换配置后锁仍指向旧 inode。
+pub(crate) struct ConfigUpdate {
+    pub config: Config,
+    path: PathBuf,
+    original: String,
+    _lock: File,
+}
+
+impl ConfigUpdate {
+    pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        let lock = lock_config(path)?;
+        let original = fs::read_to_string(path)?;
+        let config = toml::from_str(&original)?;
+        Ok(Self {
+            config,
+            path: path.to_path_buf(),
+            original,
+            _lock: lock,
+        })
+    }
+
+    pub fn save(self, config: &Config) -> Result<(), ConfigError> {
+        // 也保护不遵循旁路锁的编辑器或旧版本程序在网络等待期间写入的内容。
+        // 这只是额外的冲突检测；跨进程互斥由旁路锁保证。
+        if fs::read_to_string(&self.path)? != self.original {
+            return Err(ConfigError::Changed);
+        }
+        save_atomically(config, &self.path)
+    }
+}
+
+fn prepare_save_path(path: &Path) -> Result<PathBuf, ConfigError> {
+    // 保留已有符号链接的语义，并让相对路径和符号链接共享同一把锁。
+    match fs::canonicalize(path) {
+        Ok(path) => return Ok(path),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err.into()),
+    }
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(parent)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "配置路径缺少文件名"))?;
+    Ok(fs::canonicalize(parent)?.join(name))
+}
+
+fn lock_config(path: &Path) -> Result<File, ConfigError> {
+    let mut name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "配置路径缺少文件名"))?
+        .to_os_string();
+    name.push(".lock");
+    let mut options = OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    // 锁文件必须保留：删除会让等待者和新进程锁住不同文件。
+    let lock = options.open(path.with_file_name(name))?;
+    match FileExt::try_lock_exclusive(&lock) {
+        Ok(()) => Ok(lock),
+        Err(err) if err.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
+            Err(ConfigError::Busy)
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn save_atomically(config: &Config, path: &Path) -> Result<(), ConfigError> {
+    let content = toml::to_string_pretty(config)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "配置路径缺少父目录"))?;
+    // NamedTempFile 默认以 0600 创建，凭据从未以更宽权限暴露。
+    let mut temp = tempfile::Builder::new()
+        .prefix(".cloud139-config-")
+        .tempfile_in(parent)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp.as_file()
+            .set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    temp.write_all(content.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map_err(|err| err.error)?;
+    // Unix 上同步目录，保证重命名的目录项也被持久化。
+    #[cfg(unix)]
+    File::open(parent)?.sync_all()?;
+    Ok(())
 }

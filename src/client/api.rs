@@ -42,6 +42,7 @@ pub async fn get_personal_cloud_host_with_client(
         return Ok(host.clone());
     }
 
+    let config_path = config.cache_path();
     let url = ROUTE_POLICY_URL;
     debug!("get_personal_cloud_host: 请求 url={}", url);
 
@@ -77,7 +78,11 @@ pub async fn get_personal_cloud_host_with_client(
 
     debug!("get_personal_cloud_host: 解析到 host={}", host);
     config.personal_cloud_host = Some(host.clone());
-    let _ = config.save();
+    if let Some(path) = config_path {
+        let _ = config.update_cache(&path, |current| {
+            current.personal_cloud_host = Some(host.clone());
+        });
+    }
 
     Ok(host)
 }

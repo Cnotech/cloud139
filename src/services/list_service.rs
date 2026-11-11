@@ -45,7 +45,6 @@ async fn list_personal(
         None => {
             let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
             config.personal_cloud_host = Some(host.clone());
-            let _ = config.save();
             host
         }
     };
@@ -172,6 +171,7 @@ async fn list_family(
         },
     };
 
+    let config_path = config.cache_path();
     let client = Client::new(config.clone());
     let resp: crate::models::QueryContentListResp = client
         .api_request_post(url, serde_json::to_value(body)?)
@@ -183,10 +183,13 @@ async fn list_family(
     }
 
     // 家庭云根目录时缓存 path
-    let mut config = config.clone();
-    if catalog_id == "0" && !resp.data.path.is_empty() {
-        config.root_folder_id = Some(resp.data.path.clone());
-        let _ = config.save();
+    if catalog_id == "0"
+        && !resp.data.path.is_empty()
+        && let Some(path) = config_path
+    {
+        let _ = config.update_cache(&path, |current| {
+            current.root_folder_id = Some(resp.data.path.clone());
+        });
     }
 
     let mut all_items = Vec::new();

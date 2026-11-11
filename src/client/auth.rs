@@ -1,8 +1,13 @@
 use crate::client::ClientError;
 use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
-use crate::config::Config;
+use crate::config::{Config, ConfigUpdate, config_load_candidates};
 use crate::{debug, warn};
 use serde::Deserialize;
+use std::path::PathBuf;
+use std::time::Duration;
+
+const REFRESH_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+const REFRESH_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn login(
     token: &str,
@@ -68,6 +73,14 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
 
 /// 与 refresh_token 相同，但可以指定接口地址（测试用）。
 pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
+    refresh_token_with_timeout(config, url, REFRESH_REQUEST_TIMEOUT).await
+}
+
+async fn refresh_token_with_timeout(
+    config: &Config,
+    url: &str,
+    timeout: Duration,
+) -> Result<Config, ClientError> {
     debug!("Refreshing token for account: {}", config.account);
 
     // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
@@ -83,6 +96,9 @@ pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, Clie
     );
 
     let client = reqwest::Client::builder()
+        .connect_timeout(REFRESH_CONNECT_TIMEOUT.min(timeout))
+        // reqwest 的总超时包含连接、响应头和完整响应体读取。
+        .timeout(timeout)
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         .build()?;
 
@@ -185,23 +201,47 @@ pub async fn refresh_if_needed_at(
 /// 失败只告警、不阻断：此刻的 authorization 可能仍然可用，
 /// 而续期失败最常见的原因是网络；真正过期后由命令自己报 401。
 pub async fn maybe_refresh_config() -> Result<(), ClientError> {
-    let config = match Config::load() {
-        Ok(config) => config,
+    maybe_refresh_config_at(
+        &config_load_candidates(),
+        AUTH_TOKEN_REFRESH_URL,
+        REFRESH_REQUEST_TIMEOUT,
+    )
+    .await
+}
+
+async fn maybe_refresh_config_at(
+    candidates: &[PathBuf],
+    url: &str,
+    timeout: Duration,
+) -> Result<(), ClientError> {
+    let (config, path) = match Config::load_from_candidates(candidates) {
+        Ok(loaded) => loaded,
         // 没有配置时交给命令自己报「配置文件未找到」，这里不抢错误。
         Err(_) => return Ok(()),
     };
+    if !config.needs_refresh() {
+        return Ok(());
+    }
 
-    match refresh_if_needed(&config).await {
-        Ok(Some(new_config)) => {
-            // 必须写回「实际被读取的那个文件」：save() 会写到当前目录，
-            // 在 cron 或任意 cwd 下会生成第二份配置，反而让下次读到旧 token。
-            let path = Config::loaded_path().unwrap_or_else(Config::save_path);
-            new_config
-                .save_to(&path)
+    // 路径已经固定。锁忙时跳过，不让另一个进程的续期阻塞普通命令。
+    let update = match ConfigUpdate::load(&path) {
+        Ok(update) => update,
+        Err(err) => {
+            warn!("自动续期跳过（继续使用现有 token）: {}", err);
+            return Ok(());
+        }
+    };
+    // 等待锁之前可能已有进程完成了续期，必须使用锁内重新读取的配置判断。
+    if !update.config.needs_refresh() {
+        return Ok(());
+    }
+    match refresh_token_with_timeout(&update.config, url, timeout).await {
+        Ok(new_config) => {
+            update
+                .save(&new_config)
                 .map_err(|err| ClientError::Other(format!("保存配置失败: {}", err)))?;
             debug!("Token 已自动续期并写回配置: {}", path.display());
         }
-        Ok(None) => {}
         Err(err) => {
             warn!("自动续期失败（继续使用现有 token）: {}", err);
         }
@@ -209,6 +249,9 @@ pub async fn maybe_refresh_config() -> Result<(), ClientError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
 
 pub fn get_account(config: &Config) -> &str {
     &config.account
