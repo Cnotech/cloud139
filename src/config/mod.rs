@@ -327,6 +327,28 @@ fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), 
     }
     temp.write_all(content.as_bytes())?;
     temp.as_file().sync_all()?;
+    #[cfg(windows)]
+    {
+        debug_assert!(overwrite);
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_NORMAL, SetFileAttributesW};
+        let source: Vec<u16> = temp
+            .path()
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        // SAFETY: 路径以 NUL 结尾且在调用期间有效。与 tempfile::persist
+        // 一样，在发布配置前清除临时文件属性。
+        if unsafe { SetFileAttributesW(source.as_ptr(), FILE_ATTRIBUTE_NORMAL) } == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        // std::fs::rename 在 Windows 上提供 FileRenameInfoEx 回退，
+        // 可以替换仍有共享读取句柄打开的配置；tempfile::persist 没有该回退。
+        // 失败时 temp 仍负责清理原路径，成功时原临时路径已不存在。
+        fs::rename(temp.path(), path)?;
+    }
+    #[cfg(unix)]
     if overwrite {
         temp.persist(path).map_err(|err| err.error)?;
     } else {
@@ -341,6 +363,35 @@ fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), 
 #[cfg(test)]
 mod refresh_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_save_replaces_config_while_reader_keeps_old_handle_open() {
+        use std::io::Read;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut config = Config {
+            account: "old".into(),
+            ..Default::default()
+        };
+        config.save_to(&path).unwrap();
+        let mut reader = fs::File::open(&path).unwrap();
+        config.account = "new".into();
+        config.save_to(&path).unwrap();
+        let mut old_content = String::new();
+        reader.read_to_string(&mut old_content).unwrap();
+        assert_eq!(
+            toml::from_str::<Config>(&old_content).unwrap().account,
+            "old"
+        );
+        assert_eq!(
+            toml::from_str::<Config>(&fs::read_to_string(&path).unwrap())
+                .unwrap()
+                .account,
+            "new"
+        );
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn refresh_threshold_includes_exactly_seven_days() {
