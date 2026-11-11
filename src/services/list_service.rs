@@ -121,6 +121,8 @@ async fn list_personal(
                 kind,
                 size: item.size.unwrap_or(0),
                 modified,
+                content_hash: item.content_hash.clone(),
+                content_hash_algorithm: item.content_hash_algorithm.clone(),
             });
         }
 
@@ -200,6 +202,8 @@ async fn list_family(
             kind: EntryKind::Folder,
             size: 0,
             modified: cat.last_update_time.clone(),
+            content_hash: None,
+            content_hash_algorithm: None,
         });
     }
 
@@ -209,6 +213,8 @@ async fn list_family(
             kind: EntryKind::File,
             size: content.content_size,
             modified: content.last_update_time.clone(),
+            content_hash: None,
+            content_hash_algorithm: None,
         });
     }
 
@@ -274,6 +280,8 @@ async fn list_group(
             kind: EntryKind::Folder,
             size: 0,
             modified: cat.update_time.clone(),
+            content_hash: None,
+            content_hash_algorithm: None,
         });
     }
 
@@ -283,6 +291,8 @@ async fn list_group(
             kind: EntryKind::File,
             size: content.content_size,
             modified: content.update_time.clone(),
+            content_hash: None,
+            content_hash_algorithm: None,
         });
     }
 

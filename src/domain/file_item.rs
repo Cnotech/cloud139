@@ -10,4 +10,6 @@ pub struct FileItem {
     pub kind: EntryKind,
     pub size: i64,
     pub modified: String,
+    pub content_hash: Option<String>,
+    pub content_hash_algorithm: Option<String>,
 }

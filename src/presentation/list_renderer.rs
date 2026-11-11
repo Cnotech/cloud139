@@ -54,6 +54,10 @@ pub struct JsonFileItem {
     pub file_type: String,
     pub size: i64,
     pub modified: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash_algorithm: Option<String>,
 }
 
 pub fn to_json(result: &ListResult) -> anyhow::Result<String> {
@@ -76,6 +80,8 @@ pub fn to_json_with_pagination(
             },
             size: item.size,
             modified: item.modified.clone(),
+            content_hash: item.content_hash.clone(),
+            content_hash_algorithm: item.content_hash_algorithm.clone(),
         })
         .collect::<Vec<_>>();
 
