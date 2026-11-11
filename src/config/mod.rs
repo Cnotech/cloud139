@@ -21,7 +21,7 @@ pub fn config_override() -> Option<&'static Path> {
 pub const CONFIG_FILE: &str = "cloud139rc.toml";
 pub const GLOBAL_CONFIG_SUBDIR: &str = "cloud139";
 
-/// 剩余不足这个时长时，在下一次命令启动时续期 token。
+/// 剩余有效期不超过这个时长时，在下一次命令启动时续期 token。
 ///
 /// 这是「何时续期」的唯一阈值：续期接口每次滚动发放 30 天有效的新 token，
 /// 留 7 天余量可以容忍几次失败重试。
@@ -222,12 +222,14 @@ impl Config {
     }
 
     /// 下一次命令启动时是否需要续期（唯一判断）。
-    /// 剩余不足阈值，或没有过期时间时返回 true。
+    /// 剩余有效期不超过阈值，或没有过期时间时返回 true。
     pub fn needs_refresh(&self) -> bool {
+        self.needs_refresh_at(chrono::Utc::now().timestamp_millis())
+    }
+
+    fn needs_refresh_at(&self, now_ms: i64) -> bool {
         match self.token_expire_time {
-            Some(expire_time) => {
-                expire_time - chrono::Utc::now().timestamp_millis() <= TOKEN_REFRESH_THRESHOLD_MS
-            }
+            Some(expire_time) => expire_time - now_ms <= TOKEN_REFRESH_THRESHOLD_MS,
             None => true,
         }
     }
@@ -329,4 +331,30 @@ fn save_atomically(config: &Config, path: &Path) -> Result<(), ConfigError> {
     #[cfg(unix)]
     File::open(parent)?.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[test]
+    fn refresh_threshold_includes_exactly_seven_days() {
+        let now = 1_800_000_000_000;
+        let seven_days = 7 * 86_400_000;
+        for (remaining, expected) in [
+            (None, true),
+            (Some(-1), true),
+            (Some(0), true),
+            (Some(seven_days - 1), true),
+            (Some(seven_days), true),
+            (Some(seven_days + 1), false),
+            (Some(30 * 86_400_000), false),
+        ] {
+            let config = Config {
+                token_expire_time: remaining.map(|ms| now + ms),
+                ..Default::default()
+            };
+            assert_eq!(config.needs_refresh_at(now), expected, "{remaining:?}");
+        }
+    }
 }

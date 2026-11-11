@@ -1,4 +1,5 @@
 use super::*;
+use httpmock::prelude::*;
 use std::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -253,4 +254,222 @@ fn late_cache_update_does_not_overwrite_another_account() {
         Err(crate::config::ConfigError::Changed)
     ));
     assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[tokio::test]
+async fn startup_skips_missing_or_invalid_config_without_request() {
+    for content in [None, Some("invalid TOML ["), Some("account = 'incomplete'")] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        if let Some(content) = content {
+            fs::write(&path, content).unwrap();
+        }
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/refresh");
+            then.status(500);
+        });
+        maybe_refresh_config_at(
+            std::slice::from_ref(&path),
+            &server.url("/refresh"),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        mock.assert_calls(0);
+        assert_eq!(fs::read_to_string(&path).ok().as_deref(), content);
+    }
+}
+
+#[tokio::test]
+async fn startup_skips_fresh_config_without_rewriting_or_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let mut config = expiring_config("account-a");
+    config.token_expire_time = Some(chrono::Utc::now().timestamp_millis() + 30 * 86_400_000);
+    config.save_to(&path).unwrap();
+    let original = fs::read(&path).unwrap();
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/refresh");
+        then.status(500);
+    });
+    maybe_refresh_config_at(
+        std::slice::from_ref(&path),
+        &server.url("/refresh"),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    mock.assert_calls(0);
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[tokio::test]
+async fn startup_persists_refreshed_credentials_and_skips_next_refresh() {
+    for expiry in [Some(chrono::Utc::now().timestamp_millis() - 1), None] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut config = expiring_config("account-a");
+        config.token_expire_time = expiry;
+        config.storage_type = "family".into();
+        config.cloud_id = Some("family-id".into());
+        config.root_folder_id = Some("root-id".into());
+        config.use_large_thumbnail = true;
+        config.save_to(&path).unwrap();
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/refresh").body(
+                "<root><token>old-refresh-token</token><account>account-a</account><clienttype>656</clienttype></root>",
+            );
+            then.status(200).body(
+                "<root><return>0</return><token>new-token</token><expiretime>2592000</expiretime></root>",
+            );
+        });
+        let before = chrono::Utc::now().timestamp_millis();
+        maybe_refresh_config_at(
+            std::slice::from_ref(&path),
+            &server.url("/refresh"),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        let after = chrono::Utc::now().timestamp_millis();
+        let saved_content = fs::read_to_string(&path).unwrap();
+        let saved: Config = toml::from_str(&saved_content).unwrap();
+        config.authorization = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            "pc:account-a:new-token",
+        );
+        config.refresh_token = Some("new-token".into());
+        let expiry = saved.token_expire_time.unwrap();
+        assert!((before + 30 * 86_400_000..=after + 30 * 86_400_000).contains(&expiry));
+        config.token_expire_time = Some(expiry);
+        assert_eq!(
+            toml::to_string(&saved).unwrap(),
+            toml::to_string(&config).unwrap()
+        );
+
+        maybe_refresh_config_at(
+            std::slice::from_ref(&path),
+            &server.url("/refresh"),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        mock.assert_calls(1);
+        assert_eq!(fs::read_to_string(&path).unwrap(), saved_content);
+    }
+}
+
+#[tokio::test]
+async fn startup_refresh_failures_keep_config_and_release_lock() {
+    for (body, missing_refresh_token) in [
+        (
+            "<root><return>4006</return><desc>expired</desc></root>",
+            false,
+        ),
+        ("not XML", false),
+        ("<root><return>0</return></root>", false),
+        ("<root><return>0</return><token>unused</token></root>", true),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let mut config = expiring_config("account-a");
+        if missing_refresh_token {
+            config.refresh_token = None;
+        }
+        config.save_to(&path).unwrap();
+        let original = fs::read(&path).unwrap();
+        let server = MockServer::start();
+        let mock = server.mock(|when, then| {
+            when.method(POST).path("/refresh");
+            then.status(200).body(body);
+        });
+        maybe_refresh_config_at(
+            std::slice::from_ref(&path),
+            &server.url("/refresh"),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+        mock.assert_calls(if missing_refresh_token { 0 } else { 1 });
+        assert_eq!(fs::read(&path).unwrap(), original);
+        config.save_to(&path).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn startup_connection_failure_keeps_config_and_continues() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let config = expiring_config("account-a");
+    config.save_to(&path).unwrap();
+    let original = fs::read(&path).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/refresh", listener.local_addr().unwrap());
+    drop(listener);
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        maybe_refresh_config_at(
+            std::slice::from_ref(&path),
+            &url,
+            Duration::from_millis(250),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(fs::read(&path).unwrap(), original);
+    config.save_to(&path).unwrap();
+}
+
+#[tokio::test]
+async fn startup_lock_io_error_skips_refresh_without_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    let config = expiring_config("account-a");
+    config.save_to(&path).unwrap();
+    let original = fs::read(&path).unwrap();
+    let lock_path = dir.path().join("config.toml.lock");
+    fs::remove_file(&lock_path).unwrap();
+    fs::create_dir(&lock_path).unwrap();
+    let server = MockServer::start();
+    let mock = server.mock(|when, then| {
+        when.method(POST).path("/refresh");
+        then.status(500);
+    });
+    maybe_refresh_config_at(
+        std::slice::from_ref(&path),
+        &server.url("/refresh"),
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap();
+    mock.assert_calls(0);
+    assert_eq!(fs::read(&path).unwrap(), original);
+}
+
+#[tokio::test]
+async fn startup_reports_save_error_if_config_is_removed_during_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    expiring_config("account-a").save_to(&path).unwrap();
+    let (url, accepted, release, task) = server(success_response()).await;
+    let paths = vec![path.clone()];
+    let operation =
+        tokio::spawn(
+            async move { maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)).await },
+        );
+    tokio::time::timeout(Duration::from_secs(2), accepted)
+        .await
+        .unwrap()
+        .unwrap();
+    fs::remove_file(&path).unwrap();
+    release.send(()).unwrap();
+    let error = operation.await.unwrap().unwrap_err();
+    assert!(error.to_string().contains("保存配置失败"));
+    assert!(!path.exists());
+    expiring_config("account-b").save_to(&path).unwrap();
+    task.abort();
 }
