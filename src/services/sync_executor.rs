@@ -311,7 +311,16 @@ async fn execute_one_action(
             if local_abs.is_dir() {
                 tokio::fs::remove_dir_all(local_abs).await?;
             }
-            crate::services::download(config, remote_abs, &local_abs.to_string_lossy(), pb).await?;
+            // 下载是读操作，断连就地重试；每次重试从头写本地文件（download 内部重建）。
+            let local_path = local_abs.to_string_lossy().to_string();
+            crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || {
+                let local_path = local_path.clone();
+                let attempt_pb = pb.clone();
+                async move {
+                    crate::services::download(config, remote_abs, &local_path, attempt_pb).await
+                }
+            })
+            .await?;
             if let Some(mtime) = cloud_mtime {
                 let file_time = filetime::FileTime::from_unix_time(*mtime, 0);
                 filetime::set_file_mtime(local_abs, file_time)?;
@@ -357,6 +366,10 @@ async fn execute_one_action(
     Ok(())
 }
 
+/// 与 sync 的列表重试保持一致（见 sync_service::SYNC_RETRIES）。
+const RETRIES: u32 = crate::services::sync_service::SYNC_RETRIES;
+const BACKOFF_SECS: u64 = crate::services::sync_service::SYNC_BACKOFF_SECS;
+
 fn remote_parent(remote_abs: &str) -> String {
     let trimmed = remote_abs.trim_end_matches('/');
     match trimmed.rsplit_once('/') {
@@ -375,7 +388,13 @@ pub(crate) async fn ensure_personal_cloud_dir(
     let parent_file_id = if parent == "/" {
         "/".to_string()
     } else {
-        match crate::client::api::get_file_id_by_path(&config, &parent).await {
+        match crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
+            crate::client::api::get_file_id_by_path(&config, &parent)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await
+        {
             Ok(id) => id,
             Err(e) => {
                 return Err(anyhow::anyhow!("获取父目录失败: {}", e));
@@ -384,10 +403,14 @@ pub(crate) async fn ensure_personal_cloud_dir(
     };
 
     // 查找同名条目并判断类型
-    let existing = crate::client::api::list_personal_files(&config, &parent_file_id)
-        .await?
-        .into_iter()
-        .find(|item| item.name.as_deref() == Some(&name));
+    let existing = crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
+        crate::client::api::list_personal_files(&config, &parent_file_id)
+            .await
+            .map_err(anyhow::Error::from)
+    })
+    .await?
+    .into_iter()
+    .find(|item| item.name.as_deref() == Some(&name));
 
     if let Some(item) = existing {
         if crate::services::sync_service::should_treat_personal_item_as_folder(&item) {

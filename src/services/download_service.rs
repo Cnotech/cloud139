@@ -137,6 +137,12 @@ async fn download_file(
     local_path: &Path,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
+    // 重试会复用同一个进度条（clone 共享状态）；每次下载都从头写文件，进度也要归零。
+    if let Some(pb) = &pb {
+        pb.set_position(0);
+        pb.reset_eta();
+    }
+
     let client = reqwest::Client::new();
     let response = client.get(url).send().await?;
 
@@ -397,4 +403,82 @@ async fn download_group(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
+
+    /// 第一个连接只发一半的 body（触发不完整响应），其余连接完整发送。
+    fn spawn_server(partial_first: bool, body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&hits);
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let n = counter.fetch_add(1, Ordering::SeqCst);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                if partial_first && n == 0 {
+                    let _ = stream.write_all(&body[..body.len() / 2]);
+                } else {
+                    let _ = stream.write_all(body);
+                }
+                let _ = stream.flush();
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    /// 同一个进度条复用（重试）时，进度必须从 0 重新累加，不能叠加。
+    #[tokio::test]
+    async fn download_restarts_progress_on_retry() {
+        let (url, _hits) = spawn_server(false, b"0123456789");
+        let dir = tempfile::tempdir().expect("tmp");
+        let pb = ProgressBar::new(0);
+
+        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+            .await
+            .expect("first download");
+        assert_eq!(pb.position(), 10);
+
+        download_file(&url, &dir.path().join("b"), Some(pb.clone()))
+            .await
+            .expect("second download");
+        assert_eq!(pb.position(), 10, "第二次应从头累加，不是 20");
+    }
+
+    /// 中途断流后重试：进度先归零，最终不超过文件大小。
+    #[tokio::test]
+    async fn partial_body_then_retry_keeps_position_within_file_size() {
+        let (url, hits) = spawn_server(true, b"0123456789");
+        let dir = tempfile::tempdir().expect("tmp");
+        let pb = ProgressBar::new(0);
+
+        let first = download_file(&url, &dir.path().join("a"), Some(pb.clone())).await;
+        assert!(first.is_err(), "半包应当报错");
+        let after_first = pb.position();
+
+        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+            .await
+            .expect("retry download");
+        assert_eq!(
+            pb.position(),
+            10,
+            "重试前归零，结束后等于文件大小（首次已下载 {after_first}）"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
 }
