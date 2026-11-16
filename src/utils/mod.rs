@@ -2,6 +2,7 @@ pub mod crypto;
 pub mod logger;
 pub mod path;
 pub mod rand;
+pub mod retry;
 pub mod time;
 pub mod width;
 

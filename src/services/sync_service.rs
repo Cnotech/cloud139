@@ -452,6 +452,12 @@ fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
         .ok()
 }
 
+/// sync 的请求级重试参数：4 次重试（首次 + 4），退避 2/4/8/16 秒。
+///
+/// 只作用于**读操作**（列表、下载、路径解析）；上传/建目录等写操作不重试。
+pub(crate) const SYNC_RETRIES: u32 = 4;
+pub(crate) const SYNC_BACKOFF_SECS: u64 = 2;
+
 pub async fn scan_cloud_personal(
     config: &crate::config::Config,
     cloud_root: &str,
@@ -466,7 +472,12 @@ pub async fn scan_cloud_personal(
     let root_id = if cloud_root == "/" {
         "/".to_string()
     } else {
-        crate::client::api::get_file_id_by_path(&config, cloud_root).await?
+        crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
+            crate::client::api::get_file_id_by_path(&config, cloud_root)
+                .await
+                .map_err(anyhow::Error::from)
+        })
+        .await?
     };
 
     let patterns = compile_exclude_patterns(&options.exclude)?;
@@ -529,13 +540,19 @@ fn scan_cloud_personal_dir_inner<'a>(
                 "orderDirection": "DESC"
             });
 
-            let resp: crate::models::PersonalListResp = crate::client::api::personal_api_request(
-                config,
-                &url,
-                body,
-                crate::domain::StorageType::PersonalNew,
-            )
-            .await?;
+            // 每个分页请求单独重试：断连就地重试，不惊动上层、不让整条命令失败。
+            let resp: crate::models::PersonalListResp =
+                crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
+                    crate::client::api::personal_api_request(
+                        config,
+                        &url,
+                        body.clone(),
+                        crate::domain::StorageType::PersonalNew,
+                    )
+                    .await
+                    .map_err(anyhow::Error::from)
+                })
+                .await?;
 
             if !resp.base.success {
                 return Err(crate::client::ClientError::Api(
