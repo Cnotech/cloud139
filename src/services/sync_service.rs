@@ -528,8 +528,17 @@ fn scan_cloud_personal_dir_inner<'a>(
     Box::pin(async move {
         let url = format!("{}/file/list", host);
         let mut next_cursor = String::new();
+        let mut seen_cursors = std::collections::HashSet::new();
 
         loop {
+            // Keep the guard per directory, outside request retries. Retrying the
+            // current page is valid; revisiting it as a new page is not.
+            if !seen_cursors.insert(next_cursor.clone()) {
+                return Err(crate::client::ClientError::Api(
+                    "分页游标重复，已停止列目录".to_string(),
+                )
+                .into());
+            }
             let body = serde_json::json!({
                 "parentFileId": parent_file_id,
                 "pageInfo": {

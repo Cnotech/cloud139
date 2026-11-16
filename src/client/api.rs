@@ -151,8 +151,14 @@ pub(crate) async fn find_personal_child(
 ) -> Result<Option<crate::models::PersonalFileItem>, ClientError> {
     let url = format!("{}/file/list", host);
     let mut next_cursor = String::new();
+    let mut seen_cursors = std::collections::HashSet::new();
 
     loop {
+        // A cursor is scoped to this directory. Reject cycles before issuing another
+        // request rather than silently returning an incomplete listing.
+        if !seen_cursors.insert(next_cursor.clone()) {
+            return Err(ClientError::Api("分页游标重复，已停止列目录".to_string()));
+        }
         let body = serde_json::json!({
             "imageThumbnailStyleList": ["Small", "Large"],
             "orderBy": "updated_at",
@@ -291,8 +297,14 @@ pub async fn list_personal_files_with_client(
 
     let mut all_items = Vec::new();
     let mut next_cursor = String::new();
+    let mut seen_cursors = std::collections::HashSet::new();
 
     loop {
+        // A cursor is scoped to this directory. Reject cycles before issuing another
+        // request rather than silently returning an incomplete listing.
+        if !seen_cursors.insert(next_cursor.clone()) {
+            return Err(ClientError::Api("分页游标重复，已停止列目录".to_string()));
+        }
         let body = serde_json::json!({
             "imageThumbnailStyleList": ["Small", "Large"],
             "orderBy": "updated_at",

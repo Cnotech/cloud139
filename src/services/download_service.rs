@@ -144,7 +144,8 @@ async fn download_file(
     }
 
     let client = reqwest::Client::new();
-    let response = client.get(url).send().await?;
+    // Reject HTTP error pages before creating or truncating the destination.
+    let response = client.get(url).send().await?.error_for_status()?;
 
     if let Some(parent) = local_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -480,5 +481,54 @@ mod tests {
             "重试前归零，结束后等于文件大小（首次已下载 {after_first}）"
         );
         assert_eq!(hits.load(Ordering::SeqCst), 2);
+    }
+
+    /// Assert before successful completion can normalize the position to the length.
+    #[tokio::test]
+    async fn failed_download_resets_stale_progress_before_completion() {
+        let (url, _) = spawn_server(true, b"0123456789");
+        let dir = tempfile::tempdir().expect("tmp");
+        let pb = ProgressBar::new(10);
+        pb.set_position(7);
+
+        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone())).await;
+        assert!(result.is_err(), "incomplete body must fail");
+        assert!(
+            pb.position() <= 5,
+            "stale progress must be cleared before streaming: {}",
+            pb.position()
+        );
+    }
+
+    #[tokio::test]
+    async fn http_error_does_not_create_or_truncate_destination() {
+        use httpmock::prelude::*;
+        let server = MockServer::start();
+        let error_page = server.mock(|when, then| {
+            when.method(GET).path("/download");
+            then.status(503).body("upstream unavailable");
+        });
+        let dir = tempfile::tempdir().expect("tmp");
+        let existing = dir.path().join("existing");
+        std::fs::write(&existing, b"keep original").expect("write original");
+        let missing = dir.path().join("missing");
+
+        for path in [&existing, &missing] {
+            let err = download_file(&server.url("/download"), path, None)
+                .await
+                .expect_err("HTTP error must not be treated as a file");
+            match err {
+                ClientError::Http(err) => {
+                    assert_eq!(err.status(), Some(reqwest::StatusCode::SERVICE_UNAVAILABLE))
+                }
+                other => panic!("unexpected error: {other}"),
+            }
+        }
+        assert_eq!(
+            std::fs::read(&existing).expect("original remains"),
+            b"keep original"
+        );
+        assert!(!missing.exists(), "HTTP error must not create destination");
+        error_page.assert_calls(2);
     }
 }
