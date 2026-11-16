@@ -1,25 +1,26 @@
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use indicatif::{MultiProgress, ProgressBar};
 
 #[macro_export]
 macro_rules! info {
     ($($arg:tt)*) => {
-        println!("\x1b[36minfo\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::emit(format!("\x1b[36minfo\x1b[0m {}", format!($($arg)*)))
     };
 }
 
 #[macro_export]
 macro_rules! success {
     ($($arg:tt)*) => {
-        println!("\x1b[32msuccess\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::emit(format!("\x1b[32msuccess\x1b[0m {}", format!($($arg)*)))
     };
 }
 
 #[macro_export]
 macro_rules! warn {
     ($($arg:tt)*) => {
-        println!("\x1b[33mwarn\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::emit(format!("\x1b[33mwarn\x1b[0m {}", format!($($arg)*)))
     };
 }
 
@@ -33,7 +34,7 @@ macro_rules! error {
 #[macro_export]
 macro_rules! step {
     ($($arg:tt)*) => {
-        println!("\x1b[34mstep\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::emit(format!("\x1b[34mstep\x1b[0m {}", format!($($arg)*)))
     };
 }
 
@@ -41,7 +42,7 @@ macro_rules! step {
 macro_rules! debug {
     ($($arg:tt)*) => {
         if $crate::utils::logger::is_debug() {
-            println!("\x1b[90mdebug\x1b[0m {}", format!($($arg)*))
+            $crate::utils::logger::emit(format!("\x1b[90mdebug\x1b[0m {}", format!($($arg)*)))
         }
     };
 }
@@ -54,6 +55,30 @@ macro_rules! print {
 }
 
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
+
+/// 机器可读模式（`--json`）：stdout 只留给数据，日志一律走 stderr。
+///
+/// 非 JSON 模式下日志仍写 stdout，保持既有观感；只有明确要「stdout 干净」的
+/// 命令才打开这个开关，避免一次改动把所有命令的输出流都换掉。
+static JSON_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_json_mode(enabled: bool) {
+    JSON_MODE.store(enabled, Ordering::Relaxed);
+}
+
+#[must_use]
+pub fn is_json_mode() -> bool {
+    JSON_MODE.load(Ordering::Relaxed)
+}
+
+/// 输出一行日志：JSON 模式走 stderr，否则走 stdout。
+pub fn emit(line: String) {
+    if is_json_mode() {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
 
 pub fn init_verbose(level: &str) {
     VERBOSE_DEBUG.set(level == "debug").ok();

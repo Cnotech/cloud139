@@ -4,6 +4,7 @@ pub mod delete_service;
 pub mod download_service;
 pub mod list_service;
 pub mod login_service;
+pub mod mirror_service;
 pub mod mkdir_service;
 pub mod move_service;
 pub mod rename_service;

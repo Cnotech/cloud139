@@ -290,7 +290,20 @@ pub async fn list_personal_files_with_client(
     parent_file_id: &str,
     http_client: &HttpClientWrapper,
 ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
-    debug!("list_personal_files: parent_file_id={}", parent_file_id);
+    list_personal_files_with_page_size(config, parent_file_id, 100, http_client).await
+}
+
+/// 同 list_personal_files_with_client，但可指定每页条数（mirror 用）。
+pub async fn list_personal_files_with_page_size(
+    config: &Config,
+    parent_file_id: &str,
+    page_size: i32,
+    http_client: &HttpClientWrapper,
+) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+    debug!(
+        "list_personal_files: parent_file_id={}, page_size={}",
+        parent_file_id, page_size
+    );
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
     let url = format!("{}/file/list", host);
@@ -311,7 +324,7 @@ pub async fn list_personal_files_with_client(
             "orderDirection": "DESC",
             "pageInfo": {
                 "pageCursor": next_cursor,
-                "pageSize": 100
+                "pageSize": page_size
             },
             "parentFileId": parent_file_id
         });
