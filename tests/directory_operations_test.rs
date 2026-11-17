@@ -23,8 +23,10 @@ struct State {
     requests: Vec<(String, Value)>,
     fail_name: Option<String>,
     fail_batch: bool,
+    fail_trash_item: bool,
     page_size: usize,
     cycle: bool,
+    drop_list_cursor_once: Option<String>,
 }
 struct Server {
     host: String,
@@ -47,6 +49,7 @@ impl Server {
             while !stopped.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        stream.set_nonblocking(false).unwrap();
                         stream
                             .set_read_timeout(Some(Duration::from_secs(3)))
                             .unwrap();
@@ -58,6 +61,11 @@ impl Server {
                         let response = match path.as_str() {
                             "/file/list" => {
                                 let parent = body["parentFileId"].as_str().unwrap();
+                                let cursor = body["pageInfo"]["pageCursor"].as_str().unwrap_or("");
+                                if state.drop_list_cursor_once.as_deref() == Some(cursor) {
+                                    state.drop_list_cursor_once = None;
+                                    continue;
+                                }
                                 let offset = body["pageInfo"]["pageCursor"]
                                     .as_str()
                                     .unwrap_or("")
@@ -75,7 +83,11 @@ impl Server {
                                 json!({"success":true,"data":{"items":items.get(offset..end).unwrap_or_default(),"nextPageCursor":next}})
                             }
                             "/file/create" => {
-                                if body["name"].as_str() == state.fail_name.as_deref() {
+                                if state
+                                    .fail_name
+                                    .as_deref()
+                                    .is_some_and(|name| body["name"] == name)
+                                {
                                     json!({"success":false,"message":"injected failure"})
                                 } else {
                                     let id = format!("id-{}", state.requests.len());
@@ -97,7 +109,10 @@ impl Server {
                             "/file/batchCopy" | "/file/batchMove" => {
                                 json!({"success":!state.fail_batch,"message":"injected batch failure"})
                             }
-                            "/file/update" | "/recyclebin/batchTrash" => json!({"success":true}),
+                            "/file/update" => json!({"success":true}),
+                            "/recyclebin/batchTrash" => {
+                                json!({"success":true,"data":{"results":[{"success":!state.fail_trash_item}]}})
+                            }
                             _ => json!({"success":false,"message":"unknown mock endpoint"}),
                         };
                         let body = response.to_string();
@@ -202,6 +217,86 @@ fn folder(id: &str, name: &str) -> Value {
 }
 fn file(id: &str, name: &str) -> Value {
     json!({"fileId":id,"name":name,"type":"file","size":4})
+}
+
+#[test]
+fn rejected_group_login_preserves_existing_profile() {
+    use base64::Engine;
+
+    let temp = tempfile::tempdir().unwrap();
+    let config = temp.path().join("profile.toml");
+    let original = b"root_folder_id = \"root:/existing-group\"\n";
+    std::fs::write(&config, original).unwrap();
+    let token = base64::engine::general_purpose::STANDARD
+        .encode("pc:13800138000:test|1|RCS|9999999999999|signature");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
+        .current_dir(temp.path())
+        .env("HOME", temp.path())
+        .env("XDG_CONFIG_HOME", temp.path())
+        .arg("--config")
+        .arg(&config)
+        .args([
+            "login",
+            "--storage-type",
+            "group",
+            "--cloud-id",
+            "different-group",
+            "--token",
+            &token,
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("root_folder_id"));
+    assert_eq!(std::fs::read(&config).unwrap(), original);
+}
+
+#[tokio::test]
+async fn recursive_download_rejects_local_case_or_unicode_collisions() {
+    let server = Server::new();
+    server.set("/", vec![folder("dir", "folder")]);
+    let tmp = tempfile::tempdir().unwrap();
+    for (index, (first, second)) in [("A.txt", "a.txt"), ("caf\u{e9}.txt", "cafe\u{301}.txt")]
+        .into_iter()
+        .enumerate()
+    {
+        let volume_probe = tempfile::tempdir_in(tmp.path()).unwrap();
+        std::fs::write(volume_probe.path().join(first), b"probe").unwrap();
+        let aliases = volume_probe.path().join(second).exists();
+        server.set("dir", vec![file("one", first), file("two", second)]);
+        let destination = tmp.path().join(format!("download-{index}"));
+        let result = services::download_service::download_recursive(
+            &server.config(),
+            "/folder",
+            destination.to_str().unwrap(),
+            true,
+        )
+        .await;
+        if aliases {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("映射到同一本地路径")
+            );
+            assert!(!destination.exists());
+        } else {
+            result.unwrap();
+            assert_eq!(std::fs::read_dir(&destination).unwrap().count(), 2);
+        }
+    }
+}
+
+#[tokio::test]
+async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
+    let server = Server::new();
+    server.set("/", vec![file("one", "report.txt")]);
+    server.state.lock().unwrap().fail_trash_item = true;
+    let error = services::delete(&server.config(), "/report.txt", false)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("删除失败"));
+    assert_eq!(server.mutations().len(), 1);
 }
 
 #[test]
@@ -500,13 +595,142 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     .await
     .unwrap_err();
     assert!(error.to_string().contains("此前条目可能已完成"));
-    assert!(server.mutations().iter().any(|(_, b)| b["name"] == "a.bin"));
+    let uploads = server.mutations();
+    assert_eq!(
+        uploads.iter().filter(|(_, b)| b["name"] == "a.bin").count(),
+        1
+    );
+    assert_eq!(
+        uploads.iter().filter(|(_, b)| b["name"] == "z.bin").count(),
+        1
+    );
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);
     server.state.lock().unwrap().fail_batch = true;
     assert!(
         services::cp(&server.config(), &["/src".into()], "/dest", false)
             .await
             .is_err()
+    );
+}
+
+#[tokio::test]
+async fn recursive_upload_retries_the_failed_page_without_replaying_writes() {
+    let server = Server::new();
+    server.set("/", vec![folder("outer", "outer")]);
+    server.set("outer", vec![folder("target", "target")]);
+    let mut existing: Vec<_> = (0..101)
+        .map(|index| {
+            file(
+                &format!("existing-{index}"),
+                &format!("existing-{index}.txt"),
+            )
+        })
+        .collect();
+    existing.push(folder("blocker", "z.txt"));
+    server.set("target", existing);
+    server.state.lock().unwrap().drop_list_cursor_once = Some("100".into());
+
+    let source = tempfile::tempdir().unwrap();
+    std::fs::write(source.path().join("a.txt"), b"first").unwrap();
+    std::fs::write(source.path().join("b.txt"), b"second").unwrap();
+    std::fs::write(source.path().join("z.txt"), b"blocked").unwrap();
+    let error = services::upload_service::upload_directory(
+        &server.config(),
+        source.path(),
+        "/outer/target",
+        true,
+        true,
+    )
+    .await
+    .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("上传 z.txt 失败"), "{message}");
+    assert!(message.contains("云端已有同名条目"), "{message}");
+
+    let state = server.state.lock().unwrap();
+    let mut target_cursors = Vec::new();
+    let mut uploads = Vec::new();
+    let mut ancestor_lookups = 0;
+    for (path, body) in &state.requests {
+        match path.as_str() {
+            "/file/list" if body["parentFileId"] == "target" => {
+                target_cursors.push(body["pageInfo"]["pageCursor"].as_str().unwrap());
+            }
+            "/file/list" => ancestor_lookups += 1,
+            "/file/create" => {
+                assert_eq!(body["parentFileId"], "target");
+                assert_eq!(body["contentHashAlgorithm"], "SHA256");
+                uploads.push(body["name"].as_str().unwrap());
+            }
+            _ => panic!("unexpected mock request: {path}"),
+        }
+    }
+    assert_eq!(ancestor_lookups, 2);
+    assert_eq!(target_cursors, ["", "100", "100", "", "100", "", "100"]);
+    assert_eq!(uploads, ["a.txt", "b.txt"]);
+}
+
+#[tokio::test]
+async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconnect() {
+    let server = Server::new();
+    server.state.lock().unwrap().drop_list_cursor_once = Some("100".into());
+    let source = tempfile::tempdir().unwrap();
+    let child = source.path().join("child");
+    std::fs::create_dir(&child).unwrap();
+    std::fs::create_dir(source.path().join("empty")).unwrap();
+    for index in 1..=121 {
+        let name = format!("page-{index:03}.txt");
+        std::fs::write(source.path().join(&name), format!("root {index}\n")).unwrap();
+        std::fs::write(child.join(&name), format!("child {index}\n")).unwrap();
+    }
+    services::upload_service::upload_directory(
+        &server.config(),
+        source.path(),
+        "/paged",
+        true,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let state = server.state.lock().unwrap();
+    assert!(state.drop_list_cursor_once.is_none());
+    let root_id = state.children["/"][0]["fileId"].as_str().unwrap();
+    let root = &state.children[root_id];
+    assert_eq!(root.len(), 123);
+    let child = root.iter().find(|item| item["name"] == "child").unwrap();
+    let child_id = child["fileId"].as_str().unwrap();
+    assert_eq!(state.children[child_id].len(), 121);
+    assert!(
+        root.iter()
+            .any(|item| item["name"] == "empty" && item["type"] == "folder")
+    );
+    let files: std::collections::HashSet<_> = state
+        .requests
+        .iter()
+        .filter(|(path, body)| path == "/file/create" && body["type"] == "file")
+        .map(|(_, body)| {
+            let parent = body["parentFileId"].as_str().unwrap();
+            let name = body["name"].as_str().unwrap();
+            let local = if parent == child_id {
+                source.path().join("child").join(name)
+            } else {
+                assert_eq!(parent, root_id);
+                source.path().join(name)
+            };
+            let hash = cloud139::utils::crypto::calc_file_sha256(local.to_str().unwrap()).unwrap();
+            assert_eq!(body["contentHash"], hash);
+            (parent, name)
+        })
+        .collect();
+    assert_eq!(files.len(), 242);
+    assert_eq!(
+        state
+            .requests
+            .iter()
+            .filter(|(path, _)| path == "/file/create")
+            .count(),
+        245
     );
 }
 

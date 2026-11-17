@@ -28,17 +28,30 @@ pub async fn delete_recursive(
     }
     let mut cached = config.clone();
     let host = api::get_personal_cloud_host(&mut cached).await?;
-    let resp: crate::models::BatchTrashResp = api::personal_api_request(
-        &cached,
+    trash_personal_file_id(&cached, &host, &entry.id).await?;
+    Ok(())
+}
+
+pub(super) async fn trash_personal_file_id(
+    config: &Config,
+    host: &str,
+    file_id: &str,
+) -> Result<(), ClientError> {
+    let response: serde_json::Value = api::personal_api_request(
+        config,
         &format!("{host}/recyclebin/batchTrash"),
-        serde_json::json!({ "fileIds": [entry.id] }),
+        serde_json::json!({ "fileIds": [file_id] }),
         StorageType::PersonalNew,
     )
     .await?;
-    if !resp.base.success {
-        return Err(
-            ClientError::Api(resp.base.message.unwrap_or_else(|| "删除失败".into())).into(),
-        );
+    if !dirs::mutation_succeeded(&response) {
+        return Err(ClientError::Api(
+            response["message"]
+                .as_str()
+                .filter(|message| !message.is_empty())
+                .unwrap_or("删除失败：服务端未确认全部条目已移到回收站")
+                .to_owned(),
+        ));
     }
     Ok(())
 }

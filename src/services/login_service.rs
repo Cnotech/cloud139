@@ -1,19 +1,49 @@
-use crate::{debug, info, success, warn};
+use crate::client::api;
+use crate::config::Config;
+use crate::domain::StorageType;
+use crate::{debug, info, success};
 
 pub async fn login(
     token: &str,
     storage_type: &str,
     cloud_id: Option<&str>,
-) -> anyhow::Result<crate::config::Config> {
-    let token = token
-        .strip_prefix("Basic ")
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| token.to_string());
+) -> anyhow::Result<Config> {
+    login_with_group_root(token, storage_type, cloud_id, None).await
+}
 
-    let config = crate::client::auth::login(&token, storage_type, cloud_id).await?;
-    config.save()?;
+pub async fn login_with_group_root(
+    token: &str,
+    storage_type: &str,
+    cloud_id: Option<&str>,
+    root_folder_id: Option<&str>,
+) -> anyhow::Result<Config> {
+    let token = token.strip_prefix("Basic ").unwrap_or(token);
+    let mut config = crate::client::auth::login(token, storage_type, cloud_id).await?;
+    let path = Config::save_path();
+    if config.storage_type() == StorageType::Group {
+        config.root_folder_id = match root_folder_id {
+            Some(root) if !root.trim().is_empty() => Some(root.to_owned()),
+            Some(_) => anyhow::bail!("--root-folder-id 不能为空"),
+            None => Config::load_from_candidates(std::slice::from_ref(&path))
+                .ok()
+                .map(|(old, _)| old)
+                .filter(|old| {
+                    old.storage_type() == StorageType::Group
+                        && old.account == config.account
+                        && old.cloud_id == config.cloud_id
+                })
+                .and_then(|old| old.root_folder_id),
+        };
+        super::legacy_directory::root(&config)?;
+    } else if root_folder_id.is_some() {
+        anyhow::bail!("--root-folder-id 仅用于群组盘登录");
+    }
 
     info!("正在校验 Token 可用性 (ls /) ...");
+    if config.storage_type() == StorageType::PersonalNew {
+        config.personal_cloud_host =
+            Some(api::fetch_personal_cloud_host(&config, &api::HttpClientWrapper::new()).await?);
+    }
     let list_args = crate::commands::list::ListArgs {
         recursive: false,
         path: "/".to_string(),
@@ -21,18 +51,14 @@ pub async fn login(
         page_size: 10,
         output: None,
     };
-    if let Err(e) = crate::services::list(&config, &list_args).await {
-        warn!("ls / 执行失败: {}", e);
-        let _ = std::fs::remove_file(crate::config::Config::save_path());
-        return Err(anyhow::anyhow!("Token 校验失败，可能已过期: {}", e));
-    }
+    crate::services::list(&config, &list_args)
+        .await
+        .map_err(|error| anyhow::anyhow!("登录校验失败: {error}"))?;
+    config.save_to(&path)?;
 
     success!("Token 验证成功!");
     debug!("存储类型: {}", storage_type);
-    success!(
-        "配置文件已保存到: {}",
-        crate::config::Config::save_path().display()
-    );
+    success!("配置文件已保存到: {}", path.display());
 
     Ok(config)
 }

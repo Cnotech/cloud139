@@ -149,19 +149,11 @@ pub async fn confirm_upload(
     )
     .await?;
 
-    if let Some(success_flag) = resp_json.get("success").and_then(|s| s.as_bool()) {
-        if success_flag {
-            debug!("完成响应: {:?}", resp_json);
-        } else {
-            let message = resp_json
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("完成上传失败");
-            return Err(ClientError::Api(format!("完成上传失败: {}", message)));
-        }
-    } else {
-        debug!("完成响应: {:?}", resp_json);
+    if !crate::services::directory_service::mutation_succeeded(&resp_json) {
+        let message = resp_json["message"]
+            .as_str()
+            .unwrap_or("服务端未确认上传完成");
+        return Err(ClientError::Api(format!("完成上传失败: {message}")));
     }
-
     Ok(())
 }

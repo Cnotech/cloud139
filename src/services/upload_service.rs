@@ -1,7 +1,10 @@
-use crate::client::ClientError;
-use crate::domain::StorageType;
+use crate::client::{ClientError, api};
+use crate::domain::{FileEntry, StorageType, SyncEntryKind};
 use indicatif::ProgressBar;
+use std::collections::HashMap;
 use std::path::Path;
+
+use super::directory_service as dirs;
 
 pub struct UploadPartParams<'a> {
     pub upload_url: &'a str,
@@ -115,10 +118,7 @@ pub async fn upload_directory(
     contents: bool,
     force: bool,
 ) -> anyhow::Result<()> {
-    use super::{
-        directory_service as dirs,
-        sync_service::{SyncScanOptions, scan_local},
-    };
+    use super::sync_service::{SyncScanOptions, scan_local};
     dirs::safe_local(local)?;
     if !local.is_dir() {
         return Err(dirs::invalid("递归上传源必须是目录").into());
@@ -148,10 +148,13 @@ pub async fn upload_directory(
         }
         dirs::safe_local(&local.join(&entry.rel_path))?;
     }
+    if config.storage_type() == StorageType::PersonalNew {
+        return upload_personal_directory(config, local, &root, entries, force).await;
+    }
     dirs::ensure_dir(config, &root, true).await?;
     for entry in entries {
         let dest = format!("{}/{}", root.trim_end_matches('/'), entry.rel_path);
-        if entry.kind == crate::domain::SyncEntryKind::Directory {
+        if entry.kind == SyncEntryKind::Directory {
             dirs::ensure_dir(config, &dest, true).await?;
         } else {
             let (parent, name) = dest.rsplit_once('/').unwrap();
@@ -174,4 +177,94 @@ pub async fn upload_directory(
         }
     }
     Ok(())
+}
+
+async fn upload_personal_directory(
+    config: &crate::config::Config,
+    local: &Path,
+    root: &str,
+    entries: Vec<FileEntry>,
+    force: bool,
+) -> anyhow::Result<()> {
+    if root == "/" && entries.is_empty() {
+        return Ok(());
+    }
+    let mut config = config.clone();
+    let http_client = api::HttpClientWrapper::new();
+    let host = api::get_personal_cloud_host_with_client(&mut config, &http_client).await?;
+    let listing = api::PersonalListing {
+        config: &config,
+        host: &host,
+        http_client: &http_client,
+        retry_transient: true,
+    };
+    let root_id = dirs::ensure_personal_dir(&listing, root, true).await?;
+    let mut directories = HashMap::from([(root.to_owned(), root_id)]);
+    for entry in entries {
+        let destination = format!("{}/{}", root.trim_end_matches('/'), entry.rel_path);
+        if entry.kind == SyncEntryKind::Directory {
+            let id = dirs::ensure_personal_dir(&listing, &destination, true)
+                .await
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "创建目录 {} 失败；此前条目可能已完成: {:#}",
+                        entry.rel_path,
+                        anyhow::Error::new(error)
+                    )
+                })?;
+            directories.insert(destination, id);
+            continue;
+        }
+        let (parent, name) = destination.rsplit_once('/').unwrap();
+        let parent = if parent.is_empty() { "/" } else { parent };
+        let parent_id = directories
+            .get(parent)
+            .ok_or_else(|| dirs::invalid("上传计划缺少父目录"))?;
+        let path = local.join(&entry.rel_path);
+        let result =
+            upload_personal_directory_file(&listing, &path, parent_id, name, entry.size, force)
+                .await;
+        result.map_err(|error| {
+            anyhow::anyhow!(
+                "上传 {} 失败；此前条目可能已完成: {:#}",
+                entry.rel_path,
+                anyhow::Error::new(error)
+            )
+        })?;
+    }
+    Ok(())
+}
+
+async fn upload_personal_directory_file(
+    listing: &api::PersonalListing<'_>,
+    path: &Path,
+    parent_id: &str,
+    name: &str,
+    size: u64,
+    force: bool,
+) -> Result<(), ClientError> {
+    dirs::safe_local(path)?;
+    if !path.is_file() {
+        return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
+    }
+    let size = i64::try_from(size).map_err(|_| dirs::invalid("文件过大"))?;
+    let items = listing.list_files(parent_id).await?;
+    if items.iter().any(|item| {
+        item.name.as_deref() == Some(name)
+            && (!force || super::sync_service::should_treat_personal_item_as_folder(item))
+    }) {
+        return Err(dirs::invalid(
+            "云端已有同名条目；目录冲突禁止覆盖，家庭/群组不支持强制覆盖",
+        ));
+    }
+    super::upload::personal::upload_to_parent(
+        listing.config,
+        listing.host,
+        path,
+        parent_id,
+        name,
+        size,
+        None,
+    )
+    .await
 }

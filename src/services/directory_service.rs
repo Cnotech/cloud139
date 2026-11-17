@@ -84,36 +84,58 @@ pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<()
     }
     let mut cached = config.clone();
     let host = api::get_personal_cloud_host(&mut cached).await?;
-    let parts: Vec<_> = path.trim_start_matches('/').split('/').collect();
+    let http_client = api::HttpClientWrapper::new();
+    let listing = api::PersonalListing {
+        config: &cached,
+        host: &host,
+        http_client: &http_client,
+        retry_transient: false,
+    };
+    ensure_personal_dir(&listing, &path, parents).await?;
+    Ok(())
+}
+
+pub(super) async fn ensure_personal_dir(
+    listing: &api::PersonalListing<'_>,
+    path: &str,
+    parents: bool,
+) -> Result<String, ClientError> {
     let mut parent_id = "/".to_owned();
-    for (index, name) in parts.iter().enumerate() {
-        let existing = api::find_personal_child(
-            &cached,
-            &host,
-            &parent_id,
-            name,
-            &api::HttpClientWrapper::new(),
-        )
-        .await?;
-        if let Some(item) = existing {
-            if !is_folder(&item) {
-                return Err(invalid(format!("已有同名文件: {name}")));
-            }
-            if index + 1 == parts.len() && !parents {
-                return Err(invalid("目录已存在；如需已有目录成功，请使用 -p"));
-            }
-            parent_id = item
-                .file_id
-                .filter(|s| !s.is_empty())
-                .ok_or(ClientError::InvalidFilePath)?;
-            continue;
+    let mut parts = path.split('/').filter(|part| !part.is_empty()).peekable();
+    let mut seen_ids = HashSet::from([parent_id.clone()]);
+    while let Some(name) = parts.next() {
+        let last = parts.peek().is_none();
+        let id = ensure_personal_child_dir(listing, &parent_id, name, parents, last).await?;
+        if !seen_ids.insert(id.clone()) {
+            return Err(invalid("路径解析返回根目录别名或目录循环"));
         }
-        if !parents && index + 1 != parts.len() {
+        parent_id = id;
+    }
+    Ok(parent_id)
+}
+
+async fn ensure_personal_child_dir(
+    listing: &api::PersonalListing<'_>,
+    parent_id: &str,
+    name: &str,
+    parents: bool,
+    last: bool,
+) -> Result<String, ClientError> {
+    let item = if let Some(item) = listing.find_child(parent_id, name).await? {
+        if !is_folder(&item) {
+            return Err(invalid(format!("已有同名文件: {name}")));
+        }
+        if last && !parents {
+            return Err(invalid("目录已存在；如需已有目录成功，请使用 -p"));
+        }
+        item
+    } else {
+        if !parents && !last {
             return Err(ClientError::FileNotFound);
         }
         let response: crate::models::PersonalUploadResp = api::personal_api_request(
-            &cached,
-            &format!("{host}/file/create"),
+            listing.config,
+            &format!("{}/file/create", listing.host),
             serde_json::json!({
                 "parentFileId": parent_id, "name": name, "description": "", "type": "folder"
             }),
@@ -129,24 +151,18 @@ pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<()
             ));
         }
         // Resolve the actual directory: never proceed using an automatically renamed sibling.
-        let item = api::find_personal_child(
-            &cached,
-            &host,
-            &parent_id,
-            name,
-            &api::HttpClientWrapper::new(),
-        )
-        .await?
-        .ok_or_else(|| invalid("创建后无法确认目录名称"))?;
+        let item = listing
+            .find_child(parent_id, name)
+            .await?
+            .ok_or_else(|| invalid("创建后无法确认目录名称"))?;
         if !is_folder(&item) {
             return Err(invalid("创建后目录类型冲突"));
         }
-        parent_id = item
-            .file_id
-            .filter(|s| !s.is_empty())
-            .ok_or(ClientError::InvalidFilePath)?;
-    }
-    Ok(())
+        item
+    };
+    item.file_id
+        .filter(|id| !id.is_empty() && id != "/")
+        .ok_or(ClientError::InvalidFilePath)
 }
 
 /// Reject symlinks at every existing component, including user-supplied parents.

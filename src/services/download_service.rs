@@ -5,7 +5,8 @@ use crate::domain::StorageType;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
 use indicatif::ProgressBar;
-use std::path::Path;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
 /// 下载文件服务
 pub async fn download(
@@ -158,6 +159,7 @@ async fn download_file(
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     super::directory_service::safe_local(local_path)?;
+    let existing = local_file_metadata(local_path)?;
     // 重试会复用同一个进度条（clone 共享状态）；每次下载都从头写文件，进度也要归零。
     if let Some(pb) = &pb {
         pb.set_position(0);
@@ -168,33 +170,67 @@ async fn download_file(
     // Reject HTTP error pages before creating or truncating the destination.
     let response = client.get(url).send().await?.error_for_status()?;
 
-    if let Some(parent) = local_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let parent = parent_directory(local_path);
+    std::fs::create_dir_all(parent)?;
 
     let total_size = response.content_length();
     if let (Some(pb), Some(total)) = (&pb, total_size) {
         pb.set_length(total);
     }
 
-    let mut file = std::fs::File::create(local_path)?;
+    let mut file = {
+        let mut staged = tempfile::Builder::new();
+        if existing.is_none() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                staged.permissions(std::fs::Permissions::from_mode(0o666));
+            }
+        }
+        staged.tempfile_in(parent)?
+    };
     let mut stream = response.bytes_stream();
 
     use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        use std::io::Write;
         file.write_all(&chunk)?;
         if let Some(pb) = &pb {
             pb.inc(chunk.len() as u64);
         }
     }
+    file.flush()?;
+    super::directory_service::safe_local(local_path)?;
+    if let Some(metadata) = local_file_metadata(local_path)? {
+        file.as_file().set_permissions(metadata.permissions())?;
+    }
+    file.persist(local_path).map_err(|error| error.error)?;
 
     if let Some(pb) = pb {
         pb.finish_and_clear();
     }
 
     Ok(())
+}
+
+fn parent_directory(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.permissions().readonly() => {
+            Ok(Some(metadata))
+        }
+        Ok(_) => Err(super::directory_service::invalid(format!(
+            "本地目标不是可写的普通文件: {}",
+            path.display()
+        ))),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Recursive download retains empty directories and rejects unsafe names and local symlinks.
@@ -215,27 +251,33 @@ pub async fn download_recursive(
         return Err(ClientError::UnsupportedDownloadDirectory.into());
     }
     let entries = dirs::tree(config, &remote).await?;
+    let destination_root = Path::new(local);
+    let mut plan = Vec::with_capacity(entries.len());
     // Check all destinations before writing any file.
-    for entry in &entries {
-        let rel = entry
-            .path
-            .strip_prefix(remote.trim_end_matches('/'))
-            .unwrap()
-            .trim_start_matches('/');
-        let dest = Path::new(local).join(rel);
-        dirs::safe_local(&dest)?;
-        if dest.exists() && dest.is_dir() != entry.folder {
-            return Err(dirs::invalid("本地文件与目录冲突").into());
-        }
-    }
-    std::fs::create_dir_all(local)?;
     for entry in entries {
         let rel = entry
             .path
             .strip_prefix(remote.trim_end_matches('/'))
             .unwrap()
             .trim_start_matches('/');
-        let dest = Path::new(local).join(rel);
+        let rel = PathBuf::from(rel);
+        let dest = destination_root.join(&rel);
+        dirs::safe_local(&dest)?;
+        if dest.exists() {
+            if dest.is_dir() != entry.folder {
+                return Err(dirs::invalid("本地文件与目录冲突").into());
+            }
+            if !entry.folder {
+                local_file_metadata(&dest)?;
+            }
+        }
+        plan.push((entry, dest));
+    }
+    if !plan.is_empty() {
+        check_destination_collisions(destination_root, &plan)?;
+    }
+    std::fs::create_dir_all(destination_root)?;
+    for (entry, dest) in plan {
         dirs::safe_local(&dest)?;
         if entry.folder {
             std::fs::create_dir_all(&dest)?;
@@ -248,6 +290,45 @@ pub async fn download_recursive(
             )
             .await
             .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
+        }
+    }
+    Ok(())
+}
+
+fn check_destination_collisions(
+    destination_root: &Path,
+    plan: &[(super::directory_service::TreeEntry, PathBuf)],
+) -> Result<()> {
+    let mut parent = destination_root;
+    loop {
+        match std::fs::metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => return Err(super::directory_service::invalid("本地文件与目录冲突").into()),
+            Err(error) if error.kind() == ErrorKind::NotFound => parent = parent_directory(parent),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    // Use the destination filesystem's own case and Unicode name rules.
+    let probe = tempfile::tempdir_in(parent)?;
+    for (entry, destination) in plan {
+        let relative = destination
+            .strip_prefix(destination_root)
+            .map_err(|_| ClientError::InvalidFilePath)?;
+        let path = probe.path().join(relative);
+        let result = if entry.folder {
+            std::fs::create_dir(path)
+        } else {
+            std::fs::File::create_new(path).map(drop)
+        };
+        if let Err(error) = result {
+            if error.kind() == ErrorKind::AlreadyExists {
+                return Err(super::directory_service::invalid(format!(
+                    "多个远程条目映射到同一本地路径: {}",
+                    destination.display()
+                ))
+                .into());
+            }
+            return Err(error.into());
         }
     }
     Ok(())
@@ -315,13 +396,18 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmp");
         let pb = ProgressBar::new(0);
 
-        let first = download_file(&url, &dir.path().join("a"), Some(pb.clone())).await;
+        let target = dir.path().join("a");
+        std::fs::write(&target, b"existing").unwrap();
+        let first = download_file(&url, &target, Some(pb.clone())).await;
         assert!(first.is_err(), "半包应当报错");
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         let after_first = pb.position();
 
-        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+        download_file(&url, &target, Some(pb.clone()))
             .await
             .expect("retry download");
+        assert_eq!(std::fs::read(&target).unwrap(), b"0123456789");
         assert_eq!(
             pb.position(),
             10,
@@ -340,6 +426,7 @@ mod tests {
 
         let result = download_file(&url, &dir.path().join("out"), Some(pb.clone())).await;
         assert!(result.is_err(), "incomplete body must fail");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         assert!(
             pb.position() <= 5,
             "stale progress must be cleared before streaming: {}",
