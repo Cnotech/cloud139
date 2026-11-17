@@ -332,9 +332,10 @@ fn with_stable_windows_path<T>(
     };
     // canonicalize 先打开句柄再查询路径。若此时文件被原子替换，Windows
     // 可能返回旧文件在 $Extend\\$Deleted 中的路径，导致后续锁名和写入位置错误。
-    // 查询期间不共享删除权限，固定目录项；不要求读写权限，并兼容目录与符号链接。
+    // 查询期间以读取句柄拒绝共享删除，固定目录项；零访问权限的元数据句柄
+    // 不参与 Windows 的共享访问检查，无法阻止替换。兼容目录与符号链接。
     let _guard = fs::OpenOptions::new()
-        .access_mode(0)
+        .read(true)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)?;
