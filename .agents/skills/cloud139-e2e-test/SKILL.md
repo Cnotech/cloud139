@@ -1,614 +1,312 @@
 ---
 name: cloud139-e2e-test
-description: Use when 需要对 cloud139 CLI 做完整端到端回归，且测试会创建大量本地与云端临时文件、配置文件和同步目录
+description: 编写、维护或在明确授权的隔离子树内执行 cloud139 CLI 端到端回归，核对目录映射、内容完整性、后端支持范围和清理；编写用例不代表获准访问真实云盘。
 ---
 
-## 功能描述
+## 功能描述与执行边界
 
-对 139 云盘 CLI (cloud139) 进行完整的端到端测试，覆盖所有命令功能和边界情况。
+覆盖 login、ls、upload、download、cp、rename、mv、mkdir、rm 和个人盘 sync。按[目录实现说明](../../../docs/directory-operations.md)及当前源码核对预期；下面的表格是测试计划，不是执行授权。
+
+- **仅编写/维护用例**：只编辑技能及必要文档，静态核对命令、链接和夹具工具。不得索取、读取或使用真实 Token，不登录、不访问真实云盘、不创建或清理云端数据。
+- **离线验证**：使用虚构配置、隔离 HOME 和 loopback mock。根目录变更、永久删除拒绝、恶意服务端名称、符号链接、循环分页和部分失败注入只在离线 mock 中测试。
+- **真实 E2E**：只有用户明确授权本轮精确的 UUID 云端测试子树及其创建/上传/移动/删除/清理后才能开始。授权一个后端不代表授权其他后端；编写用例、创建代码分支或以前一轮测试授权均不等于授权本轮真实执行。登录内置的只读 `ls /` 和确认 UUID 不冲突所需的根列表元数据也应包含在前置说明中。
+- 所有真实变更必须限制在已授权子树内。不向真实根目录发出删除、移动、复制根等负向操作；不按文件名清理任何既有用户对象，不复用固定分页目录，不下载到仓库工作目录覆盖源码或文档。
 
 ## 执行模式
 
-本技能必须采用“主代理编排 + sub agent 分阶段执行”的方式运行，不能由单个代理从头到尾串行硬跑。
+真实 E2E 保留“主代理编排 + sub agent 分阶段执行”，不能单代理从头到尾串行硬跑。仅维护文档时不启动真实 E2E 阶段。
 
-主代理职责：
-- 在开头和结尾执行 git 工作树检查
-- 向用户索取 Token，并明确测试前置条件
-- 维护测试台账：记录创建过的本地临时文件、目录、备份文件、云端测试目录、随机文件名、输出文件
-- 将测试拆成多个阶段，分派给不同 sub agent
-- 对共享状态做串行调度，避免多个 sub agent 同时操作同一个配置文件、同一个本地目录或同一个云端目录
-- 汇总所有阶段结果，执行最终清理与报告
+主代理在开头和结尾执行工作树门禁；获得本轮授权后再使用安全渠道提供的 Token；维护台账、后端支持矩阵和阶段依赖；串行调度共享状态；审核 cleanup sub agent 的对象清单及结果，汇总报告。不得打开用户真实全局配置或让 sub agent 自行扩大作用域。
 
-sub agent 职责：
-- 只处理主代理分配给自己的阶段，不擅自扩展范围
-- 回传实际执行的命令、退出码、发现的问题、产生的临时文件和后续清理义务
-- 如果发现会污染其他阶段的共享状态，立即停止并回报主代理
+阶段 sub agent 只执行已分配步骤，接收明确的配置路径、云端子树、本地目录和允许的读写动作；回传用例 ID、脱敏命令、退出码、内容验证证据、创建对象和清理义务。碰到共享状态冲突、超时或来源不明对象立即停止该阶段。
 
-并发规则：
-- 对同一个云端目录、同一个本地临时目录、同一个配置文件的操作必须串行
-- 只读检查可以并行，例如读取现有配置、读取 `ls` 输出、检查下载结果、检查 JSON 输出
-- 会修改云端状态的阶段默认串行执行，除非主代理能证明目标路径完全隔离
+分派阶段：1 预检与登录；2–5 列表/上传/下载；6–10 变更类命令；11 sync；12 专门 cleanup sub agent。相同配置文件、同一本地目录或云端目录的写操作必须串行；只读核验或确认完全不相交的夹具可并行。前置夹具失败时，依赖用例记为“阻塞”，不得记作通过。
 
-建议拆分的 sub agent 阶段：
-1. 预检与登录：工作树检查通过后，检查配置文件、构建、登录、准备测试目录
-2. 基础命令测试：`ls`、`upload`、`download`
-3. 变更类命令测试：`cp`（含多源复制）、`rename`、`mv`、`mkdir`、`rm`
-4. `sync` 专项测试
-5. 清理与工作树复核
+## 1. 工作树门禁、隔离与台账
 
-## 使用场景
+真实执行第一步（在仓库根目录）：
 
-- 测试 cloud139 CLI 所有功能是否正常工作
-- 验证边界情况处理是否正确
-- 回归测试
-
-## 执行流程
-
-### 1. 开始前 git 工作树门禁
-
-第一步必须执行：
 ```bash
 git status --short
 ```
 
-判定规则：
-- 如果输出为空，才允许继续执行后续 E2E 流程
-- 如果存在任何已修改、已删除、未跟踪文件，立即停止测试
-- 主代理必须把脏工作树内容原样展示给用户，并明确要求用户先自行处理完成，再重新开始本技能
-- 在工作树不干净时，禁止继续执行 `cargo build`、`login`、上传下载、创建临时目录、清理动作，避免把旧脏状态和本轮测试副作用混在一起
+有已修改、已删除或未跟踪文件时停止真实 E2E，展示原样状态，请用户自行处理或选择新的干净 checkout；不得自动 stash、reset 或清理未知文件。这个门禁不禁止用户已授权的技能文档编辑；文档编辑不进入后续真实测试流程。
 
-### 2. 收集信息
+门禁通过后记录仓库绝对路径 `REPO`、提交 SHA 和构建二进制绝对路径 `BIN`。如需构建，在干净 checkout 使用 `cargo build --locked --release`，不要为运行本文修改业务代码。每个获准后端生成独立 UUID、本地临时目录和云端子树，先生成名称供用户批准，再执行真实命令：
 
-首先询问用户获取以下信息：
-- **139 云盘登录 Token**：从浏览器开发者工具获取
-
-### 2.1 建立测试台账
-
-主代理在分派 sub agent 前，先建立测试台账并持续更新。至少记录：
-- 本地配置文件位置与备份位置
-- 本轮创建的云端测试目录名，例如 `e2e_test_{timestamp}`
-- 本轮创建的本地临时目录、输出文件、随机文件
-- `sync` 阶段使用的本地源目录和目标目录
-- 每个 sub agent 新增的临时文件、目录、备份文件
-- 预期在清理阶段被删除或恢复的对象
-
-台账的目的不是做装饰，而是保证最后能根据 git 工作树和台账反推“哪些是遗留临时文件，哪些可能是误删或误改”。
-
-### 3. 配置文件约定
-
-测试本 SKILL 时，配置文件统一使用 `cloud139rc.toml`。
-
-读取优先级：
-1. `--config <PATH>` 指定路径
-2. 当前工作目录下的 `cloud139rc.toml`
-3. 全局路径 `~/.config/cloud139/cloud139rc.toml`
-
-写入规则：
-- `login --config <PATH>`：写入指定路径
-- 未指定 `--config` 且当前工作目录已存在 `cloud139rc.toml`：写回当前工作目录
-- 其他情况：写入全局路径 `~/.config/cloud139/cloud139rc.toml`
-
-执行 E2E 前，先确认并记录当前环境中以下文件是否存在，避免误删用户真实配置：
 ```bash
-pwd
-ls -la ./cloud139rc.toml
-ls -la ~/.config/cloud139/cloud139rc.toml
+RUN_ID=$(python3 -c 'import uuid; print(uuid.uuid4().hex)')
+LOCAL=$(mktemp -d "${TMPDIR:-/tmp}/cloud139-e2e-${RUN_ID}.XXXXXX")
+LOCAL=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve(strict=True))' "$LOCAL")
+# STORAGE 只取用户授权的 personal_new、family 或 group；每个后端重新生成 RUN_ID/LOCAL。
+CLOUD="/cloud139-e2e-${RUN_ID}-${STORAGE}"
+CONFIG="$LOCAL/profile/cloud139rc.toml"
+FIX="$LOCAL/fixtures"
+TOOL="$REPO/.agents/skills/cloud139-e2e-test/scripts/fixture_tool.py"
+mkdir -p "$LOCAL/profile" "$LOCAL/logs" "$LOCAL/manifests" "$LOCAL/downloads" "$LOCAL/work"
+chmod 700 "$LOCAL" "$LOCAL/profile"
+python3 "$TOOL" init "$FIX"
+python3 "$TOOL" manifest "$FIX/tree" --output "$LOCAL/manifests/tree.json"
+python3 "$TOOL" manifest "$FIX/paged" --output "$LOCAL/manifests/paged.json"
+python3 "$TOOL" manifest "$FIX/empty" --output "$LOCAL/manifests/empty.json"
+cd "$LOCAL/work"
+c139() { "$BIN" --config "$CONFIG" "$@"; }
 ```
 
-如果本地或全局配置文件已存在，先备份再测试：
+`REPO`、`BIN`、`STORAGE` 由主代理在台账中明确赋值后才使用；`BIN` 必须指向本轮要验证的构建。Windows 使用 Git Bash 并设置 `MSYS_NO_PATHCONV=1`；路径参数使用 `/`，不把本文 shell 代码直接作为 PowerShell 代码执行。
+
+台账至少包含：RUN_ID、授权原文及精确 CLOUD、后端/账号脱敏标识、配置与临时 HOME 路径、提交/二进制、每阶段负责人、每条用例的前置状态/预期/实际退出码、日志/JSON/哈希清单、确认创建过的云端对象及其 ID（若接口可见）、部分完成或结果不明对象、清理状态。不得记录 Token 或完整配置内容。每个夹具在上传前登记，API 结果不明时记为“待核验”，不凭名称就加入可删除清单。
+
+[本地夹具工具](scripts/fixture_tool.py) 只生成测试数据与内容清单，不调用 CLI 或网络。
+
+**夹具约定**：`tree` 含 3 个文件、多层子目录、`empty` 和 `nested/empty`；`paged` 根目录含 121 个文件和 `child`、`empty` 两个目录（普通 ls 的 total 为 123），`child` 含另 121 个文件；`same-v1/same.bin` 为 `AAAA`，`same-v2/same.bin` 为 `BBBB`（都是 4 字节，SHA256 不同）；`duplicates/left` 和 `right` 各含一个同名但内容不同的 `shared.txt`。这些都是工具生成的测试数据，不能改用仓库核心文件或用户文件。
+
+## 2. 支持矩阵与判定规则
+
+| 能力 | personal_new | family | group |
+|------|--------------|--------|-------|
+| upload 目录/内容、download -r、mkdir -p、ls -R、rm -r | 支持 | 支持 | 支持，但必须已有可靠 root_folder_id |
+| cp 文件/非空目录 | 单源和多源 | 单源/多源均明确拒绝 | 单源/多源均明确拒绝 |
+| mv 文件/非空目录 | 单源和多源 | 单源/多源均明确拒绝 | 仅单源；多源拒绝 |
+| rename 文件 | 支持 | 支持 | 支持 |
+| rename 目录（包括同名 no-op） | 支持 | 明确拒绝 | 支持 |
+| 已存在文件加 --force | upload/cp/mv/rename 沿用已有个人盘策略，必须核实实际结果 | 不允许覆盖同名条目 | 不允许覆盖同名条目 |
+| 已存在目录/文件与目录类型冲突加 --force | 仍拒绝 | 仍拒绝 | 仍拒绝 |
+| sync | 支持 | 拒绝，退出码 2 | 拒绝，退出码 2 |
+| --permanent | 拒绝，仅离线验证 | 拒绝，仅离线验证 | 拒绝，仅离线验证 |
+
+业务失败通常为退出码 1；缺必需参数等 clap 解析错误为 2；sync 的配置/方向/扫描错误为 2，执行阶段失败为 1。不能把所有非零统一写成 1。不支持用例必须实际观察到对应拒绝且夹具不变，不能把一次网络错误当成“不支持”通过。
+
+### 2.1 内容和“不变”判定
+
+以本地完整目录清单为 oracle，不能只看大小、日志“成功”或文件总数：
+
 ```bash
-cp ./cloud139rc.toml ./cloud139rc.toml.e2e.bak 2>/dev/null || true
-cp ~/.config/cloud139/cloud139rc.toml ~/.config/cloud139/cloud139rc.toml.e2e.bak 2>/dev/null || true
+python3 "$TOOL" manifest "$LOCAL/downloads/actual-tree" --output "$LOCAL/manifests/actual-tree.json"
+python3 "$TOOL" compare "$LOCAL/manifests/tree.json" "$LOCAL/manifests/actual-tree.json"
 ```
 
+manifest 同时比较所有相对目录路径（含空目录）、文件路径、字节数和逐文件 SHA256。清单存放在被扫描目录之外。每次云端断言均先 `ls -R -o` 核对名称/类型，再下载到本轮**新的、不存在的**核验路径生成清单。已有本地目标会触发追加源目录名的映射，不能混用作核验路径。
 
-> ⚠️ **Windows Git Bash 用户注意**：在 Windows 的 Git Bash 环境下直接执行 `./cloud139.exe ls /` 会将 `/` 解析为 Windows 根目录（如 `C:`），导致 API 调用失败。请配置环境变量 `MSYS_NO_PATHCONV=1`。
+表中的“快照不变”表示：变更前拍下用例所属阶段子树的递归 JSON、下载清单；失败后重新拍摄并比较规范化后的路径/类型/大小/哈希，排除 modified 时间等不稳定字段。源和目标均要检查。远端 listing 没有 hash 时必须下载计算 SHA256。真实负向操作仅限已授权测试夹具；不得把根目录或服务端故障注入混进来。
 
-首先编译项目，确保测试的代码是最新的：
-```bash
-cargo build --release
-```
+### 2.2 有界轮询与异步后端
 
-使用提供的 token 登录：
-```bash
-./target/release/cloud139.exe login --token <token> --storage-type personal_new
-```
+所有真实变更（尤其 family/group）必须验证最终状态。退出码 0 或“任务已接受”只说明提交成功。
 
-> ℹ️ **登录后置校验**：`login` 命令在保存配置后会自动执行一次 `ls /` 验证 Token 实际可用性。
-> - 若成功，输出 `Token 验证成功!`
-> - 若失败，会输出警告提示 Token 可能已过期，并以退出码 1 终止，**不会**保存配置
+- 主代理为每个步骤设单调时钟截止时间，默认 120 秒、每 2 秒只读复查，最多 60 次；大批量分页夹具可在运行前明确记录更长的有限上限，禁止无限轮询。
+- 用 `c139 ls -R "$STAGE" -o "$LOCAL/logs/步骤ID-尝试次数.json"` 检查所属阶段子树；目录被删除/移动/改名时查询仍存在的父目录，不能把任何网络错误都视为“不存在”。总清理查询根列表时只检查本轮 UUID 名称是否消失，不处理其他条目。
+- 出现预期名称/类型后，下载到 `$LOCAL/downloads/步骤ID-尝试次数/tree` 这种每次全新的路径，比较完整目录清单及 SHA256。预期缺失的条目也要由成功的父列表证明。
+- 最终谓词连续两次满足才通过；失败后“不变”同样复查。只轮询读操作，不能为了“等待”重复 cp/mv/rm/upload，不能补发 rm 来证明前一个 rm 已完成。
+- 到期未收敛记为失败或结果不明，保留输出和台账，停止依赖变更；不重试不确定的写操作，不自动回滚。清理时先核对对象归属和在途任务，无法确认的对象报告待人工处理。
 
-检查并删除**云端**根目录下的遗留测试文件（如 README.md, Cargo.lock 等）：
-```bash
-./target/release/cloud139.exe ls /
-# 如果存在遗留测试文件，执行删除
-./target/release/cloud139.exe rm /README.md --yes
-./target/release/cloud139.exe rm /Cargo.lock --yes
-```
+## 3. 分阶段测试矩阵
 
-创建一个随机命名的测试目录，格式：`e2e_test_{timestamp}`
-```bash
-./target/release/cloud139.exe mkdir /e2e_test_xxx
-```
+以下命令仅在真实执行授权和前置门禁全部满足后使用；`c139` 始终携带隔离 CONFIG。所有云端路径都在 CLOUD 内。每个阶段使用独立 `s02`–`s11` 子树，成功/重名/多源用例使用不同目标。
 
-准备**固定名称**的 `ls` 分页测试目录 `/e2e_ls_paging_test`（若已存在且文件足够则跳过创建，便于复用）：
-```bash
-# 创建目录（已存在则忽略错误）
-./target/release/cloud139.exe mkdir /e2e_ls_paging_test 2>/dev/null || true
+### 阶段 1：登录、配置与创建本轮根
 
-# 获取当前文件数量（简单估算，根据实际输出调整）
-file_count=$(./target/release/cloud139.exe ls /e2e_ls_paging_test 2>/dev/null | grep -c 'txt' || echo 0)
+| 步骤 | 命令/操作 | 验证点 |
+|------|-----------|--------|
+| 1.1 | 在 LOCAL 下的子进程创建独立 HOME/XDG_CONFIG_HOME；Windows 同时隔离 USERPROFILE，若无法证明平台默认配置目录位于 LOCAL，则配置回退用例改做离线单测 | 不读、不备份、不修改真实全局配置；不在父进程重写用户 HOME |
+| 1.2 | personal/family：`c139 login --token "$TOKEN" --storage-type "$STORAGE"`；family 另传已核实的 `--cloud-id "$CLOUD_ID"` | Token 仅来自用户本轮安全授权，禁用 shell xtrace、不记录参数值；只在新 CONFIG 上操作，观察内置只读 ls 校验 |
+| 1.3 | group：使用用户明确提供且含已核实 root_folder_id 的隔离配置，再 `c139 ls / -o "$LOCAL/logs/bootstrap-root.json"` | 当前 login 会重建配置并把 root_folder_id 设为 None，群组新登录可能因此校验失败；不可把它写成必成功或误判为 Token 错误，也不能猜 ID。缺可靠根配置记为前置阻塞 |
+| 1.4 | 配置优先级：在独立 LOCAL/work 子目录分别放置显式 CONFIG、当前目录配置和临时 HOME 下的 `.config/cloud139/cloud139rc.toml`，用可区分的虚构标记配置和 loopback mock 验证显式 > 当前目录 > 临时全局；验证 login 写回来源 | 这部分默认离线，含失败登录不落盘、刷新回写和配置并发；不使用真实账户反复失败登录，不篡改真实 Token 来试服务端 |
+| 1.5 | `c139 ls / -o "$LOCAL/logs/before-root.json"`，只检查新 UUID 名称不存在；`c139 mkdir "$CLOUD"` | CLOUD 已获准；若同名已存在立即停止，不复用、不改名、不删除它；成功创建并轮询确认后登记本轮根所有权 |
+| 1.6 | `c139 ls "$CLOUD" -o "$LOCAL/logs/empty-root.json"` | 空目录、total 0；只创建本轮根，不清理任何历史对象 |
 
-if [ "$file_count" -lt 25 ]; then
-    for i in $(seq 1 25); do
-        echo "paging_test_content_$i" > "/tmp/e2e_paging_file_$i.txt"
-        ./target/release/cloud139.exe upload "/tmp/e2e_paging_file_$i.txt" /e2e_ls_paging_test/ 2>/dev/null || true
-    done
-    rm -f /tmp/e2e_paging_file_*.txt
-fi
-```
+登录会保存 CONFIG 后进行验证，失败时会删除该隔离 CONFIG；因此不得用 login 覆盖已在用的测试 profile。Token/完整配置不进入报告或仓库。后端准备失败时，只报告阻塞，不改真实用户配置来绕过。
 
-### 4. 退出码校验规则
+### 阶段 2：ls、ls -R 和完整分页
 
-**通用规则**：如果命令未能正常执行，则程序退出码应当为 1。
-
-具体场景：
-- 边界情况（如文件不存在、目录不存在等）应返回退出码 1
-- 用户未提供必要参数时应返回退出码 1
-- 操作失败（如网络错误、API 错误等）应返回退出码 1
-- 只有命令正常执行完成时才返回退出码 0
-
-> 注：部分命令的 `--force` 参数会覆盖某些限制，此时即使有警告也可能返回 0（取决于具体实现）
-
-### 5. 测试执行顺序
-
-#### 阶段 1: 登录测试 (login)
-
-##### 阶段 1.1: 配置文件 E2E 测试
+前置：`c139 upload "$FIX/paged" "$CLOUD/s02"`，轮询清单与本地 paged 一致；令 `PAGE="$CLOUD/s02/paged"`。这批共 242 个小文件只在本轮新子树内生成，禁止复用固定远端目录。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 1.1.1 | `rm -f ./cloud139rc.toml && rm -f ~/.config/cloud139/cloud139rc.toml` | 准备干净环境（仅在已完成备份后执行） |
-| 1.1.2 | `./target/release/cloud139.exe login --token <valid_token> --config ./e2e_config_override.toml` | `login` 成功，配置写入 `./e2e_config_override.toml` |
-| 1.1.3 | `ls -la ./e2e_config_override.toml && ls -la ./cloud139rc.toml && ls -la ~/.config/cloud139/cloud139rc.toml` | 仅 override 文件存在；当前目录与全局路径不应新增配置 |
-| 1.1.4 | `./target/release/cloud139.exe --config ./e2e_config_override.toml ls /` | 使用 override 配置读取成功 |
-| 1.1.5 | `cp ./e2e_config_override.toml ./cloud139rc.toml && rm -f ./e2e_config_override.toml` | 准备“当前目录配置优先”场景 |
-| 1.1.6 | `./target/release/cloud139.exe ls /` | 未传 `--config` 时，优先读取当前目录 `./cloud139rc.toml` |
-| 1.1.7 | `mkdir -p ~/.config/cloud139 && cp ./cloud139rc.toml ~/.config/cloud139/cloud139rc.toml && rm -f ./cloud139rc.toml` | 准备“全局配置回退”场景 |
-| 1.1.8 | `./target/release/cloud139.exe ls /` | 当前目录无配置时，回退读取全局配置 |
-| 1.1.9 | `./target/release/cloud139.exe login --token <expired_or_invalid_token> --config ./e2e_invalid.toml` | **边界**：登录校验失败，退出码为 1，`./e2e_invalid.toml` 不应残留 |
-| 1.1.10 | `ls -la ./e2e_invalid.toml` | 验证失败登录未保留 override 配置 |
-| 1.1.11 | `cp ~/.config/cloud139/cloud139rc.toml ./cloud139rc.toml && ./target/release/cloud139.exe login --token <valid_token>` | 当前目录已有 `cloud139rc.toml` 时，成功登录后应写回当前目录，而不是写全局 |
-| 1.1.12 | `ls -la ./cloud139rc.toml && ls -la ~/.config/cloud139/cloud139rc.toml` | 验证本地配置仍存在；全局配置未被新路径替代 |
+| 2.1 | `c139 ls "$PAGE" -p 1 -s 50 -o "$LOCAL/logs/ls-page1.json"` | 0；JSON 顶层是对象，path/page/page_size/total/items 保持普通 ls 格式；total=123、items=50 |
+| 2.2 | 分别 `c139 ls "$PAGE" -p 2 -s 50 -o "$LOCAL/logs/ls-page2.json"` 和 `c139 ls "$PAGE" -p 3 -s 50 -o "$LOCAL/logs/ls-page3.json"` | 0；50/23 个条目，无重复、并集与夹具根条目一致；数据不变期间执行，禁止按不稳定时间顺序假定固定文件名 |
+| 2.3 | `c139 ls -R "$PAGE" -o "$LOCAL/logs/ls-tree.json"` | 0；文本含每个完整目录路径；JSON 顶层为数组，各对象含 path/total/items，含根、child 和空目录 empty；242 个文件恰好出现一次 |
+| 2.4 | `c139 ls -R "$PAGE" -p 2 -s 1 -o "$LOCAL/logs/ls-tree-small-page.json"` | 0；递归模式忽略显示页码/数量选择，仍返回全部内容，规范化后与 2.3 一致；child 的 121 个文件也跨 API 默认 100 条分页完整返回 |
+| 2.5 | `c139 ls "$PAGE/empty" -o "$LOCAL/logs/ls-empty.json"` | 0；普通 JSON 对象，total=0、items=[]；递归结果也包含该目录 |
+| 2.6 | `c139 ls "$CLOUD/s02/not-created"` | 1；明确不存在，未创建新路径 |
+| 2.7 | `"$BIN" -v debug --config "$CONFIG" ls "$PAGE"` | 0；全局 verbose 放子命令前，调试输出不泄露 Token |
 
-##### 阶段 1.2: 基础登录校验
+递归 JSON 核验需把每个目录 path 相对 PAGE 化，将 items 的 name/type/size 与 paged manifest 投影比较；同时确认目录结果 path 唯一、条目名称唯一、所有空目录存在。普通分页三页并集比较同样用 path/name/type/size，不能把时间字段变化当成重复。
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 1.2.1 | `./target/release/cloud139.exe login --token <expired_or_invalid_token>` | **边界**：`ls /` 校验失败，输出 Token 可能已过期的警告，退出码为 1，配置文件被删除 |
-| 1.2.2 | `./target/release/cloud139.exe login --token <valid_token>` | 登录成功：内部自动执行 `ls /`，输出 `Token 验证成功!`，退出码为 0 |
+### 阶段 3：upload 目录与内容映射
 
-> **步骤 1.2.1 说明**：将有效 token 倒数第 10~20 位之间的任意一个字符替换为另一个不同的 Base64 合法字符（A-Z、a-z、0-9、+、/）。这样 Base64 解码仍能通过，但 token 内容被篡改，服务端校验签名或 payload 时会拒绝，预期输出：
-> ```
-> ⚠ ls / 执行失败，Token 可能已过期或无效: ...
-> ⚠ 请重新获取 Token 后再次登录
-> ```
-> 例如原始 token 的某一位是 `a`，将其改为 `b`。
-
-#### 阶段 2: 列表测试 (ls)
+每行独立目标均事先确认不存在。基准 tree manifest 在上传前固定，失败前后快照覆盖各自 s03 子树。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 2.1 | `./target/release/cloud139.exe ls /` | 能列出根目录内容 |
-| 2.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 能列出空目录 |
-| 2.3 | `./target/release/cloud139.exe ls /not_exist_dir` | **边界**：返回错误 |
-| 2.4 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 1 -s 10` | 分页：只返回第1页10条记录；总条目数应为25 |
-| 2.5 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 2 -s 10` | 分页：返回第2页10条记录，条目与 2.4 不重复 |
-| 2.6 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 3 -s 10` | 分页：返回剩余约5条记录 |
-| 2.7 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -p 1 -s 25` | 分页：单页返回全部25条记录，验证总数 |
-| 2.8 | `./target/release/cloud139.exe ls /e2e_ls_paging_test -o ls_result.json` | 结果输出为 JSON 文件，文件内容有效且包含目录条目 |
-| 2.9 | `cat ls_result.json` | 验证 JSON 文件结构正确（包含 `name`、`type`、`size` 等字段） |
-| 2.10 | `./target/release/cloud139.exe -v debug ls /` | 全局 `-v` 选项生效，控制台应输出 `DEBUG` 级别日志 |
+| 3.1 | `c139 upload "$FIX/tree" "$CLOUD/s03/keep"` | 0；目标是 `$CLOUD/s03/keep/tree`，不把文件直接放进 keep；逐文件哈希、多层目录及两处空目录与基准完全一致 |
+| 3.2 | `c139 upload "$FIX/tree/" "$CLOUD/s03/contents"` | 0；目标内容直接在 contents，下方不多一层 tree；完整清单相同 |
+| 3.3 | `c139 upload "$FIX/empty" "$CLOUD/s03/empty-container"`；另用 `c139 upload "$FIX/empty/" "$CLOUD/s03/empty-contents"` | 0；分别存在 empty-container/empty 和 empty-contents，均为空目录；即使没有文件也建立映射根 |
+| 3.4 | `c139 upload "$FIX/tree" "$CLOUD/s03/missing/parents/dest"` | 0；自动创建缺失目标及所有父目录，落在 dest/tree，不能自动改名或丢空目录 |
+| 3.5 | 准备 `c139 mkdir -p "$CLOUD/s03/same"`；`c139 upload "$FIX/same-v1/same.bin" "$CLOUD/s03/same"` | 0；下载证明确为 AAAA；保存原始 SHA256 |
+| 3.6 | `c139 upload "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 1；同名默认拒绝，AAAA 及命名快照不变；不得因大小相同返回成功却什么也没做 |
+| 3.7 | `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 个人盘允许提交；返回 0 后必须下载证明 BBBB 的 SHA256 确实出现在原名或明确记录的服务端新名称下，登记实际重名策略，不能只看日志或同样的 4 字节大小。family/group 为 1 且快照不变 |
+| 3.8 | `c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s03/file-conflict"` 后 `c139 upload "$FIX/tree" "$CLOUD/s03/file-conflict"` | 前者 0；后者 1，文件 tree 不能变目录且其内容不变；即使 --force 也拒绝，快照无多余目录 |
+| 3.9 | `c139 mkdir -p "$CLOUD/s03/dir-conflict/same.bin"` 后 `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/dir-conflict"` | 后者 1；同名目录不能变文件，目录清单不变 |
+| 3.10 | `c139 upload "$FIX/not-created.bin" "$CLOUD/s03/keep"` | 1；本地源不存在；普通单文件上传到缺失远端目录也仍拒绝：`c139 upload "$FIX/files/a.txt" "$CLOUD/s03/not-created-dir"`，不能误套目录自动建父语义 |
 
-#### 阶段 3: 上传测试 (upload)
+| 3.11 | `c139 upload "$FIX/same-v1/" "$CLOUD/s03/same-directory"`，随后 `c139 upload "$FIX/same-v2/" "$CLOUD/s03/same-directory"` | 第一条 0；第二条 1，完整快照仍为 AAAA；验证目录路径也不能按同大小静默 Skip |
+| 3.12 | `c139 upload --force "$FIX/same-v2/" "$CLOUD/s03/same-directory"` | personal：允许提交但必须以逐文件 SHA256 证明 BBBB 确实被处理，名称策略按 3.7 登记；family/group：1、完整快照不变 |
 
-测试上传当前目录的 `README.md` 和 `Cargo.toml`：
+### 阶段 4：上传后的完整性基线
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 3.1 | `./target/release/cloud139.exe upload README.md /` | 上传到根目录 |
-| 3.2 | `./target/release/cloud139.exe upload Cargo.toml /` | 上传到根目录 |
-| 3.3 | `./target/release/cloud139.exe upload README.md /e2e_test_xxx/` | 上传到测试目录 |
-| 3.4 | `./target/release/cloud139.exe upload Cargo.toml /e2e_test_xxx/` | 上传到测试目录 |
-| 3.5 | `./target/release/cloud139.exe upload not_exist_file.txt /` | **边界**：本地文件不存在 |
-| 3.6 | `./target/release/cloud139.exe upload README.md /not_exist_dir/` | **边界**：远程目录不存在 |
-| 3.7 | `./target/release/cloud139.exe upload README.md /` | **边界**：上传同名文件，云端已存在；应提示警告且退出码为1 |
-| 3.8 | `./target/release/cloud139.exe upload README.md / --force` | 强制上传，云端会自动重命名 |
-| 3.9 | 生成并上传随机1MB+文件 | 随机数据文件，验证哈希一致性 |
+| 步骤 | 命令/操作 | 验证点 |
+|------|-----------|--------|
+| 4.1 | `c139 ls -R "$CLOUD/s03" -o "$LOCAL/logs/upload-baseline.json"` | 每个目标映射、文件/目录类型、空目录均正确，没有意外自动改名目录 |
+| 4.2 | 将 3.1、3.2、3.4 的有效目录分别下载到新的 LOCAL/downloads 基线路径，用 fixture_tool manifest/compare | 逐文件 SHA256、完整目录清单一致；上传返回内容哈希不是唯一证据 |
+| 4.3 | 核对同大小变更 3.6/3.7 和所有冲突目标的前后清单 | 默认拒绝不变；强制成功不能静默跳过内容变化；重名附加对象均记入台账 |
 
-**步骤 3.9 详细操作**：
+### 阶段 5：download -r、目标映射与本地冲突
 
-首先在本地生成一个带时间戳的随机1MB文件（Windows和Unix命令不同）：
-
-**Windows (PowerShell)**：
-```powershell
-$timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$filename = "e2e_random_$timestamp.bin"
-$size = 1MB
-$r = New-Object Random
-$b = [byte[]]::new($size)
-$r.NextBytes($b)
-[IO.File]::WriteAllBytes($filename, $b)
-# 计算本地哈希
-$localHash = (Get-FileHash $filename -Algorithm SHA256).Hash
-Write-Output "Local: $localHash"
-# 上传
-./target/release/cloud139.exe upload $filename /
-# 提取响应中的哈希进行对比
-```
-
-**Unix (Linux/macOS/WSL2)**：
-```bash
-timestamp=$(date +%Y%m%d_%H%M%S)
-filename="e2e_random_$timestamp.bin"
-dd if=/dev/urandom of="$filename" bs=1M count=1
-localHash=$(sha256sum "$filename" | cut -d' ' -f1)
-echo "Local: $localHash"
-./target/release/cloud139.exe upload "$filename" /
-```
-
-验证上传响应中的 `contentHash` 与本地计算的一致。
-
-清理本地测试文件：
-```bash
-rm -f e2e_random_*.bin
-```
-
-#### 阶段 4: 列表验证
+前置：独立上传 `c139 upload "$FIX/tree" "$CLOUD/s05"`，设置 `DLSRC="$CLOUD/s05/tree"`；验证源与基准一致。所有本地目标均在 LOCAL/downloads 下，绝不在仓库执行默认下载。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 4.1 | `./target/release/cloud139.exe ls /` | 应包含 README.md, Cargo.toml |
-| 4.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应包含上传的两个文件 |
+| 5.1 | `c139 download "$DLSRC/root.txt" "$LOCAL/downloads/renamed-file.txt"` | 0；单文件指定名称，SHA256 与 fixture root.txt 相同 |
+| 5.2 | 在新的 LOCAL/work/default-file 子目录执行 `c139 download "$DLSRC/root.txt"` | 0；默认名 root.txt 仅写临时工作目录，内容一致 |
+| 5.3 | `c139 download -r "$DLSRC" "$LOCAL/downloads/new-tree"` | 0；new-tree 原本不存在，直接包含 root.txt/nested/empty，不多 tree 层；完整 manifest 与基准一致 |
+| 5.4 | 先创建空本地 existing；`c139 download -r "$DLSRC" "$LOCAL/downloads/existing"` | 0；已有目录映射为 existing/tree，逐文件 hash 和空目录一致 |
+| 5.5 | `c139 download -r "$DLSRC" "$LOCAL/downloads/trailing/"` | 0；trailing 原本不存在也映射为 trailing/tree，完整 manifest 一致 |
+| 5.6 | `c139 download "$CLOUD/s05/not-created.bin" "$LOCAL/downloads/missing.bin"` | 1；明确远程不存在，本地 missing.bin 不应创建 |
+| 5.7 | `c139 download "$DLSRC" "$LOCAL/downloads/no-recursive"`；随后 `c139 download -r "$DLSRC" "$LOCAL/downloads/with-recursive"` | 前者 1 且无目标输出；后者 0 且完整 tree 清单一致，不再把目录下载统一写成不支持 |
+| 5.8 | `c139 download -r "$DLSRC/empty" "$LOCAL/downloads/empty-new"` | 0；empty-new 是空目录，不能漏建或产生文件 |
+| 5.9 | 分别准备冲突文件 conflict-new，以及已有 conflict-parent/tree/empty 文件，再下载到对应目标（见下文） | 两种情况均为 1；文件与目录冲突应在写入前拒绝，本地原始文件和全部清单不变 |
+| 5.10 | 单文件下载到新建父目录路径和末尾 `/` 路径 | 自动建本地父目录；与远端原文件 SHA256 一致；使用不同新目标，避免一次创建的目录改变后续映射 |
 
-#### 阶段 5: 下载测试 (download)
+5.9 的准确准备：创建 `$LOCAL/downloads/conflict-new` 作为**普通文件**后下载同名目录应失败且文件不变；另创建 `$LOCAL/downloads/conflict-parent/tree/empty` 普通文件，再执行 `c139 download -r "$DLSRC" "$LOCAL/downloads/conflict-parent"`，由于已有目录会追加 tree，恰好在 tree/empty 触发冲突。两种情况分开记录；不能用一个已存在目录当作“新目标”。
 
-> 请注意在下载完成后检查本地文件是否存在、文件大小是否与云端一致
+### 阶段 6：cp 非空目录、多源与预检
 
-
-首先创建本地临时测试目录：
-```bash
-mkdir -p cloud139_e2e_download_test
-```
-
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 5.1 | `./target/release/cloud139.exe download /README.md` | 下载成功（默认文件名） |
-| 5.2 | `./target/release/cloud139.exe download /e2e_test_xxx/Cargo.toml` | 下载成功 |
-| 5.3 | `./target/release/cloud139.exe download /README.md ./cloud139_e2e_download_test/` | 下载到指定目录（保持原名） |
-| 5.4 | `./target/release/cloud139.exe download /e2e_test_xxx/Cargo.toml ./cloud139_e2e_download_test/custom_name.toml` | 下载并重命名 |
-| 5.5 | `ls ./cloud139_e2e_download_test/` | 验证文件已保存 |
-| 5.6 | `./target/release/cloud139.exe download /not_exist.txt` | **边界**：文件不存在 |
-| 5.7 | `./target/release/cloud139.exe download /e2e_test_xxx` | **边界**：不能下载目录 |
-| 5.8 | `./target/release/cloud139.exe download /Cargo.toml ./non-exist-dir-1/` | **边界**：自动创建目录并成功下载文件 |
-| 5.9 | `./target/release/cloud139.exe download /README.md ./non-exist-dir-2/custom.txt` | **边界**：自动创建目录并成功下载文件 |
-| 5.10 | 下载随机文件并验证哈希一致性 | 下载阶段 3.9 上传的随机文件，与本地哈希比对 |
-
-**步骤 5.10 详细操作**：
-
-首先从阶段 3.9 获取上传后的文件名（格式：`e2e_random_{timestamp}.bin`），然后下载并验证哈希：
-
-**Windows (PowerShell)**：
-```powershell
-# 找到阶段 3.9 生成的文件名（根据时间戳推断）
-$timestamp = "20260319_003824"  # 需根据实际情况调整
-$filename = "e2e_random_$timestamp.bin"
-# 下载文件
-./target/release/cloud139.exe.exe download /$filename ./
-# 计算本地下载文件的哈希
-$downloadedHash = (Get-FileHash $filename -Algorithm SHA256).Hash
-Write-Output "Downloaded: $downloadedHash"
-# 注意：阶段 3.9 已将本地随机文件的哈希记录，可直接对比
-```
-
-**Unix (Linux/macOS/WSL2)**：
-```bash
-timestamp=$(date +%Y%m%d_%H%M%S)
-filename="e2e_random_$timestamp.bin"
-./target/release/cloud139.exe download "$filename" ./
-downloadedHash=$(sha256sum "$filename" | cut -d' ' -f1)
-echo "Downloaded: $downloadedHash"
-# 阶段 3.9 已将本地随机文件的哈希记录在 $localHash 变量中
-```
-
-**验证方法**：
-- 下载文件后计算其 SHA256 哈希
-- 与阶段 3.9 记录在日志中的 `$localHash` 对比
-- 二者应完全一致，确保上传下载过程数据完整性
-
-测试完成后清理本地临时目录：
-```bash
-rm -rf cloud139_e2e_download_test
-```
-
-#### 阶段 6: 复制测试 (cp)
-
-> `cp` 现已采用与 `mv` 一致的参数格式：`cp <源1> <源2> ... <目标目录>`。
-> 对 `personal_new`，支持真正的多源复制。
-> 对 `family` / `group`，若传入多个源路径，应明确报“不支持批量复制”。
+前置：`c139 upload "$FIX/tree" "$CLOUD/s06/source"`，`c139 upload "$FIX/files/" "$CLOUD/s06/files"`，`c139 upload "$FIX/duplicates/" "$CLOUD/s06/dup"`。分别创建全新 dest-single、dest-multi、dest-conflict；令 `CP_SRC="$CLOUD/s06/source/tree"`。禁止在单源测试已占用的目标里直接要求多源无冲突成功。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 6.1 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/cp_target` | 准备独立目标目录，避免与前面上传步骤互相污染 |
-| 6.2 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/` | 单源复制成功 |
-| 6.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 应包含 `Cargo.toml` |
-| 6.4 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/` | 多源复制成功；目标目录新增两个文件 |
-| 6.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 应同时包含 `README.md`、`Cargo.toml`，以及来自 6.2 的既有文件；若云端重名策略触发，需记录实际命名结果 |
-| 6.6 | `./target/release/cloud139.exe cp /not_exist.txt /tmp` | **边界**：源文件不存在 |
-| 6.7 | `./target/release/cloud139.exe cp /README.md /not_exist_dir/` | **边界**：目标目录不存在 |
-| 6.8 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：复制到已有同名文件的目录；应提示警告且退出码为 1 |
-| 6.9 | `./target/release/cloud139.exe cp /Cargo.toml /e2e_test_xxx/cp_target/ --force` | 强制复制，云端会自动重命名 |
-| 6.10 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：多源复制到已存在同名文件的目录；未加 `--force` 应失败，退出码为 1 |
-| 6.11 | `./target/release/cloud139.exe cp /README.md /Cargo.toml /e2e_test_xxx/cp_target/ --force` | 多源强制复制成功，云端会自动重命名 |
-| 6.12 | `./target/release/cloud139.exe cp /README.md /docs/Cargo.toml /e2e_test_xxx/cp_target/` | **边界**：多源列表内 basename 冲突（同名 `Cargo.toml`）时，未加 `--force` 应失败；若仓库当前不存在 `docs/Cargo.toml`，改用两个同名源文件复现该场景 |
-| 6.13 | `./target/release/cloud139.exe cp /README.md /docs/Cargo.toml /e2e_test_xxx/cp_target/ --force` | **边界**：多源列表内 basename 冲突时，加 `--force` 后成功，由云端自动重命名；若仓库当前不存在 `docs/Cargo.toml`，改用两个同名源文件复现该场景 |
-| 6.14 | `./target/release/cloud139.exe ls /e2e_test_xxx/cp_target` | 复核最终文件列表，记录自动重命名结果，供清理阶段使用 |
+| 6.1 | `c139 mkdir -p "$CLOUD/s06/dest-single"` | 0；创建独立空目标，确认状态 |
+| 6.2 | `c139 cp "$CP_SRC" "$CLOUD/s06/dest-single"` | personal：0，目标 dest-single/tree 与基准完整一致、源不变；family/group：1，明确不支持，双方快照不变 |
+| 6.3 | `c139 mkdir -p "$CLOUD/s06/dest-multi"` | 0；独立空目标，与 6.2 不共享 |
+| 6.4 | `c139 cp "$CLOUD/s06/files/a.txt" "$CLOUD/s06/files/b.txt" "$CLOUD/s06/dest-multi"` | personal：0，两个文件都复制且源仍在，SHA256 一致；family/group：1 且未产生部分复制 |
+| 6.5 | `c139 cp "$CP_SRC" "$CP_SRC"`；`c139 cp --force "$CP_SRC" "$CP_SRC/nested"` | 1；禁止目录复制到自身和子目录，source 整体清单不变（所有后端） |
+| 6.6 | `c139 cp "$CP_SRC" "$CLOUD/s06/files/blocker.bin"`；另以阶段内未创建目标作 target | 1；目标文件/缺失目标被拒绝；不把目标参数当新文件名 |
+| 6.7 | 先 `c139 upload "$FIX/tree" "$CLOUD/s06/dest-conflict"` 准备非空 tree，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/dest-conflict"` | 1；目录同名不能合并、覆盖或自动改名，源/目标完整快照不变 |
+| 6.8 | 先 `c139 mkdir -p "$CLOUD/s06/file-conflict"`、`c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s06/file-conflict"`，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/file-conflict"` | 1；文件/目录同名类型冲突不变 |
+| 6.9 | personal：先 `c139 mkdir -p "$CLOUD/s06/file-repeat"`，复制 a.txt 到该目标，再不带 --force 重复复制 | 1；同名文件预检拒绝，快照不变 |
+| 6.10 | personal：在 6.9 同一目标加 --force | 允许提交；0 后轮询校验新增副本实际名称/哈希及源不变，登记服务端重名结果，不预先写死名称；legacy 仍拒绝 |
+| 6.11 | `c139 cp --force "$CLOUD/s06/dup/left/shared.txt" "$CLOUD/s06/dup/right/shared.txt" "$CLOUD/s06/dest-multi"` | 1；多个源 basename 相同，即使 --force 也拒绝，不能沿用旧“自动改名成功”预期 |
+| 6.12 | personal：先创建独立空 dest-preflight，再把 files/a.txt 与阶段内不存在源混合复制到该已有目录 | 1；全部预检后才变更，不允许已有源先被复制；双方完整快照不变 |
 
-#### 阶段 7: 重命名测试 (rename)
+### 阶段 7：rename 非空目录与冲突
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 7.1 | `./target/release/cloud139.exe rename /e2e_test_xxx/README.md README_copy.md` | 重命名文件成功 |
-| 7.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 README_copy.md |
-| 7.3 | `./target/release/cloud139.exe rename / new_name` | **边界**：不能重命名根目录 |
-| 7.4 | `./target/release/cloud139.exe rename /not_exist.txt new.txt` | **边界**：文件不存在 |
-| 7.5 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rename_dir_src` | 准备：创建待重命名的目录 |
-| 7.6 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_src rename_dir_dst` | 重命名目录成功 |
-| 7.7 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 rename_dir_dst，无 rename_dir_src |
-| 7.8 | `./target/release/cloud139.exe rename /e2e_test_xxx/rename_dir_dst rename_dir_dst` | **边界**：重命名为同名；当前实现允许重命名为同名（返回退出码 0） |
-| 7.9 | `./target/release/cloud139.exe rename /e2e_test_xxx/not_exist_dir new_dir` | **边界**：目录不存在 |
-
-#### 阶段 8: 移动测试 (mv)
+前置：向 s07/source 上传 tree，向 s07/files 上传 files 的内容。另依次用 `c139 upload "$FIX/tree" "$CLOUD/s07/conflict"`、`c139 upload "$FIX/tree/" "$CLOUD/s07/conflict/taken"` 和 `c139 upload "$FIX/files/blocker.bin" "$CLOUD/s07/conflict"`，准备非空 tree、非空 taken 和普通文件 blocker.bin；这些夹具与成功用例分离。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 8.1 | `./target/release/cloud139.exe mv /e2e_test_xxx/README_copy.md /` | 移动到根目录 |
-| 8.2 | `./target/release/cloud139.exe ls /` | 应有 README_copy.md |
-| 8.3 | `./target/release/cloud139.exe ls /e2e_test_xxx` | README_copy.md 已移出 |
-| 8.4 | `./target/release/cloud139.exe mv /README_copy.md /not_exist_dir/` | **边界**：目标不存在 |
-| 8.5 | `./target/release/cloud139.exe mv / /somewhere` | **边界**：不能移动根目录 |
-| 8.6 | `./target/release/cloud139.exe mv /README.md /e2e_test_xxx/` | **边界**：移动到已有同名文件的目录；当前实现个人云下会直接移动成功（云端自动重命名），退出码为 0 |
-| 8.7 | `echo "re-upload readme" > README.md && ./target/release/cloud139.exe upload README.md / && ./target/release/cloud139.exe mv /README.md /e2e_test_xxx/ --force` | 先重新上传 README.md，再强制移动，云端会自动重命名 |
-| 8.8 | `echo "mv_multi_1" > mv_multi_1.txt && ./target/release/cloud139.exe upload mv_multi_1.txt /e2e_test_xxx/ && echo "mv_multi_2" > mv_multi_2.txt && ./target/release/cloud139.exe upload mv_multi_2.txt /e2e_test_xxx/` | 准备：上传多个文件用于批量移动测试 |
-| 8.9 | `./target/release/cloud139.exe mv /e2e_test_xxx/mv_multi_1.txt /e2e_test_xxx/mv_multi_2.txt /e2e_test_xxx/subdir/` | 同时移动多个文件到目标目录 |
-| 8.10 | `./target/release/cloud139.exe ls /e2e_test_xxx/subdir` | 目标目录应包含 mv_multi_1.txt 和 mv_multi_2.txt |
-| 8.11 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 源目录中应无 mv_multi_1.txt 和 mv_multi_2.txt |
-| 8.12 | `./target/release/cloud139.exe mv /e2e_test_xxx/subdir/mv_multi_1.txt /e2e_test_xxx/subdir/mv_multi_2.txt /not_exist_dir/` | **边界**：目标目录不存在 |
-| 8.13 | `./target/release/cloud139.exe mv /e2e_test_xxx/subdir/mv_multi_1.txt /not_exist.txt /e2e_test_xxx/` | **边界**：多个源路径中有一个不存在 |
+| 7.1 | `c139 rename "$CLOUD/s07/files/a.txt" renamed-a.txt` | 三后端均支持；0 后新名文件 hash 不变，旧名消失 |
+| 7.2 | `c139 rename "$CLOUD/s07/source/tree" renamed-tree` | personal/group：0，完整非空目录与空子目录保留，新路径下 manifest 与基准一致，旧路径消失；family：1、不支持、快照不变 |
+| 7.3 | personal/group：`c139 rename "$CLOUD/s07/source/renamed-tree" renamed-tree` | 0；已有目录同名 no-op，清单不变；family 对目录连同名也明确拒绝，使用其仍存在的 source/tree 验证 |
+| 7.4 | `c139 rename "$CLOUD/s07/not-created" new-name` | 1；源不存在，不能把它当 no-op 成功 |
+| 7.5 | `c139 rename --force "$CLOUD/s07/conflict/tree" taken` | 1；非空目录同名冲突不变，不能强制合并 |
+| 7.6 | `c139 rename --force "$CLOUD/s07/conflict/tree" blocker.bin` | 1；目录不能覆盖同名文件，双方不变 |
+| 7.7 | `c139 mkdir -p "$CLOUD/s07/files/taken-dir"` 后 `c139 rename --force "$CLOUD/s07/files/b.txt" taken-dir` | rename 为 1；文件不能替换目录，双方快照不变；非法名称测试转离线 mock |
+| 7.8 | `c139 rename "$CLOUD/s07/files/renamed-a.txt" renamed-a.txt` | 三后端文件同名 no-op 均为 0，hash 和名称清单不变 |
 
-#### 阶段 9: 创建目录测试 (mkdir)
+### 阶段 8：mv 非空目录、多源与预检
+
+前置：向 s08/source 上传 tree，向 s08/files 上传 files 内容，并 mkdir -p 创建独立 dest-dir、dest-multi 目标。另用目录上传分别在 s08/conflict-source 和 s08/conflict-dir 下创建非空 tree；在先 mkdir -p 创建的 s08/conflict-file 中上传 FIX/tree-as-file/tree 普通文件。用 `c139 upload "$FIX/files/" "$CLOUD/s08/same-source"` 和 `c139 upload "$FIX/other-files/" "$CLOUD/s08/same-name"` 准备同名 a.txt、不同哈希的源/目标。所有目标均在 CLOUD 下，不把文件搬进真实根目录。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 9.1 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/subdir` | 创建子目录 |
-| 9.2 | `./target/release/cloud139.exe ls /e2e_test_xxx` | 应有 subdir |
-| 9.3 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/subdir` | **边界**：目录已存在，云端已存在；应提示警告且退出码为1 |
-| 9.4 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/subdir --force` | 强制创建，云端会自动重命名 |
-| 9.5 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/not_exist/child` | **边界**：父目录不存在 |
+| 8.1 | `c139 mv "$CLOUD/s08/source/tree" "$CLOUD/s08/dest-dir"` | personal/group：0，轮询旧路径消失，dest-dir/tree 完整清单与基准一致；family：1，源目标不变 |
+| 8.2 | 在 dest-dir/tree（family 用原 source/tree）下载和遍历 | 验证多层文件哈希和全部空目录，没有遗漏内容 |
+| 8.3 | `c139 mv "$CLOUD/s08/files/a.txt" "$CLOUD/s08/files/b.txt" "$CLOUD/s08/dest-multi"` | personal：0，两源消失，目标两文件哈希一致；family/group：1，明确不支持批量且均不变 |
+| 8.4 | 对专门的 conflict-source/tree 执行 mv 到自身以及其 nested 子目录，包含 --force 变体 | 1；清单不变 |
+| 8.5 | 用阶段内文件 blocker.bin 或未创建路径作 mv target | 1；拒绝无效目标，源不动 |
+| 8.6 | `c139 mv "$CLOUD/s08/same-source/a.txt" "$CLOUD/s08/same-name"` | 1；当前预检要求拒绝，源和目标哈希均不变，不再期待普通 mv 自动改名 |
+| 8.7 | personal 在 8.6 后加 --force；group/family 同样尝试 | personal 允许提交，0 后源消失、目标原文件和实际新名副本按 API 策略核验并登记；group/family 1 且不变，不声称支持强制覆盖 |
+| 8.8 | 用 conflict-source/tree 为源，分别执行 mv --force 到 s08/conflict-dir 和 s08/conflict-file | 1；目录/目录及目录/文件冲突都不变 |
+| 8.9 | personal：两个有效但 basename 同名的源一起移动；另测有效源+不存在源 | 均为 1；--force 不能放开多源同名；不得移动部分有效源，快照不变 |
+| 8.10 | 将某文件移到它当前所在父目录 | 1；同目录冲突/无效操作，文件不应丢失或变名 |
 
-#### 阶段 10: 删除测试 (rm)
-
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 10.1 | `echo "test" > test_delete.txt && ./target/release/cloud139.exe upload test_delete.txt /e2e_test_xxx/` | 准备删除测试文件 |
-| 10.2 | `./target/release/cloud139.exe rm /e2e_test_xxx/test_delete.txt --yes` | 移到回收站 |
-| 10.3 | `./target/release/cloud139.exe ls /e2e_test_xxx` | test_delete.txt 已删除 |
-| 10.4 | `./target/release/cloud139.exe rm /not_exist.txt --yes` | **边界**：文件不存在 |
-| 10.5 | `./target/release/cloud139.exe rm /Cargo.toml` | 不带 --yes 应提示确认 |
-| 10.6 | `./target/release/cloud139.exe rm / --yes` | **边界**：不能删除根目录 |
-| 10.7 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rm_empty_dir` | 准备：创建待删除的空目录 |
-| 10.8 | `./target/release/cloud139.exe rm /e2e_test_xxx/rm_empty_dir --yes` | 删除空目录成功 |
-| 10.9 | `./target/release/cloud139.exe ls /e2e_test_xxx` | rm_empty_dir 已删除 |
-| 10.10 | `./target/release/cloud139.exe mkdir /e2e_test_xxx/rm_nonempty_dir && echo "dir_file" > rm_dir_file.txt && ./target/release/cloud139.exe upload rm_dir_file.txt /e2e_test_xxx/rm_nonempty_dir/` | 准备：创建非空目录 |
-| 10.11 | `./target/release/cloud139.exe rm /e2e_test_xxx/rm_nonempty_dir --yes` | 删除非空目录成功 |
-| 10.12 | `./target/release/cloud139.exe ls /e2e_test_xxx` | rm_nonempty_dir 已删除 |
-| 10.13 | `./target/release/cloud139.exe rm /e2e_test_xxx/not_exist_dir --yes` | **边界**：目录不存在 |
-
-#### 阶段 11: 同步测试 (sync)
-
-> **sync 命令说明**：`sync` 命令参考 rsync 语义，支持本地与云端之间的单向同步。同步方向完全由 SRC/DEST 参数位置决定。
-> - 本地 → 云端：`sync ./local cloud:/remote`
-> - 云端 → 本地：`sync cloud:/remote ./local`
-> - 云端路径以 `cloud:` 前缀标识，之后直接跟云端路径（如 `cloud:/backup`）
-> - **执行顺序要求**：阶段 11 的各子步骤应串行执行；不要对同一个云端目标目录并发执行多条 `sync` 命令，否则会互相污染结果（例如触发云端自动重命名）
-
-##### 阶段 11 环境准备
-
-```bash
-# 创建本地同步测试目录结构
-mkdir -p cloud139_e2e_sync_src/subdir
-echo "file1 content" > cloud139_e2e_sync_src/file1.txt
-echo "file2 content" > cloud139_e2e_sync_src/file2.txt
-echo "sub content"   > cloud139_e2e_sync_src/subdir/sub.txt
-
-# 创建云端目标目录
-./target/release/cloud139.exe mkdir /e2e_test_xxx/sync_target
-
-# 创建本地下载目标目录（供云端→本地测试使用）
-mkdir -p cloud139_e2e_sync_dst
-```
-
-##### 11.1 基础上传同步（本地 → 云端）
+### 阶段 9：mkdir -p、幂等与文件冲突
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 11.1.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target` | 不带 `-r` 时仅同步源目录根下文件，子目录被跳过；按当前准备数据，应传输 `file1.txt`、`file2.txt` 共 2 个文件 |
-| 11.1.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 在 11.1.1 之后递归同步，应补传 `subdir/sub.txt` 1 个文件；若跳过 11.1.1 直接执行，则会首次全量同步 3 个文件 |
-| 11.1.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 云端应有 file1.txt、file2.txt；应有 subdir 目录 |
-| 11.1.4 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target/subdir` | 云端 subdir 应有 sub.txt |
-| 11.1.5 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | **增量同步**：文件未变化，应全部 Skip，输出 `0 个文件传输, 3 个跳过` |
-| 11.1.6 | 在源目录下创建空目录 `empty_dir` 后执行 `sync ... -r` | 云端应出现空目录 `empty_dir` |
+| 9.1 | 先 `c139 mkdir -p "$CLOUD/s09"`，再 `c139 mkdir "$CLOUD/s09/single"` | 0；只创建预期目录 |
+| 9.2 | `c139 mkdir -p "$CLOUD/s09/missing/a/b/empty"` | 0；多层父目录和叶目录完整创建，最终为空目录 |
+| 9.3 | 重复 9.2，并以等价路径 `$CLOUD/s09/missing//a/./b/empty/` 再执行 -p | 0；幂等，目录清单不变、无改名兄弟目录；仅使用保持在 CLOUD 内的等价路径 |
+| 9.4 | `c139 mkdir --force "$CLOUD/s09/single"` | 1；--force 仅解析兼容，已存在目录仍拒绝，不能期待自动改名；不带 --force 重复 mkdir 也为 1 |
+| 9.5 | `c139 mkdir "$CLOUD/s09/not-created/child"` | 1；不带 -p 时父目录不存在必须报错，快照不变 |
+| 9.6 | 先上传 blocker.bin 到 s09，再 `c139 mkdir -p "$CLOUD/s09/blocker.bin/child"` | 1；父节点是文件，原文件 hash 不变，无 child |
+| 9.7 | `c139 mkdir -p "$CLOUD/s09/blocker.bin"`（另测 --force） | 1；叶节点是文件也拒绝，不删除文件或创建重命名目录 |
 
-##### 11.2 --dry-run 演习模式
+### 阶段 10：rm 显式 -r、--yes 和只删除本轮对象
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.2.1 | 修改本地文件：`echo "modified" > cloud139_e2e_sync_src/file1.txt` | 准备 |
-| 11.2.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -n` | 演习模式：输出操作计划（包含 `(DRY RUN)` 前缀），不实际传输；退出码为 0 |
-| 11.2.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端 file1.txt **未被修改**（dry-run 不应产生实际变更） |
-
-##### 11.3 增量同步（内容变化）
+前置：`c139 upload "$FIX/files" "$CLOUD/s10"`、`c139 upload "$FIX/empty" "$CLOUD/s10"`、`c139 upload "$FIX/tree" "$CLOUD/s10"`，并验证完整快照。所有删除仅针对已登记的本轮夹具。
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 11.3.1 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | file1.txt 已修改，应只传输 1 个文件，其余 2 个 Skip；输出 `1 个文件传输, 2 个跳过` |
+| 10.1 | `c139 rm "$CLOUD/s10/files/a.txt"` | 1；缺 --yes，提示确认且文件内容不变 |
+| 10.2 | `c139 rm --yes "$CLOUD/s10/files/a.txt"` | 0；只移入回收站；轮询成功父列表确认 a.txt 消失，其他文件不变 |
+| 10.3 | `c139 rm --yes "$CLOUD/s10/not-created.bin"` | 1；明确不存在，不能误当成功 |
+| 10.4 | `c139 rm -r "$CLOUD/s10/tree"` | 1；有 -r 也仍须 --yes，完整目录不变 |
+| 10.5 | 永久删除安全负向 | 三后端都拒绝；仅执行阶段 13 的离线 mock，用虚构配置验证不发删除请求且不提示“已永久删除”，真实云端不执行 --permanent |
+| 10.6 | 根目录别名删除/移动安全负向 | 仅离线 mock；不向真实根目录发出测试操作 |
+| 10.7 | `c139 ls -R "$CLOUD/s10/empty" -o "$LOCAL/logs/rm-empty-before.json"` | 0；确认该空目录是本轮创建且仍为空 |
+| 10.8 | `c139 rm --yes "$CLOUD/s10/empty"` | 1；缺 -r 必须拒绝，空目录仍在、快照不变 |
+| 10.9 | `c139 rm -r --yes "$CLOUD/s10/empty"` | 0；有界轮询父列表确认该空目录消失，其他条目不变 |
+| 10.10 | 拍摄 s10/tree 完整清单和哈希 | 证明它是含文件/空子目录的本轮非空夹具 |
+| 10.11 | `c139 rm --yes "$CLOUD/s10/tree"` | 1；非空目录缺 -r 也必须拒绝，全部内容不变 |
+| 10.12 | `c139 rm -r --yes "$CLOUD/s10/tree"` | 0；轮询确认非空目录消失，不能只把任务接受算删除完成 |
+| 10.13 | `c139 rm -r --yes "$CLOUD/s10/not-created-dir"` | 1；源不存在，其他对象不变 |
 
-##### 11.4 --delete 删除多余文件
+### 阶段 11：sync 回归（个人盘），与 upload 规则分开
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.4.1 | 删除本地文件：`rm cloud139_e2e_sync_src/file2.txt` | 准备 |
-| 11.4.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r` | 不带 --delete：file2.txt 仍保留在云端；输出 `0 个文件传输, 2 个跳过` |
-| 11.4.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete -n` | dry-run 下应显示 `*deleting` 标记，不实际删除 |
-| 11.4.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --delete` | 实际删除：云端 file2.txt 应被移除 |
-| 11.4.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端最终已无 file2.txt；若删除后立即 `ls` 仍短暂可见，等待片刻后重试一次，或执行 `rm /e2e_test_xxx/sync_target/file2.txt --yes` 应返回“文件不存在” |
+只在 personal_new 执行实际同步；family/group 用已存在的测试源/目标观察退出码 2 和明确不支持，快照不变。个人盘设置 `SYNCSRC="$LOCAL/sync-source"`（从 FIX/sync-source 复制）、`SYNCDST="$LOCAL/sync-download"`（新目标）、`SYNC_REMOTE="$CLOUD/s11/target"`（先 mkdir -p）。空目录也纳入 manifest，不按脆弱的日志 Skip 数量作为唯一 oracle。
 
+| 步骤 | 命令/操作 | 验证点 |
+|------|-----------|--------|
+| 11.1 | `c139 sync "$SYNCSRC" "cloud:$SYNC_REMOTE"`，再加 -r 执行 | 首次只传根下 2 文件；递归后补齐 subdir/sub.txt 和 empty；云端完整 manifest 与本地一致，0 |
+| 11.2 | 再 `c139 sync -r "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；无新增传输、完整清单不变；不把目录 Skip 统计误写成固定的 3 个文件 |
+| 11.3 | 将 file1.txt 改为明显不同**字节数**，记录修改前云端 hash；`c139 sync -r -n "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；有 DRY RUN 计划，下载/哈希核验云端内容未变，不能只看 ls 文件大小/时间 |
+| 11.4 | 不带 -n 执行上一同步 | 0；仅预期内容更新，最终 manifest 一致。sync 本地→云端仍按大小判断，同大小内容变化可能 Skip；不能把 upload 的规则套在 sync 上 |
+| 11.5 | 从 SYNCSRC 删除 file2.txt 和空目录 empty；先正常同步，再 `c139 sync -r --delete -n "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；不带 --delete 时云端保留额外对象；dry-run 出现删除计划但内容不变 |
+| 11.6 | `c139 sync -r --delete "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；只删除本轮 target 内额外对象，轮询及 manifest 确认；不额外补发 rm 来判断完成 |
+| 11.7 | 在新的 exclude-source 中生成假的 .env、output.log、subdir，再同步到**新的空 exclude-target**，传 `--exclude '*.log' --exclude '.env' --exclude 'subdir'` | 0；被排除条目不存在；旧目标已存在的 subdir 不会仅因 exclude 自动消失，不能用旧目标测试“未上传” |
+| 11.8 | 在独立 jobs-source 生成 8 个小文件，对新 jobs-target 使用 `-r -j 2`，随后 `-r -j 8` | 0；首次完整传输后再无新增内容，hash 清单一致，不对同目标同时启动两次 sync |
+| 11.9 | `c139 sync -r "cloud:$SYNC_REMOTE" "$SYNCDST"`，重复执行 | 0；下载清单一致、第二次无新增传输；若本地已存在旧目标，单独确认映射而不复用 download 的追加目录规则 |
+| 11.10 | 将 SYNCDST/file1.txt 改为不同大小后再执行 11.9 | 0；恢复云端正确内容，逐文件 SHA256 一致；不使用仅改同大小内容的夹具期待强制覆盖 |
+| 11.11 | `c139 sync "$LOCAL/not-created" "cloud:$SYNC_REMOTE" -r`；两端都是本地或都是本轮 CLOUD 路径的方向错误 | 2；扫描/方向失败，不创建远端对象；执行错误退出码 1 的故障注入留在 mock |
+| 11.12 | 个人盘以 CLOUD/s11/not-created-dir 为云端 target 执行 sync | 当前云端根扫描要求目标已存在：2，未创建目标；不要将 upload 自动建父目录的预期套在这里 |
 
-| 11.4.6 | 删除本地空目录 `empty_dir` 后执行 `sync ... -r --delete` | 云端空目录应被删除 |
+### 阶段 12：清理、收尾核验与报告
 
-##### 11.5 --exclude 排除规则
+cleanup sub agent 先审核台账、授权精确 CLOUD、创建成功证据和在途任务。只有能证明由本轮创建的对象才可清理。若写操作结果不明或出现外来对象，暂停该对象清理并报告，不能按类似名称猜测归属。
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.5.1 | 准备：`echo "secret" > cloud139_e2e_sync_src/.env && echo "build" > cloud139_e2e_sync_src/output.log` | 准备排除测试文件 |
-| 11.5.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --exclude "*.log" --exclude ".env"` | `.env` 和 `output.log` 应被跳过，不传输到云端 |
-| 11.5.3 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证云端无 `.env`、无 `output.log` |
-| 11.5.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r --exclude "subdir"` | 排除整个子目录 |
-| 11.5.5 | `./target/release/cloud139.exe ls /e2e_test_xxx/sync_target` | 验证 subdir 目录及其内容未被同步 |
+| 步骤 | 命令/操作 | 验证点 |
+|------|-----------|--------|
+| 12.1 | 对照台账和本轮根列表重新读取 CLOUD 的递归清单 | 所有实际副作用均已登记；无授权外对象；先保存脱敏报告/哈希证据到用户指定安全位置 |
+| 12.2 | `c139 rm -r --yes "$CLOUD"` | 仅在确认本轮根归属且授权包含总清理时执行；必须带 -r，不能用 --permanent，也不逐个删除任何根目录历史文件 |
+| 12.3 | 有界轮询成功根列表，检查本轮 UUID 名称已消失 | 只检查 CLOUD 的缺失；根列表的其他条目不读内容、不变更；超时如实记录残留，不盲目重复删除 |
+| 12.4 | 审核 LOCAL 确为本轮创建的规范化临时根，再清理其中配置、锁文件、下载、输出和夹具 | 只处理台账中的本地对象；不触碰真实全局配置，无需备份/恢复用户配置；凭证文件按安全要求移除，日志不得含 Token |
+| 12.5 | 在 REPO 再执行 `git status --short`、`git diff --name-status` | 与测试前干净基线一致；未知变更/删除保留并报告，不自动 reset 或 git clean，不把不明变化当正常下载覆盖 |
 
-##### 11.6 --jobs 并发控制
+最终报告列出：测试提交与构建、获准后端与 UUID 子树、各阶段通过/失败/阻塞/未跑、实际退出码、逐文件 SHA256/目录清单证据、异步轮询次数和耗时、支持限制、部分失败/未知结果、清理完成和残留对象、工作树前后状态。**真实未执行就明确写“真实云端 E2E 未执行”**；以前的单元测试通过数不能冒充本轮 E2E 结果。
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.6.1 | 准备多文件：`for i in $(seq 1 8); do echo "content $i" > cloud139_e2e_sync_src/batch_$i.txt; done` | 准备 8 个文件 |
-| 11.6.2 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 2` | 限制 2 并发，8 个新文件全部上传成功；退出码为 0 |
-| 11.6.3 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/e2e_test_xxx/sync_target -r -j 8` | 8 并发，全部 Skip（已存在）；退出码为 0 |
+### 阶段 13：仅离线 mock 的安全与故障矩阵
 
-##### 11.7 云端 → 本地（下载方向）
+此阶段不需要也不得使用真实 Token。隔离 HOME/XDG_CONFIG_HOME（Windows 同时检查 USERPROFILE），虚构配置只指向 loopback；审查测试源后，仅运行已确认不会访问真实盘的测试。需要安装/下载依赖时单独完成，再 `--locked --offline`。HTTP_PROXY/HTTPS_PROXY/ALL_PROXY 指向不可用 loopback 端口，NO_PROXY 只放 localhost/127.0.0.1/::1；这不是获准真实盘访问的替代。
 
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.7.1 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 首次全量下载，云端所有文件下载到本地 |
-| 11.7.2 | `ls ./cloud139_e2e_sync_dst/` | 验证本地有 file1.txt、subdir/ 等 |
-| 11.7.3 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | **增量**：无变化，全部 Skip |
-| 11.7.4 | 修改本地文件：`echo "local modified" > ./cloud139_e2e_sync_dst/file1.txt` | 准备 |
-| 11.7.5 | `./target/release/cloud139.exe sync cloud:/e2e_test_xxx/sync_target ./cloud139_e2e_sync_dst -r` | 云端 file1.txt 覆盖本地被修改版本；输出 `1 个文件传输` |
+| 步骤 | 命令/用例 | 验证点 |
+|------|-----------|--------|
+| 13.1 | `cargo test --locked --offline --test directory_operations_test --test legacy_directory_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求；全部后端覆盖 |
+| 13.2 | directory_operations_test 的永久删除与 CLI 确认用例 | 三后端永久删除拒绝、无 batchTrash/永久删除请求，原始 mock 状态不变；不输出“已永久删除” |
+| 13.3 | 上述目录用例及 `cargo test --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环、legacy 重复页/提前结束均报错；不将不完整列表当成功 |
+| 13.4 | 恶意服务端文件名、绝对路径、穿越、Windows 设备名、源/目标 symlink | 拒绝前不写出授权本地临时根、不覆盖受保护文件；symlink 相关平台限制明确记录 |
+| 13.5 | 上传中途失败、批量条目 success=false、HTTP 错误/下载断流、无数据或失败列表 | 失败返回非零并准确报告已完成部分；不静默 Skip，不把错误当空目录，不自动重试不确定写请求 |
+| 13.6 | Config 优先级、失败登录、刷新/并发写回；CLI 缺参数 | 全用虚构凭证/loopback 和临时配置验证，缺参数为 clap 退出码 2；不通过修改真实 Token 测试失败 |
 
-##### 11.8 路径参数错误处理（边界）
-
-| 步骤 | 命令 | 验证点 |
-|------|------|--------|
-| 11.8.1 | `./target/release/cloud139.exe sync ./local1 ./local2 -r` | **边界**：两端均为本地路径，应立即报错，退出码 2，提示使用 `cp`/`mv` 等系统工具 |
-| 11.8.2 | `./target/release/cloud139.exe sync cloud:/src cloud:/dst -r` | **边界**：两端均为云端路径，应立即报错，退出码 2 |
-| 11.8.3 | `./target/release/cloud139.exe sync ./not_exist_src cloud:/e2e_test_xxx/sync_target -r` | **边界**：本地源目录不存在，扫描失败，退出码 2 |
-| 11.8.4 | `./target/release/cloud139.exe sync ./cloud139_e2e_sync_src cloud:/not_exist_remote_dir -r` | **边界**：云端目标目录不存在，扫描/创建失败，退出码 2 |
-
-##### 阶段 11 清理
-
-```bash
-# 删除本地临时目录
-rm -rf cloud139_e2e_sync_src
-rm -rf cloud139_e2e_sync_dst
-rm -f cloud139_e2e_sync_src/.env cloud139_e2e_sync_src/output.log  # 已在 rm -rf 中处理
-
-# 删除云端 sync 测试目录（在本文第 6 节总清理中统一删除 e2e_test_xxx）
-```
-
-### 6. 清理与工作树复核
-
-> ⚠️ **重要警告**：清理时**绝对不要删除本地的项目核心文件**（如 `Cargo.toml`、`README.md`）。下载测试会在当前目录覆盖这些文件，但这是正常行为，不需要清理。需要清理的是**云端**的测试文件。
-
-清理阶段必须由专门的 cleanup sub agent 执行，主代理负责审核其结果。
-
-清理本地临时 JSON 输出文件：
-```bash
-rm -f ls_result.json
-rm -f ./e2e_config_override.toml ./e2e_invalid.toml
-```
-
-测试完成后清理**云端**的测试数据：
-```bash
-./target/release/cloud139.exe rm /e2e_test_xxx --yes
-./target/release/cloud139.exe rm /README.md --yes
-./target/release/cloud139.exe rm /Cargo.toml --yes
-./target/release/cloud139.exe rm /e2e_random_{timestamp}.bin --yes
-```
-
-清理**本地**的测试临时文件（仅限测试过程中生成的临时文件）：
-```bash
-rm -rf cloud139_e2e_download_test
-rm -rf non-exist-dir-1 non-exist-dir-2
-rm -f e2e_random_*.bin
-rm -f test_delete.txt
-# sync 测试产生的临时目录
-rm -rf cloud139_e2e_sync_src
-rm -rf cloud139_e2e_sync_dst
-```
-
-**注意**：以下文件是本地项目核心文件，**绝对不能删除**：
-- `Cargo.toml` - Rust 项目配置文件
-- `README.md` - 项目说明文档
-- `Cargo.lock` - 依赖锁定文件
-
-如果测试前备份过配置文件，测试结束后恢复：
-```bash
-mv -f ./cloud139rc.toml.e2e.bak ./cloud139rc.toml 2>/dev/null || true
-mv -f ~/.config/cloud139/cloud139rc.toml.e2e.bak ~/.config/cloud139/cloud139rc.toml 2>/dev/null || true
-```
-
-完成上述清理后，主代理必须再次检查 git 工作树：
-```bash
-git status --short
-```
-
-如果工作树为空，说明本地副作用已清理干净，可以进入报告阶段。
-
-如果工作树仍然不为空，必须继续排查，不能直接宣布测试完成。排查顺序如下：
-
-1. 先区分未跟踪文件、已修改文件、已删除文件：
-```bash
-git status --short
-git diff --name-status
-```
-
-2. 若是未跟踪文件，优先判断是否属于本轮遗留临时文件。重点排查这些典型对象：
-- `ls_result.json`
-- `e2e_config_override.toml`
-- `e2e_invalid.toml`
-- `cloud139rc.toml.e2e.bak`
-- `cloud139_e2e_download_test/`
-- `cloud139_e2e_sync_src/`
-- `cloud139_e2e_sync_dst/`
-- `non-exist-dir-1/`
-- `non-exist-dir-2/`
-- `e2e_random_*.bin`
-- 其他台账中登记过的临时文件或目录
-
-3. 若是已修改或已删除的受跟踪文件，按“可能误删/误改”处理，重点检查：
-- `README.md`
-- `Cargo.toml`
-- `Cargo.lock`
-- `cloud139rc.toml`
-- 其他本仓库受跟踪的源码、文档、配置文件
-
-4. 对可疑的受跟踪变更，主代理必须结合测试台账确认来源：
-- 如果明确是本轮 E2E 造成的覆盖、下载、副作用或误删，先恢复到测试前状态，再重新检查工作树
-- 如果无法证明来源，停止自动处理，向用户报告具体路径和风险，不要擅自回滚
-
-5. 只有当主代理完成“遗留临时文件”和“误删/误改内容”排查后，才允许进入最终报告
-
-### 7. 生成报告
-
-汇总所有测试结果，生成测试报告。
-
-> **报告时应包含在执行过程中发现的潜在问题或风险**，如果有 SKILL 中没有清晰描述的情况，也应在报告中指出并建议添加到 SKILL 中。
+部分条目可能需要补充 mock 才能完整覆盖。执行者必须逐项核对现有测试断言；缺少断言时写“未覆盖/待补 mock”，不得声称本文矩阵已经全部自动化或全部执行。阶段 13 可在真实 E2E 之前单独运行，真实测试授权始终独立。

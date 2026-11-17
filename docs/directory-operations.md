@@ -44,3 +44,9 @@ CI 的 Unit Tests workflow 当前只触发 `main` push；新分支推送后没�
 ## 本次验证结果
 
 在隔离 Linux checkout 使用官方 Rust 1.100.0 stable：`cargo fmt --all -- --check` 通过；`cargo test --locked --offline --no-fail-fast` 共 630 项通过、0 失败、0 忽略（其中新增目录回归 26 项）；`cargo clippy --locked --offline --all-targets` 通过，保留仓库已有测试风格与未使用依赖提示。本次未运行真实云端 E2E，未在 macOS/Windows 实机执行测试。
+
+## 目录 E2E 计划入口
+
+[cloud139-e2e-test 技能](../.agents/skills/cloud139-e2e-test/SKILL.md) 已按目录功能更新分阶段用例，包括目录/内容映射、逐文件 SHA256 与空目录、分页 JSON 兼容、变更冲突及失败不变、各后端支持范围、异步有界轮询和本轮对象清理。其[本地夹具工具](../.agents/skills/cloud139-e2e-test/scripts/fixture_tool.py) 只生成虚构数据和目录清单，不调用云盘。
+
+真实执行必须另有用户对本轮精确 UUID 子树的授权，采用独立本地临时目录和显式配置，不读写真实全局配置；不得用固定分页目录、根目录既有文件或仓库核心文件作夹具。根目录变更、永久删除拒绝、恶意响应及故障注入仅在离线 mock 中验证。编写这些用例不代表它们已经在真实盘执行；上面的 630 项结果属于目录实现的单元/mock 回归，不能当作真实 E2E 结果。
