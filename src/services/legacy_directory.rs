@@ -18,7 +18,7 @@ pub struct LegacyEntry {
     pub name: String,
     pub folder: bool,
     pub wire_path: String,
-    pub size: i64,
+    pub size: Option<i64>,
     pub modified: String,
 }
 
@@ -69,7 +69,7 @@ pub fn root(config: &Config) -> Result<LegacyEntry, ClientError> {
         name: String::new(),
         folder: true,
         wire_path: wire,
-        size: 0,
+        size: None,
         modified: String::new(),
     })
 }
@@ -153,7 +153,7 @@ pub fn parse_page(
                 name,
                 folder,
                 wire_path,
-                size: item["contentSize"].as_i64().unwrap_or(0),
+                size: item["contentSize"].as_i64(),
                 modified: item[if family {
                     "lastUpdateTime"
                 } else {

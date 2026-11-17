@@ -205,14 +205,14 @@ pub fn safe_local(path: &Path) -> Result<(), ClientError> {
 pub struct TreeEntry {
     pub path: String,
     pub folder: bool,
-    pub size: i64,
+    pub size: Option<i64>,
     pub modified: String,
 }
 
 pub async fn children(
     config: &Config,
     path: &str,
-) -> Result<Vec<(String, RemoteEntry, i64, String)>, ClientError> {
+) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
     if config.storage_type() != StorageType::PersonalNew {
         let dir = super::legacy_directory::resolve(config, path).await?;
         return Ok(super::legacy_directory::list_all(config, &dir)
@@ -246,7 +246,7 @@ pub async fn children(
                         .ok_or(ClientError::InvalidFilePath)?,
                     folder,
                 },
-                item.size.unwrap_or(0),
+                item.size,
                 crate::utils::parse_personal_time(item.updated_at.as_deref().unwrap_or_default()),
             ))
         })

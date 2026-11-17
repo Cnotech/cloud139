@@ -27,6 +27,7 @@ struct State {
     page_size: usize,
     cycle: bool,
     drop_list_cursor_once: Option<String>,
+    close_delimited_payload: Option<&'static [u8]>,
 }
 struct Server {
     host: String,
@@ -102,8 +103,15 @@ impl Server {
                                 json!({"success":true,"data":{"url":format!("{base}/payload"),"fileName":"safe.bin"}})
                             }
                             "/payload" => {
+                                let payload = state.close_delimited_payload;
                                 drop(state);
-                                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata");
+                                if let Some(payload) = payload {
+                                    let _ = stream
+                                        .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+                                    let _ = stream.write_all(payload);
+                                } else {
+                                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ndata");
+                                }
                                 continue;
                             }
                             "/file/batchCopy" | "/file/batchMove" => {
@@ -480,6 +488,41 @@ async fn recursive_download_requires_flag_preserves_empty_and_file_contents() {
         .unwrap();
     assert!(out.join("empty").is_dir());
     assert_eq!(std::fs::read(out.join("data.bin")).unwrap(), b"data");
+}
+
+#[tokio::test]
+async fn recursive_download_validates_listed_size_without_content_length() {
+    let server = Server::new();
+    server.set("/", vec![folder("d", "dir")]);
+    let tmp = tempfile::tempdir().unwrap();
+    let destination = tmp.path().join("data.bin");
+    let local = tmp.path().to_str().unwrap();
+
+    for (listed_size, payload, valid) in [
+        (Some(7), b"abc".as_slice(), false),
+        (Some(7), b"abcdefg".as_slice(), true),
+        (Some(0), b"abc".as_slice(), false),
+        (Some(0), b"".as_slice(), true),
+        (None, b"abc".as_slice(), true),
+    ] {
+        let mut item = file("f", "data.bin");
+        item["size"] = json!(listed_size);
+        server.set("d", vec![item]);
+        server.state.lock().unwrap().close_delimited_payload = Some(payload);
+        std::fs::write(&destination, b"keep original").unwrap();
+        let result =
+            services::download_service::download_recursive(&server.config(), "/dir", local, true)
+                .await;
+        if valid {
+            result.unwrap();
+            assert_eq!(std::fs::read(&destination).unwrap(), payload);
+        } else {
+            let message = result.expect_err("mismatched body must fail").to_string();
+            assert!(message.contains("下载大小不匹配"), "{message}");
+            assert_eq!(std::fs::read(&destination).unwrap(), b"keep original");
+        }
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 1);
+    }
 }
 
 #[tokio::test]

@@ -15,6 +15,16 @@ pub async fn download(
     local_path: &str,
     pb: Option<ProgressBar>,
 ) -> Result<()> {
+    download_with_size(config, remote_path, local_path, pb, None).await
+}
+
+async fn download_with_size(
+    config: &Config,
+    remote_path: &str,
+    local_path: &str,
+    pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
+) -> Result<()> {
     let normalized = super::directory_service::normalize(remote_path)?;
     let remote_path = normalized.as_str();
     let storage_type = config.storage_type();
@@ -32,7 +42,7 @@ pub async fn download(
                 return Err(ClientError::InvalidFilePath.into());
             }
             debug!("download_personal: file_id={}", file_id);
-            download_personal(config, remote_path, &file_id, local_path, pb).await?;
+            download_personal(config, remote_path, &file_id, local_path, pb, listed_size).await?;
         }
         StorageType::Family | StorageType::Group => {
             let remote = super::directory_service::normalize(remote_path)?;
@@ -56,7 +66,7 @@ pub async fn download(
             } else {
                 local.to_owned()
             };
-            download_file(&url, &destination, pb).await?;
+            download_file(&url, &destination, pb, listed_size.or(entry.size)).await?;
         }
     }
 
@@ -70,6 +80,7 @@ async fn download_personal(
     file_id: &str,
     local_path: &str,
     pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -98,13 +109,10 @@ async fn download_personal(
     )
     .await?;
 
-    if let Some(item) = child
-        && (item.file_type.as_deref() == Some("1")
-            || item.file_type.as_deref() == Some("folder")
-            || item.file_type.as_deref() == Some("dir"))
-    {
+    if child.as_ref().is_some_and(|item| item.is_folder()) {
         return Err(ClientError::UnsupportedDownloadDirectory);
     }
+    let listed_size = listed_size.or_else(|| child.and_then(|item| item.size));
 
     let url = format!("{}/file/getDownloadUrl", host);
 
@@ -144,9 +152,9 @@ async fn download_personal(
         });
         super::directory_service::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
+        download_file(&download_url, &file_path, pb, listed_size).await?;
     } else {
-        download_file(&download_url, local_path_obj, pb).await?;
+        download_file(&download_url, local_path_obj, pb, listed_size).await?;
     }
 
     Ok(())
@@ -157,6 +165,7 @@ async fn download_file(
     url: &str,
     local_path: &Path,
     pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
     super::directory_service::safe_local(local_path)?;
     let existing = local_file_metadata(local_path)?;
@@ -173,8 +182,10 @@ async fn download_file(
     let parent = parent_directory(local_path);
     std::fs::create_dir_all(parent)?;
 
-    let total_size = response.content_length();
-    if let (Some(pb), Some(total)) = (&pb, total_size) {
+    let expected_size = listed_size
+        .and_then(|size| u64::try_from(size).ok())
+        .or_else(|| response.content_length());
+    if let (Some(pb), Some(total)) = (&pb, expected_size) {
         pb.set_length(total);
     }
 
@@ -200,6 +211,14 @@ async fn download_file(
         }
     }
     file.flush()?;
+    if let Some(expected) = expected_size {
+        let actual = file.as_file().metadata()?.len();
+        if actual != expected {
+            return Err(ClientError::Api(format!(
+                "下载大小不匹配：预期 {expected} 字节，实际 {actual} 字节"
+            )));
+        }
+    }
     super::directory_service::safe_local(local_path)?;
     if let Some(metadata) = local_file_metadata(local_path)? {
         file.as_file().set_permissions(metadata.permissions())?;
@@ -282,11 +301,12 @@ pub async fn download_recursive(
         if entry.folder {
             std::fs::create_dir_all(&dest)?;
         } else {
-            download(
+            download_with_size(
                 config,
                 &entry.path,
                 dest.to_str().ok_or(ClientError::InvalidFilePath)?,
                 None,
+                entry.size,
             )
             .await
             .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
@@ -378,12 +398,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmp");
         let pb = ProgressBar::new(0);
 
-        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+        download_file(&url, &dir.path().join("a"), Some(pb.clone()), None)
             .await
             .expect("first download");
         assert_eq!(pb.position(), 10);
 
-        download_file(&url, &dir.path().join("b"), Some(pb.clone()))
+        download_file(&url, &dir.path().join("b"), Some(pb.clone()), None)
             .await
             .expect("second download");
         assert_eq!(pb.position(), 10, "第二次应从头累加，不是 20");
@@ -398,13 +418,13 @@ mod tests {
 
         let target = dir.path().join("a");
         std::fs::write(&target, b"existing").unwrap();
-        let first = download_file(&url, &target, Some(pb.clone())).await;
+        let first = download_file(&url, &target, Some(pb.clone()), None).await;
         assert!(first.is_err(), "半包应当报错");
         assert_eq!(std::fs::read(&target).unwrap(), b"existing");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         let after_first = pb.position();
 
-        download_file(&url, &target, Some(pb.clone()))
+        download_file(&url, &target, Some(pb.clone()), None)
             .await
             .expect("retry download");
         assert_eq!(std::fs::read(&target).unwrap(), b"0123456789");
@@ -424,7 +444,7 @@ mod tests {
         let pb = ProgressBar::new(10);
         pb.set_position(7);
 
-        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone())).await;
+        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone()), None).await;
         assert!(result.is_err(), "incomplete body must fail");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         assert!(
@@ -448,7 +468,7 @@ mod tests {
         let missing = dir.path().join("missing");
 
         for path in [&existing, &missing] {
-            let err = download_file(&server.url("/download"), path, None)
+            let err = download_file(&server.url("/download"), path, None, None)
                 .await
                 .expect_err("HTTP error must not be treated as a file");
             match err {

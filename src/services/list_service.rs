@@ -172,7 +172,7 @@ async fn list_legacy(
             } else {
                 EntryKind::File
             },
-            size: i.size,
+            size: i.size.unwrap_or(0),
             modified: i.modified,
             content_hash: None,
             content_hash_algorithm: None,
@@ -215,7 +215,7 @@ pub async fn list_recursive(
                 } else {
                     EntryKind::File
                 },
-                size: entry.size,
+                size: entry.size.unwrap_or(0),
                 modified: entry.modified,
                 content_hash: None,
                 content_hash_algorithm: None,
