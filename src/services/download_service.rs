@@ -30,7 +30,7 @@ pub async fn download(
                 return Err(ClientError::InvalidFilePath.into());
             }
             debug!("download_personal: file_id={}", file_id);
-            download_personal(config, remote_path, &file_id, local_path, pb).await?;
+            download_personal(config, remote_path, &file_id, None, true, local_path, pb).await?;
         }
         StorageType::Family => {
             download_family(config, remote_path, local_path, pb).await?;
@@ -43,47 +43,93 @@ pub async fn download(
     Ok(())
 }
 
+/// sync 专用下载入口：复用扫描得到的 fileId/父目录 id，跳过路径解析。
+///
+/// - file_id 有值时直接用它换下载链接，不再 get_file_id_by_path；
+/// - 动作来自扫描的「文件」条目，因此 check_directory=false，跳过「目标是不是目录」的
+///   目录检查；只有缺 fileId 的兜底路径才做检查（此时优先用扫描的父目录 id）。
+pub async fn download_personal_for_sync(
+    config: &Config,
+    remote_path: &str,
+    file_id: Option<&str>,
+    parent_file_id: Option<&str>,
+    local_path: &str,
+    pb: Option<ProgressBar>,
+) -> Result<()> {
+    let resolved_id;
+    let (id, check_directory) = match file_id.filter(|id| !id.is_empty()) {
+        Some(id) => (id, false),
+        None => {
+            resolved_id = crate::client::api::get_file_id_by_path(config, remote_path).await?;
+            if resolved_id.is_empty() {
+                return Err(ClientError::InvalidFilePath.into());
+            }
+            (resolved_id.as_str(), true)
+        }
+    };
+    download_personal(
+        config,
+        remote_path,
+        id,
+        parent_file_id,
+        check_directory,
+        local_path,
+        pb,
+    )
+    .await?;
+    Ok(())
+}
+
 /// 下载个人云文件
 async fn download_personal(
     config: &Config,
     remote_path: &str,
     file_id: &str,
+    parent_file_id: Option<&str>,
+    check_directory: bool,
     local_path: &str,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
 
-    let parts: Vec<&str> = remote_path
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    let file_name = parts.last().unwrap_or(&remote_path);
-    let parent_id = if parts.len() > 1 {
-        crate::client::api::get_file_id_by_path(&config, &parts[..parts.len() - 1].join("/"))
-            .await?
-    } else {
-        "/".to_string()
-    };
+    if check_directory {
+        let parts: Vec<&str> = remote_path
+            .trim_start_matches('/')
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .collect();
+        let file_name = parts.last().unwrap_or(&remote_path);
+        let parent_id = match parent_file_id.filter(|id| !id.is_empty()) {
+            Some(id) => id.to_string(),
+            None if parts.len() > 1 => {
+                crate::client::api::get_file_id_by_path(
+                    &config,
+                    &parts[..parts.len() - 1].join("/"),
+                )
+                .await?
+            }
+            None => "/".to_string(),
+        };
 
-    // 父目录可能超过一页（>100 个子项），按页找、命中即停，避免后续页的失败
-    // 拖垮本来能判断的目录检查。
-    let child = crate::client::api::find_personal_child(
-        &config,
-        &host,
-        &parent_id,
-        file_name,
-        &crate::client::api::HttpClientWrapper::new(),
-    )
-    .await?;
+        // 父目录可能超过一页（>100 个子项），按页找、命中即停，避免后续页的失败
+        // 拖垮本来能判断的目录检查。
+        let child = crate::client::api::find_personal_child(
+            &config,
+            &host,
+            &parent_id,
+            file_name,
+            &crate::client::api::HttpClientWrapper::new(),
+        )
+        .await?;
 
-    if let Some(item) = child
-        && (item.file_type.as_deref() == Some("1")
-            || item.file_type.as_deref() == Some("folder")
-            || item.file_type.as_deref() == Some("dir"))
-    {
-        return Err(ClientError::UnsupportedDownloadDirectory);
+        if let Some(item) = child
+            && (item.file_type.as_deref() == Some("1")
+                || item.file_type.as_deref() == Some("folder")
+                || item.file_type.as_deref() == Some("dir"))
+        {
+            return Err(ClientError::UnsupportedDownloadDirectory);
+        }
     }
 
     let url = format!("{}/file/getDownloadUrl", host);

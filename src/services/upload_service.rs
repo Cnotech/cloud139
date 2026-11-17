@@ -24,6 +24,7 @@ pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
     100 * 1024 * 1024
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upload(
     config: &crate::config::Config,
     local_path: &Path,
@@ -32,6 +33,7 @@ pub async fn upload(
     file_size: i64,
     force: bool,
     pb: Option<ProgressBar>,
+    parent_file_id: Option<&str>,
 ) -> Result<(), ClientError> {
     let storage_type = config.storage_type();
     match storage_type {
@@ -44,6 +46,7 @@ pub async fn upload(
                 file_size,
                 force,
                 pb,
+                parent_file_id,
             )
             .await
         }

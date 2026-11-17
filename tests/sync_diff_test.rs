@@ -9,6 +9,9 @@ fn entry(path: &str, size: u64, mtime: i64) -> FileEntry {
         size,
         mtime: Some(mtime),
         kind: SyncEntryKind::File,
+        file_id: None,
+        content_hash: None,
+        content_hash_algorithm: None,
     }
 }
 
@@ -18,6 +21,9 @@ fn entry_no_mtime(path: &str, size: u64) -> FileEntry {
         size,
         mtime: None,
         kind: SyncEntryKind::File,
+        file_id: None,
+        content_hash: None,
+        content_hash_algorithm: None,
     }
 }
 
@@ -27,6 +33,9 @@ fn dir_entry(path: &str) -> FileEntry {
         size: 0,
         mtime: None,
         kind: SyncEntryKind::Directory,
+        file_id: None,
+        content_hash: None,
+        content_hash_algorithm: None,
     }
 }
 
@@ -40,6 +49,7 @@ fn test_compute_diff_uploads_missing_target() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -63,6 +73,7 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -86,6 +97,7 @@ fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -111,6 +123,7 @@ fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -134,6 +147,7 @@ fn test_existing_directory_on_both_sides_produces_skip() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -155,6 +169,7 @@ fn test_compute_diff_creates_missing_directory_before_files() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -176,6 +191,7 @@ fn test_compute_diff_deletes_empty_directory_after_children() {
             delete: true,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -195,6 +211,7 @@ fn test_both_mtime_none_equal_size_is_skip() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -216,6 +233,7 @@ fn test_one_mtime_none_still_detects_size_change() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -237,6 +255,7 @@ fn test_compute_diff_transfers_when_mtime_diff_is_larger_than_two_seconds() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -259,6 +278,7 @@ fn test_compute_diff_adds_delete_actions_for_extra_target_files() {
             delete: true,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -266,6 +286,8 @@ fn test_compute_diff_adds_delete_actions_for_extra_target_files() {
         rel_path: "old.txt".to_string(),
         target: SyncTarget::Cloud,
         target_abs: "/remote/old.txt".to_string(),
+        file_id: None,
+        kind: SyncEntryKind::File,
     }));
 }
 
@@ -279,6 +301,7 @@ fn test_local_to_cloud_skips_on_equal_size_ignores_mtime() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -300,6 +323,7 @@ fn test_local_to_cloud_detects_size_change() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -321,6 +345,7 @@ fn test_cloud_to_local_detects_mtime_change() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 
@@ -342,6 +367,7 @@ fn test_cloud_to_local_skips_on_equal_size_and_mtime() {
             delete: false,
             local_root: std::path::PathBuf::from("local"),
             cloud_root: "/remote".to_string(),
+            verify: false,
         },
     );
 

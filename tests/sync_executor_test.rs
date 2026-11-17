@@ -1,5 +1,5 @@
 use cloud139::config::Config;
-use cloud139::domain::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
+use cloud139::domain::{ChangeKind, SyncAction, SyncEntryKind, SyncSummary, SyncTarget};
 use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use tempfile::tempdir;
 
@@ -10,6 +10,7 @@ async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {
             rel_path: "empty".to_string(),
             target: SyncTarget::Cloud,
             target_abs: "/remote/empty".to_string(),
+            parent_file_id: None,
         },
         SyncAction::Upload {
             rel_path: "new.txt".to_string(),
@@ -17,11 +18,15 @@ async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {
             remote_abs: "/remote/new.txt".to_string(),
             size: 5,
             change: ChangeKind::New,
+            parent_file_id: None,
+            file_id: None,
         },
         SyncAction::Delete {
             rel_path: "old.txt".to_string(),
             target: SyncTarget::Cloud,
             target_abs: "/remote/old.txt".to_string(),
+            file_id: None,
+            kind: SyncEntryKind::File,
         },
         SyncAction::Skip {
             rel_path: "same.txt".to_string(),
@@ -71,6 +76,7 @@ async fn test_execute_create_dir_replaces_existing_local_file() {
         rel_path: "conflict".to_string(),
         target: SyncTarget::Local,
         target_abs: conflict_path.to_string_lossy().to_string(),
+        parent_file_id: None,
     }];
 
     let summary = execute_sync_actions(

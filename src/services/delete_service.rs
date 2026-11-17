@@ -35,6 +35,14 @@ async fn delete_personal(config: &Config, path: &str, _permanent: bool) -> Resul
     if file_id.is_empty() {
         return Err(ClientError::InvalidFilePath);
     }
+    delete_personal_by_id(config, &file_id).await
+}
+
+/// 已知 fileId 时的个人云删除：sync 复用扫描结果，省掉每文件一次的路径解析。
+pub async fn delete_personal_by_id(config: &Config, file_id: &str) -> Result<(), ClientError> {
+    if file_id.is_empty() {
+        return Err(ClientError::InvalidFilePath);
+    }
     debug!("delete_personal: file_id={}", file_id);
 
     let mut config = config.clone();

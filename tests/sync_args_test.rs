@@ -13,8 +13,13 @@ fn test_sync_args_parse_defaults() {
     assert!(!args.recursive);
     assert!(!args.dry_run);
     assert!(!args.delete);
+    assert!(!args.verify);
+    assert!(!args.json);
     assert!(args.exclude.is_empty());
-    assert_eq!(args.jobs, 4);
+    assert!(
+        args.jobs.is_none(),
+        "jobs 默认由子命令按模式取：普通 4，--verify 下 1"
+    );
 }
 
 #[test]
@@ -41,7 +46,7 @@ fn test_sync_args_parse_all_flags() {
     assert!(args.dry_run);
     assert!(args.delete);
     assert_eq!(args.exclude, vec![".git", "target/**"]);
-    assert_eq!(args.jobs, 8);
+    assert_eq!(args.jobs, Some(8));
 }
 
 #[test]
@@ -129,12 +134,14 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
         dry_run: true,
         delete: false,
         exclude: vec!["target/**".to_string()],
-        jobs: 4,
+        jobs: Some(4),
+        verify: true,
+        json: true,
     };
 
     assert!(args.recursive);
     assert!(args.dry_run);
-    assert_eq!(args.jobs, 4);
+    assert_eq!(args.jobs, Some(4));
 }
 
 #[test]
@@ -147,4 +154,45 @@ fn test_sync_help_recursive_mentions_empty_dirs() {
 fn test_sync_help_delete_mentions_empty_dirs() {
     let help = SyncArgs::command().render_long_help().to_string();
     assert!(help.contains("或空目录"));
+}
+
+#[test]
+fn test_validate_args_json_requires_verify() {
+    let args = SyncArgs::try_parse_from(["sync", "./local", "cloud:/remote", "--json"]).unwrap();
+    let err = cloud139::commands::sync::validate_args(&args).expect_err("json without verify");
+    assert_eq!(err.code(), 2);
+}
+
+#[test]
+fn test_validate_args_verify_default_jobs_ok() {
+    let args = SyncArgs::try_parse_from(["sync", "./local", "cloud:/remote", "--verify"]).unwrap();
+    assert!(
+        args.jobs.is_none(),
+        "--verify 不带 -j 时不应被解析成默认 4，运行期按 1 处理"
+    );
+    assert!(cloud139::commands::sync::validate_args(&args).is_ok());
+}
+
+#[test]
+fn test_validate_args_verify_rejects_parallel_jobs() {
+    let args =
+        SyncArgs::try_parse_from(["sync", "./local", "cloud:/remote", "--verify", "-j", "2"])
+            .unwrap();
+    let err = cloud139::commands::sync::validate_args(&args).expect_err("verify with jobs>1");
+    assert_eq!(err.code(), 2);
+}
+
+#[test]
+fn test_validate_args_verify_json_single_job_ok() {
+    let args = SyncArgs::try_parse_from([
+        "sync",
+        "./local",
+        "cloud:/remote",
+        "--verify",
+        "--json",
+        "-j",
+        "1",
+    ])
+    .unwrap();
+    assert!(cloud139::commands::sync::validate_args(&args).is_ok());
 }

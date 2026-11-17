@@ -55,6 +55,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         file_size,
         args.force,
         pb,
+        None,
     )
     .await?;
 

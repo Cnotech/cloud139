@@ -5,6 +5,7 @@ use crate::utils::logger::{pb_debug, pb_error, pb_step, pb_success, pb_warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upload(
     config: &crate::config::Config,
     local_path: &std::path::Path,
@@ -13,6 +14,7 @@ pub async fn upload(
     file_size: i64,
     force: bool,
     pb: Option<ProgressBar>,
+    parent_file_id: Option<&str>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -20,7 +22,7 @@ pub async fn upload(
 
     pb_debug("计算文件哈希...", &pb);
     let (parent_file_id, content_hash) =
-        prepare_upload(config.clone(), local_path, remote_path).await?;
+        prepare_upload(config.clone(), local_path, remote_path, parent_file_id).await?;
 
     if !force {
         check_file_exists(&config, &parent_file_id, file_name, &pb).await?;
@@ -122,16 +124,18 @@ async fn prepare_upload(
     config: crate::config::Config,
     local_path: &std::path::Path,
     remote_path: &str,
+    parent_file_id: Option<&str>,
 ) -> Result<(String, String), ClientError> {
     let local_path_str = local_path
         .to_str()
         .ok_or_else(|| ClientError::InvalidSourcePath)?;
     let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
 
-    let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
-        "/".to_string()
-    } else {
-        crate::client::api::get_file_id_by_path(&config, remote_path).await?
+    // sync 扫描已经拿到父目录 id 时直接复用，跳过每文件一次的路径解析。
+    let parent_file_id = match parent_file_id.filter(|id| !id.is_empty()) {
+        Some(id) => id.to_string(),
+        None if remote_path == "/" || remote_path.is_empty() => "/".to_string(),
+        None => crate::client::api::get_file_id_by_path(&config, remote_path).await?,
     };
 
     Ok((parent_file_id, content_hash))
