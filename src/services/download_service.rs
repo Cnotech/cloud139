@@ -1,12 +1,12 @@
 use crate::client::ClientError;
-use crate::client::endpoints::{family, group};
 use crate::config::Config;
 use crate::debug;
 use crate::domain::StorageType;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
 use indicatif::ProgressBar;
-use std::path::Path;
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
 
 /// 下载文件服务
 pub async fn download(
@@ -15,6 +15,18 @@ pub async fn download(
     local_path: &str,
     pb: Option<ProgressBar>,
 ) -> Result<()> {
+    download_with_size(config, remote_path, local_path, pb, None).await
+}
+
+async fn download_with_size(
+    config: &Config,
+    remote_path: &str,
+    local_path: &str,
+    pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
+) -> Result<()> {
+    let normalized = super::directory_service::normalize(remote_path)?;
+    let remote_path = normalized.as_str();
     let storage_type = config.storage_type();
     debug!(
         "download: remote={}, local={}, storage={}",
@@ -30,13 +42,31 @@ pub async fn download(
                 return Err(ClientError::InvalidFilePath.into());
             }
             debug!("download_personal: file_id={}", file_id);
-            download_personal(config, remote_path, &file_id, local_path, pb).await?;
+            download_personal(config, remote_path, &file_id, local_path, pb, listed_size).await?;
         }
-        StorageType::Family => {
-            download_family(config, remote_path, local_path, pb).await?;
-        }
-        StorageType::Group => {
-            download_group(config, remote_path, local_path, pb).await?;
+        StorageType::Family | StorageType::Group => {
+            let remote = super::directory_service::normalize(remote_path)?;
+            let entry = super::legacy_directory::resolve(config, &remote).await?;
+            if entry.folder {
+                return Err(ClientError::UnsupportedDownloadDirectory.into());
+            }
+            let url = if storage_type == StorageType::Family {
+                crate::client::api::get_family_download_link(config, &entry.id, &entry.wire_path)
+                    .await?
+            } else {
+                crate::client::api::get_group_download_link(config, &entry.id, &entry.wire_path)
+                    .await?
+            };
+            if url.is_empty() {
+                return Err(ClientError::Api("下载 URL 为空".into()).into());
+            }
+            let local = Path::new(local_path);
+            let destination = if local.is_dir() {
+                local.join(&entry.name)
+            } else {
+                local.to_owned()
+            };
+            download_file(&url, &destination, pb, listed_size.or(entry.size)).await?;
         }
     }
 
@@ -50,6 +80,7 @@ async fn download_personal(
     file_id: &str,
     local_path: &str,
     pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
@@ -78,13 +109,10 @@ async fn download_personal(
     )
     .await?;
 
-    if let Some(item) = child
-        && (item.file_type.as_deref() == Some("1")
-            || item.file_type.as_deref() == Some("folder")
-            || item.file_type.as_deref() == Some("dir"))
-    {
+    if child.as_ref().is_some_and(|item| item.is_folder()) {
         return Err(ClientError::UnsupportedDownloadDirectory);
     }
+    let listed_size = listed_size.or_else(|| child.and_then(|item| item.size));
 
     let url = format!("{}/file/getDownloadUrl", host);
 
@@ -122,10 +150,11 @@ async fn download_personal(
                 .unwrap_or(remote_path)
                 .to_string()
         });
+        super::directory_service::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
+        download_file(&download_url, &file_path, pb, listed_size).await?;
     } else {
-        download_file(&download_url, local_path_obj, pb).await?;
+        download_file(&download_url, local_path_obj, pb, listed_size).await?;
     }
 
     Ok(())
@@ -136,7 +165,10 @@ async fn download_file(
     url: &str,
     local_path: &Path,
     pb: Option<ProgressBar>,
+    listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
+    super::directory_service::safe_local(local_path)?;
+    let existing = local_file_metadata(local_path)?;
     // 重试会复用同一个进度条（clone 共享状态）；每次下载都从头写文件，进度也要归零。
     if let Some(pb) = &pb {
         pb.set_position(0);
@@ -147,27 +179,51 @@ async fn download_file(
     // Reject HTTP error pages before creating or truncating the destination.
     let response = client.get(url).send().await?.error_for_status()?;
 
-    if let Some(parent) = local_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    let parent = parent_directory(local_path);
+    std::fs::create_dir_all(parent)?;
 
-    let total_size = response.content_length();
-    if let (Some(pb), Some(total)) = (&pb, total_size) {
+    let expected_size = listed_size
+        .and_then(|size| u64::try_from(size).ok())
+        .or_else(|| response.content_length());
+    if let (Some(pb), Some(total)) = (&pb, expected_size) {
         pb.set_length(total);
     }
 
-    let mut file = std::fs::File::create(local_path)?;
+    let mut file = {
+        let mut staged = tempfile::Builder::new();
+        if existing.is_none() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                staged.permissions(std::fs::Permissions::from_mode(0o666));
+            }
+        }
+        staged.tempfile_in(parent)?
+    };
     let mut stream = response.bytes_stream();
 
     use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        use std::io::Write;
         file.write_all(&chunk)?;
         if let Some(pb) = &pb {
             pb.inc(chunk.len() as u64);
         }
     }
+    file.flush()?;
+    if let Some(expected) = expected_size {
+        let actual = file.as_file().metadata()?.len();
+        if actual != expected {
+            return Err(ClientError::Api(format!(
+                "下载大小不匹配：预期 {expected} 字节，实际 {actual} 字节"
+            )));
+        }
+    }
+    super::directory_service::safe_local(local_path)?;
+    if let Some(metadata) = local_file_metadata(local_path)? {
+        file.as_file().set_permissions(metadata.permissions())?;
+    }
+    file.persist(local_path).map_err(|error| error.error)?;
 
     if let Some(pb) = pb {
         pb.finish_and_clear();
@@ -176,233 +232,125 @@ async fn download_file(
     Ok(())
 }
 
-/// 下载家庭云文件
-async fn download_family(
+fn parent_directory(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() && !metadata.permissions().readonly() => {
+            Ok(Some(metadata))
+        }
+        Ok(_) => Err(super::directory_service::invalid(format!(
+            "本地目标不是可写的普通文件: {}",
+            path.display()
+        ))),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Recursive download retains empty directories and rejects unsafe names and local symlinks.
+pub async fn download_recursive(
     config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
-    if parts.is_empty() {
-        return Err(ClientError::InvalidFilePath);
+    remote: &str,
+    local: &str,
+    recursive: bool,
+) -> Result<()> {
+    use super::directory_service as dirs;
+    let remote = dirs::normalize(remote)?;
+    dirs::safe_local(Path::new(local))?;
+    let entry = dirs::resolve(config, &remote).await?;
+    if !entry.folder {
+        return download(config, &remote, local, None).await;
     }
-
-    let file_name = parts.last().unwrap();
-    let parent_path = if parts.len() > 1 {
-        parts[..parts.len() - 1].join("/")
-    } else {
-        config
-            .root_folder_id
-            .clone()
-            .unwrap_or_else(|| "0".to_string())
-    };
-
-    let url = family::orchestration::QUERY_CONTENT_LIST;
-
-    let body = serde_json::json!({
-        "catalogID": parent_path,
-        "sortType": 1,
-        "pageNumber": 1,
-        "pageSize": 100,
-        "cloudID": config.cloud_id,
-        "cloudType": 1,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        }
-    });
-
-    let client = crate::client::Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
-
-    let mut found_id: Option<String> = None;
-    let mut found_path: Option<String> = None;
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/cloudCatalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat
-                    .get("catalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
+    if !recursive {
+        return Err(ClientError::UnsupportedDownloadDirectory.into());
+    }
+    let entries = dirs::tree(config, &remote).await?;
+    let destination_root = Path::new(local);
+    let mut plan = Vec::with_capacity(entries.len());
+    // Check all destinations before writing any file.
+    for entry in entries {
+        let rel = entry
+            .path
+            .strip_prefix(remote.trim_end_matches('/'))
+            .unwrap()
+            .trim_start_matches('/');
+        let rel = PathBuf::from(rel);
+        let dest = destination_root.join(&rel);
+        dirs::safe_local(&dest)?;
+        if dest.exists() {
+            if dest.is_dir() != entry.folder {
+                return Err(dirs::invalid("本地文件与目录冲突").into());
+            }
+            if !entry.folder {
+                local_file_metadata(&dest)?;
             }
         }
+        plan.push((entry, dest));
     }
-
-    if found_id.is_none()
-        && let Some(content_list) = resp
-            .pointer("/data/cloudContentList")
-            .and_then(|v| v.as_array())
-    {
-        for content in content_list {
-            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = content
-                    .get("contentID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = resp
-                    .pointer("/data/path")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
+    if !plan.is_empty() {
+        check_destination_collisions(destination_root, &plan)?;
+    }
+    std::fs::create_dir_all(destination_root)?;
+    for (entry, dest) in plan {
+        dirs::safe_local(&dest)?;
+        if entry.folder {
+            std::fs::create_dir_all(&dest)?;
+        } else {
+            download_with_size(
+                config,
+                &entry.path,
+                dest.to_str().ok_or(ClientError::InvalidFilePath)?,
+                None,
+                entry.size,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
         }
     }
-
-    let content_id = match found_id {
-        Some(id) => id,
-        None => {
-            return Err(ClientError::FileNotFound);
-        }
-    };
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/cloudCatalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
-        }
-    }
-
-    let path = found_path.unwrap_or_else(|| parent_path.clone());
-
-    let download_url =
-        crate::client::api::get_family_download_link(config, &content_id, &path).await?;
-
-    if download_url.is_empty() {
-        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
-    }
-
-    let local_path_obj = std::path::Path::new(local_path);
-    if local_path_obj.is_dir() {
-        let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
-    } else {
-        download_file(&download_url, local_path_obj, pb).await?;
-    }
-
     Ok(())
 }
 
-/// 下载群组云文件
-async fn download_group(
-    config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
-    if parts.is_empty() {
-        return Err(ClientError::InvalidFilePath);
+fn check_destination_collisions(
+    destination_root: &Path,
+    plan: &[(super::directory_service::TreeEntry, PathBuf)],
+) -> Result<()> {
+    let mut parent = destination_root;
+    loop {
+        match std::fs::metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => return Err(super::directory_service::invalid("本地文件与目录冲突").into()),
+            Err(error) if error.kind() == ErrorKind::NotFound => parent = parent_directory(parent),
+            Err(error) => return Err(error.into()),
+        }
     }
-
-    let file_name = parts.last().unwrap();
-    let parent_path = if parts.len() > 1 {
-        parts[..parts.len() - 1].join("/")
-    } else {
-        "0".to_string()
-    };
-
-    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
-
-    let body = serde_json::json!({
-        "groupID": config.cloud_id,
-        "catalogID": parent_path,
-        "contentSortType": 0,
-        "sortDirection": 1,
-        "startNumber": 1,
-        "endNumber": 100,
-        "path": if parent_path == "0" { "root:".to_string() } else { format!("root:/{}", parent_path) }
-    });
-
-    let client = crate::client::Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
-
-    let mut found_id: Option<String> = None;
-    let mut found_path: Option<String> = None;
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat
-                    .get("catalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = cat
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
+    // Use the destination filesystem's own case and Unicode name rules.
+    let probe = tempfile::tempdir_in(parent)?;
+    for (entry, destination) in plan {
+        let relative = destination
+            .strip_prefix(destination_root)
+            .map_err(|_| ClientError::InvalidFilePath)?;
+        let path = probe.path().join(relative);
+        let result = if entry.folder {
+            std::fs::create_dir(path)
+        } else {
+            std::fs::File::create_new(path).map(drop)
+        };
+        if let Err(error) = result {
+            if error.kind() == ErrorKind::AlreadyExists {
+                return Err(super::directory_service::invalid(format!(
+                    "多个远程条目映射到同一本地路径: {}",
+                    destination.display()
+                ))
+                .into());
             }
+            return Err(error.into());
         }
     }
-
-    if found_id.is_none()
-        && let Some(content_list) = resp
-            .pointer("/data/getGroupContentResult/contentList")
-            .and_then(|v| v.as_array())
-    {
-        for content in content_list {
-            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = content
-                    .get("contentID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = resp
-                    .pointer("/data/getGroupContentResult/parentCatalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
-        }
-    }
-
-    let content_id = match found_id {
-        Some(id) => id,
-        None => {
-            return Err(ClientError::FileNotFound);
-        }
-    };
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
-        }
-    }
-
-    let path = found_path.unwrap_or_else(|| format!("root:/{}", parent_path));
-
-    let download_url =
-        crate::client::api::get_group_download_link(config, &content_id, &path).await?;
-
-    if download_url.is_empty() {
-        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
-    }
-
-    let local_path_obj = std::path::Path::new(local_path);
-    if local_path_obj.is_dir() {
-        let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
-    } else {
-        download_file(&download_url, local_path_obj, pb).await?;
-    }
-
     Ok(())
 }
 
@@ -450,12 +398,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmp");
         let pb = ProgressBar::new(0);
 
-        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+        download_file(&url, &dir.path().join("a"), Some(pb.clone()), None)
             .await
             .expect("first download");
         assert_eq!(pb.position(), 10);
 
-        download_file(&url, &dir.path().join("b"), Some(pb.clone()))
+        download_file(&url, &dir.path().join("b"), Some(pb.clone()), None)
             .await
             .expect("second download");
         assert_eq!(pb.position(), 10, "第二次应从头累加，不是 20");
@@ -468,13 +416,18 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmp");
         let pb = ProgressBar::new(0);
 
-        let first = download_file(&url, &dir.path().join("a"), Some(pb.clone())).await;
+        let target = dir.path().join("a");
+        std::fs::write(&target, b"existing").unwrap();
+        let first = download_file(&url, &target, Some(pb.clone()), None).await;
         assert!(first.is_err(), "半包应当报错");
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         let after_first = pb.position();
 
-        download_file(&url, &dir.path().join("a"), Some(pb.clone()))
+        download_file(&url, &target, Some(pb.clone()), None)
             .await
             .expect("retry download");
+        assert_eq!(std::fs::read(&target).unwrap(), b"0123456789");
         assert_eq!(
             pb.position(),
             10,
@@ -491,8 +444,9 @@ mod tests {
         let pb = ProgressBar::new(10);
         pb.set_position(7);
 
-        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone())).await;
+        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone()), None).await;
         assert!(result.is_err(), "incomplete body must fail");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         assert!(
             pb.position() <= 5,
             "stale progress must be cleared before streaming: {}",
@@ -514,7 +468,7 @@ mod tests {
         let missing = dir.path().join("missing");
 
         for path in [&existing, &missing] {
-            let err = download_file(&server.url("/download"), path, None)
+            let err = download_file(&server.url("/download"), path, None, None)
                 .await
                 .expect_err("HTTP error must not be treated as a file");
             match err {

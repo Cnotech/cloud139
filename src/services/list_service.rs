@@ -1,5 +1,3 @@
-use crate::client::Client;
-use crate::client::endpoints::{family, group};
 use crate::commands::list::ListArgs as CliListArgs;
 use crate::debug;
 use crate::domain::StorageType;
@@ -18,18 +16,22 @@ pub async fn list(
     config: &crate::config::Config,
     args: &CliListArgs,
 ) -> anyhow::Result<ListResult> {
-    let path = if args.path.is_empty() || args.path == "/" {
+    if args.page < 1 || args.page_size < 1 {
+        anyhow::bail!("页码和每页数量必须大于 0");
+    }
+    let normalized = super::directory_service::normalize(&args.path)?;
+    let path = if normalized.is_empty() || normalized == "/" {
         "/".to_string()
     } else {
-        args.path.trim().to_string()
+        normalized
     };
 
     let storage_type = config.storage_type();
 
     match storage_type {
         StorageType::PersonalNew => list_personal(config, &path, args.page, args.page_size).await,
-        StorageType::Family => list_family(config, &path, args.page, args.page_size).await,
-        StorageType::Group => list_group(config, &path, args.page, args.page_size).await,
+        StorageType::Family => list_legacy(config, &path, args.page, args.page_size).await,
+        StorageType::Group => list_legacy(config, &path, args.page, args.page_size).await,
     }
 }
 
@@ -50,11 +52,7 @@ async fn list_personal(
     };
     let url = format!("{}/file/list", host);
 
-    let parent_file_id = if path == "/" || path.is_empty() {
-        "/".to_string()
-    } else {
-        crate::client::api::get_file_id_by_path(&config, path).await?
-    };
+    let parent_file_id = super::directory_service::directory(&config, path).await?;
 
     debug!(
         "list_personal: path={}, parent_file_id={}, page_size={}",
@@ -70,7 +68,11 @@ async fn list_personal(
     let mut next_cursor = String::new();
     let mut all_items = Vec::new();
 
+    let mut seen_cursors = std::collections::HashSet::new();
     loop {
+        if !seen_cursors.insert(next_cursor.clone()) {
+            anyhow::bail!("分页游标重复，已停止列目录");
+        }
         let body = serde_json::json!({
             "imageThumbnailStyleList": thumbnail_styles,
             "orderBy": "updated_at",
@@ -102,7 +104,7 @@ async fn list_personal(
         };
 
         for item in &data.items {
-            let kind = if item.file_type.as_deref() == Some("folder") {
+            let kind = if super::sync_service::should_treat_personal_item_as_folder(item) {
                 EntryKind::Folder
             } else {
                 EntryKind::File
@@ -133,7 +135,7 @@ async fn list_personal(
     }
 
     let total = all_items.len() as i32;
-    let start = ((page - 1) * page_size) as usize;
+    let start = ((page as usize) - 1).saturating_mul(page_size as usize);
     let end = (start + page_size as usize).min(all_items.len());
     let items = if start < all_items.len() {
         all_items[start..end].to_vec()
@@ -149,156 +151,82 @@ async fn list_personal(
     })
 }
 
-async fn list_family(
+async fn list_legacy(
     config: &crate::config::Config,
     path: &str,
     page: i32,
     page_size: i32,
 ) -> anyhow::Result<ListResult> {
-    let url = family::orchestration::QUERY_CONTENT_LIST;
-
-    let catalog_id = if path == "/" || path.is_empty() {
-        "0".to_string()
-    } else {
-        path.trim_start_matches('/').to_string()
-    };
-
-    let body = crate::models::FamilyListRequest {
-        catalog_id: catalog_id.clone(),
-        content_sort_type: 0,
-        sort_direction: 1,
-        page_info: crate::models::PageInfo {
-            page_num: page,
-            page_size,
-        },
-    };
-
-    let config_path = config.cache_path();
-    let client = Client::new(config.clone());
-    let resp: crate::models::QueryContentListResp = client
-        .api_request_post(url, serde_json::to_value(body)?)
-        .await?;
-
-    if resp.data.result.result_code != "0" {
-        let msg = resp.data.result.result_desc.unwrap_or_default();
-        return Err(crate::client::ClientError::Api(msg).into());
-    }
-
-    // 家庭云根目录时缓存 path
-    if catalog_id == "0"
-        && !resp.data.path.is_empty()
-        && let Some(path) = config_path
-    {
-        let _ = config.update_cache(&path, |current| {
-            current.root_folder_id = Some(resp.data.path.clone());
-        });
-    }
-
-    let mut all_items = Vec::new();
-
-    for cat in &resp.data.cloud_catalog_list {
-        all_items.push(FileItem {
-            name: cat.catalog_name.clone(),
-            kind: EntryKind::Folder,
-            size: 0,
-            modified: cat.last_update_time.clone(),
+    let dir = super::legacy_directory::resolve(config, path).await?;
+    let all = super::legacy_directory::list_all(config, &dir).await?;
+    let total = all.len() as i32;
+    let start = (page as usize - 1).saturating_mul(page_size as usize);
+    let items = all
+        .into_iter()
+        .skip(start)
+        .take(page_size as usize)
+        .map(|i| FileItem {
+            name: i.name,
+            kind: if i.folder {
+                EntryKind::Folder
+            } else {
+                EntryKind::File
+            },
+            size: i.size.unwrap_or(0),
+            modified: i.modified,
             content_hash: None,
             content_hash_algorithm: None,
-        });
-    }
-
-    for content in &resp.data.cloud_content_list {
-        all_items.push(FileItem {
-            name: content.content_name.clone(),
-            kind: EntryKind::File,
-            size: content.content_size,
-            modified: content.last_update_time.clone(),
-            content_hash: None,
-            content_hash_algorithm: None,
-        });
-    }
-
+        })
+        .collect();
     Ok(ListResult {
-        path: path.to_string(),
-        total: resp.data.total_count,
-        items: all_items,
+        path: path.into(),
+        total,
+        items,
     })
 }
 
-async fn list_group(
+/// Full listing grouped by directory, including empty directories.
+pub async fn list_recursive(
     config: &crate::config::Config,
-    path: &str,
-    page: i32,
-    page_size: i32,
-) -> anyhow::Result<ListResult> {
-    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
-
-    let catalog_id = if path == "/" || path.is_empty() {
-        "0".to_string()
-    } else {
-        path.trim_start_matches('/').to_string()
-    };
-
-    let root_folder_id = config
-        .root_folder_id
-        .clone()
-        .unwrap_or_else(|| "root:".to_string());
-    let group_path = if catalog_id == "0" || catalog_id.is_empty() {
-        root_folder_id.clone()
-    } else {
-        format!("{}/{}", root_folder_id.trim_end_matches(':'), catalog_id)
-    };
-
-    let start_number = (page - 1) * page_size + 1;
-    let end_number = page * page_size;
-
-    let body = crate::models::GroupListRequest {
-        group_id: config.cloud_id.clone().unwrap_or_default(),
-        catalog_id: catalog_id.clone(),
-        content_sort_type: 0,
-        sort_direction: 1,
-        start_number,
-        end_number,
-        path: group_path.clone(),
-    };
-
-    let client = Client::new(config.clone());
-    let resp: crate::models::QueryGroupContentListResp = client
-        .api_request_post(url, serde_json::to_value(body)?)
-        .await?;
-
-    if resp.data.result.result_code != "0" {
-        let msg = resp.data.result.result_desc.unwrap_or_default();
-        return Err(crate::client::ClientError::Api(msg).into());
+    root: &str,
+) -> anyhow::Result<Vec<ListResult>> {
+    use super::directory_service as dirs;
+    use crate::domain::file_item::{EntryKind, FileItem};
+    let root = dirs::normalize(root)?;
+    let entries = dirs::tree(config, &root).await?;
+    let mut grouped = std::collections::BTreeMap::<String, Vec<FileItem>>::new();
+    grouped.insert(root, vec![]);
+    for entry in entries {
+        if entry.folder {
+            grouped.entry(entry.path.clone()).or_default();
+        }
+        let (parent, name) = entry.path.rsplit_once('/').unwrap();
+        grouped
+            .entry(if parent.is_empty() {
+                "/".into()
+            } else {
+                parent.into()
+            })
+            .or_default()
+            .push(FileItem {
+                name: name.into(),
+                kind: if entry.folder {
+                    EntryKind::Folder
+                } else {
+                    EntryKind::File
+                },
+                size: entry.size.unwrap_or(0),
+                modified: entry.modified,
+                content_hash: None,
+                content_hash_algorithm: None,
+            });
     }
-
-    let mut all_items = Vec::new();
-
-    for cat in &resp.data.get_group_content_result.catalog_list {
-        all_items.push(FileItem {
-            name: cat.catalog_name.clone(),
-            kind: EntryKind::Folder,
-            size: 0,
-            modified: cat.update_time.clone(),
-            content_hash: None,
-            content_hash_algorithm: None,
-        });
-    }
-
-    for content in &resp.data.get_group_content_result.content_list {
-        all_items.push(FileItem {
-            name: content.content_name.clone(),
-            kind: EntryKind::File,
-            size: content.content_size,
-            modified: content.update_time.clone(),
-            content_hash: None,
-            content_hash_algorithm: None,
-        });
-    }
-
-    Ok(ListResult {
-        path: path.to_string(),
-        total: resp.data.get_group_content_result.node_count,
-        items: all_items,
-    })
+    Ok(grouped
+        .into_iter()
+        .map(|(path, items)| ListResult {
+            path,
+            total: items.len() as i32,
+            items,
+        })
+        .collect())
 }

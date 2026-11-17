@@ -70,7 +70,8 @@ impl Client {
             .headers(headers)
             .json(&body)
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
 
         let result: T = resp.json().await?;
         Ok(result)

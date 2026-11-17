@@ -16,7 +16,11 @@ pub async fn upload(
     let client = crate::client::Client::new(config.clone());
     let url = family::orchestration::GET_FILE_UPLOAD_URL;
 
-    let upload_path = resolve_upload_path(config, remote_path);
+    let directory = crate::services::legacy_directory::resolve(config, remote_path).await?;
+    if !directory.folder {
+        return Err(ClientError::Other("目标路径不是目录".into()));
+    }
+    let upload_path = crate::services::legacy_directory::full_path(config, &directory).await?;
     let report_size = if config.report_real_size {
         file_size
     } else {
@@ -65,18 +69,6 @@ pub async fn upload(
 
     debug!("上传完成!");
     Ok(())
-}
-
-fn resolve_upload_path(config: &crate::config::Config, remote_path: &str) -> String {
-    if remote_path == "/" || remote_path.is_empty() {
-        if let Some(ref root_path) = config.root_folder_id {
-            root_path.clone()
-        } else {
-            "0".to_string()
-        }
-    } else {
-        remote_path.to_string()
-    }
 }
 
 fn is_success(resp: &serde_json::Value) -> bool {

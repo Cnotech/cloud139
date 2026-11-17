@@ -43,6 +43,20 @@ pub async fn get_personal_cloud_host_with_client(
     }
 
     let config_path = config.cache_path();
+    let host = fetch_personal_cloud_host(config, http_client).await?;
+    config.personal_cloud_host = Some(host.clone());
+    if let Some(path) = config_path {
+        let _ = config.update_cache(&path, |current| {
+            current.personal_cloud_host = Some(host.clone());
+        });
+    }
+    Ok(host)
+}
+
+pub(crate) async fn fetch_personal_cloud_host(
+    config: &Config,
+    http_client: &HttpClientWrapper,
+) -> Result<String, ClientError> {
     let url = ROUTE_POLICY_URL;
     debug!("get_personal_cloud_host: 请求 url={}", url);
 
@@ -64,7 +78,13 @@ pub async fn get_personal_cloud_host_with_client(
 
     let headers = build_route_headers(&config.authorization, &ts, &rand_str, &sign)?;
 
-    let resp = client.post(url).headers(headers).json(&body).send().await?;
+    let resp = client
+        .post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
 
     let route_resp: QueryRoutePolicyResp = resp.json().await?;
 
@@ -77,18 +97,13 @@ pub async fn get_personal_cloud_host_with_client(
         .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
 
     debug!("get_personal_cloud_host: 解析到 host={}", host);
-    config.personal_cloud_host = Some(host.clone());
-    if let Some(path) = config_path {
-        let _ = config.update_cache(&path, |current| {
-            current.personal_cloud_host = Some(host.clone());
-        });
-    }
-
     Ok(host)
 }
 
 pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
-    if path.is_empty() || path == "/" {
+    let normalized = crate::utils::remote_path::normalize(path)?;
+    let path = normalized.as_str();
+    if path == "/" {
         debug!("get_file_id_by_path: 根路径返回空ID");
         return Ok(String::new());
     }
@@ -119,7 +134,15 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         // 后续页的失败不会拖垮本来可以解析的路径。
         let target_id = find_personal_child(&config, &host, &parent_id, part, &http_client)
             .await?
-            .map(|item| item.file_id.unwrap_or_default());
+            .map(|item| {
+                if !is_last && !item.is_folder() {
+                    return Err(ClientError::InvalidFilePath);
+                }
+                item.file_id
+                    .filter(|id| !id.is_empty())
+                    .ok_or(ClientError::InvalidFilePath)
+            })
+            .transpose()?;
 
         match target_id {
             Some(id) => {
@@ -149,54 +172,14 @@ pub(crate) async fn find_personal_child(
     name: &str,
     http_client: &HttpClientWrapper,
 ) -> Result<Option<crate::models::PersonalFileItem>, ClientError> {
-    let url = format!("{}/file/list", host);
-    let mut next_cursor = String::new();
-    let mut seen_cursors = std::collections::HashSet::new();
-
-    loop {
-        // A cursor is scoped to this directory. Reject cycles before issuing another
-        // request rather than silently returning an incomplete listing.
-        if !seen_cursors.insert(next_cursor.clone()) {
-            return Err(ClientError::Api("分页游标重复，已停止列目录".to_string()));
-        }
-        let body = serde_json::json!({
-            "imageThumbnailStyleList": ["Small", "Large"],
-            "orderBy": "updated_at",
-            "orderDirection": "DESC",
-            "pageInfo": {
-                "pageCursor": next_cursor,
-                "pageSize": 100
-            },
-            "parentFileId": parent_file_id
-        });
-
-        let resp: crate::models::PersonalListResp = personal_api_request_with_client(
-            config,
-            &url,
-            body,
-            crate::domain::StorageType::PersonalNew,
-            http_client,
-        )
-        .await?;
-
-        let data = match resp.data {
-            Some(data) => data,
-            None => return Ok(None),
-        };
-
-        if let Some(item) = data
-            .items
-            .into_iter()
-            .find(|item| item.name.as_deref() == Some(name))
-        {
-            return Ok(Some(item));
-        }
-
-        next_cursor = data.next_page_cursor.unwrap_or_default();
-        if next_cursor.is_empty() {
-            return Ok(None);
-        }
+    PersonalListing {
+        config,
+        host,
+        http_client,
+        retry_transient: false,
     }
+    .find_child(parent_file_id, name)
+    .await
 }
 
 pub fn parse_path_segments(path: &str) -> Vec<&str> {
@@ -247,7 +230,13 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     let headers = build_signed_headers(&config.authorization, &ts, &rand_str, &sign, svctype)?;
 
     debug!("personal_api_request: POST {} svctype={}", url, svctype);
-    let resp = client.post(url).headers(headers).json(&body).send().await?;
+    let resp = client
+        .post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
 
     let result: T = resp.json().await?;
     Ok(result)
@@ -293,58 +282,122 @@ pub async fn list_personal_files_with_client(
     debug!("list_personal_files: parent_file_id={}", parent_file_id);
     let mut config = config.clone();
     let host = get_personal_cloud_host(&mut config).await?;
-    let url = format!("{}/file/list", host);
+    PersonalListing {
+        config: &config,
+        host: &host,
+        http_client,
+        retry_transient: false,
+    }
+    .list_files(parent_file_id)
+    .await
+}
 
-    let mut all_items = Vec::new();
-    let mut next_cursor = String::new();
-    let mut seen_cursors = std::collections::HashSet::new();
+pub(crate) struct PersonalListing<'a> {
+    pub config: &'a Config,
+    pub host: &'a str,
+    pub http_client: &'a HttpClientWrapper,
+    pub retry_transient: bool,
+}
 
-    loop {
-        // A cursor is scoped to this directory. Reject cycles before issuing another
-        // request rather than silently returning an incomplete listing.
-        if !seen_cursors.insert(next_cursor.clone()) {
-            return Err(ClientError::Api("分页游标重复，已停止列目录".to_string()));
+impl PersonalListing<'_> {
+    pub async fn find_child(
+        &self,
+        parent_id: &str,
+        name: &str,
+    ) -> Result<Option<crate::models::PersonalFileItem>, ClientError> {
+        let items = self.read_items(parent_id, Some(name)).await?;
+        Ok(items.into_iter().next())
+    }
+
+    pub async fn list_files(
+        &self,
+        parent_id: &str,
+    ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+        self.read_items(parent_id, None).await
+    }
+
+    async fn read_items(
+        &self,
+        parent_id: &str,
+        name: Option<&str>,
+    ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+        let mut items = Vec::new();
+        let mut cursor = String::new();
+        let mut seen = std::collections::HashSet::new();
+        loop {
+            if !seen.insert(cursor.clone()) {
+                return Err(ClientError::Api("分页游标重复，已停止列目录".into()));
+            }
+            let page = self.page(parent_id, &cursor).await?;
+            if let Some(name) = name {
+                if let Some(item) = page
+                    .items
+                    .into_iter()
+                    .find(|item| item.name.as_deref() == Some(name))
+                {
+                    return Ok(vec![item]);
+                }
+            } else {
+                items.extend(page.items);
+            }
+            cursor = page.next_page_cursor.unwrap_or_default();
+            if cursor.is_empty() {
+                return Ok(items);
+            }
         }
+    }
+
+    async fn page(
+        &self,
+        parent_id: &str,
+        cursor: &str,
+    ) -> Result<crate::models::PersonalListData, ClientError> {
+        let url = format!("{}/file/list", self.host);
         let body = serde_json::json!({
             "imageThumbnailStyleList": ["Small", "Large"],
             "orderBy": "updated_at",
             "orderDirection": "DESC",
             "pageInfo": {
-                "pageCursor": next_cursor,
+                "pageCursor": cursor,
                 "pageSize": 100
             },
-            "parentFileId": parent_file_id
+            "parentFileId": parent_id
         });
-
-        let resp: crate::models::PersonalListResp = personal_api_request_with_client(
-            &config,
-            &url,
-            body,
-            crate::domain::StorageType::PersonalNew,
-            http_client,
-        )
-        .await?;
-
-        match resp.data {
-            Some(data) => {
-                all_items.extend(data.items);
-                next_cursor = data.next_page_cursor.unwrap_or_default();
-                if next_cursor.is_empty() {
-                    debug!(
-                        "list_personal_files: 获取 {} 个条目, 无更多页",
-                        all_items.len()
-                    );
-                    break;
-                }
-            }
-            None => {
-                debug!("list_personal_files: 响应无数据");
-                break;
-            }
+        let request = || {
+            personal_api_request_with_client::<crate::models::PersonalListResp>(
+                self.config,
+                &url,
+                body.clone(),
+                crate::domain::StorageType::PersonalNew,
+                self.http_client,
+            )
+        };
+        let resp = if self.retry_transient {
+            crate::utils::retry::with_retries(2, 1, || async {
+                tokio::time::timeout(std::time::Duration::from_secs(20), request())
+                    .await
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::TimedOut, error))?
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| {
+                error
+                    .downcast::<ClientError>()
+                    .unwrap_or_else(|error| ClientError::Other(format!("{error:#}")))
+            })?
+        } else {
+            request().await?
+        };
+        if !resp.base.success {
+            return Err(ClientError::Api(
+                resp.base
+                    .message
+                    .unwrap_or_else(|| "获取目录列表失败".into()),
+            ));
         }
+        resp.data
+            .ok_or_else(|| ClientError::Api("获取目录列表失败: 无数据".into()))
     }
-
-    Ok(all_items)
 }
 
 pub async fn get_family_download_link(

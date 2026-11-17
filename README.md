@@ -53,6 +53,8 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 
 ### 基本使用
 
+登录群组盘时，使用 `--cloud-id` 和 `--root-folder-id` 提供已核实的群组 ID 与根目录路径。对同一账号、同一群组重新登录时，可沿用目标配置中的根目录路径。登录校验通过后才会保存新配置。
+
 ```bash
 # 列出根目录文件
 cloud139 ls /
@@ -76,13 +78,13 @@ cloud139 download /file.txt ./downloads/myfile.txt
 cloud139 rm /file.txt -y
 
 # 删除目录
-cloud139 rm /folder -y
+cloud139 rm -r --yes /folder
 
 # 创建目录
 cloud139 mkdir /parent/newFolder
 
 # 移动单个文件
-cloud139 mv /old.txt /new.txt
+cloud139 mv /old.txt /existing-directory/
 
 # 移动多个文件到目录
 cloud139 mv /file1.txt /file2.txt /folder/
@@ -102,6 +104,41 @@ cloud139 sync ./local/path cloud:/remote/path -r
 # 云端到本地同步（递归）
 cloud139 sync cloud:/remote/path ./local/path -r
 ```
+
+## 目录操作
+
+```bash
+# 上传目录本身：/backup/photos/<子项>；自动创建缺失目录
+cloud139 upload ./photos /backup
+# 仅上传内容：/backup/<子项>（注意本地参数末尾 /）
+cloud139 upload ./photos/ /backup
+# 目录下载到新的 ./photos；已有目标目录或末尾 / 表示在其中保留源目录名
+cloud139 download -r /backup/photos ./photos
+cloud139 download -r /backup/photos ./downloads/
+cloud139 ls -R /backup
+cloud139 ls -R /backup -o tree.json
+cloud139 mkdir -p /a/b/empty
+cloud139 cp /backup/photos /existing-destination/
+cloud139 mv /backup/photos /existing-destination/
+cloud139 rm -r --yes /a
+```
+
+目录上传复用 sync 的本地扫描及底层上传，不使用 sync 的同大小跳过规则；已有同名文件默认报错。个人盘 `--force` 沿用现有单文件上传策略。目录与文件类型冲突始终报错。
+
+`ls -R` 忽略页码选择，读取每个目录的全部分页；JSON 输出为目录对象数组（包括空目录），每个对象含 `path`、`total` 和 `items`。普通 `ls` 保持单目录分页输出格式。游标、重复分页或目录 ID 循环均报错。
+
+目录创建不自动改名。复制、移动、重命名的目录重名冲突即使加 `--force` 也会拒绝；文件同名仅在个人盘沿用 `--force` 行为。所有后端禁止根目录变更，路径先规范化，复制/移动禁止自身与子目录目标。非法跨平台名称、服务端路径穿越名称和本地符号链接会被拒绝。
+
+| 操作 | 个人盘 | 家庭盘 | 群组盘 |
+|------|--------|--------|--------|
+| 目录上传、下载、mkdir -p、ls -R、rm -r | 支持 | 支持 | 支持，需已有可靠的 root_folder_id |
+| cp 文件/目录 | 支持多源 | 协议未核实，明确拒绝 | 协议未核实，明确拒绝 |
+| mv 文件/目录 | 支持多源 | 协议未核实，明确拒绝 | 支持单源 |
+| rename 文件 | 支持 | 支持 | 支持 |
+| rename 目录 | 支持 | 网页协议不支持，明确拒绝 | 支持 |
+| --permanent | 拒绝 | 拒绝 | 拒绝 |
+
+家庭/群组上传不支持强制覆盖同名文件。群组盘若缺少已解析的 `root_folder_id` 会报错，不猜测根路径。家庭/群组的异步任务成功响应只表示已接受，需再次 `ls` 核对结果。递归任务失败会返回非零退出码；此前条目可能已经完成，且不会自动回滚。详见 [目录操作与测试说明](docs/directory-operations.md)。
 
 ## 全局选项
 
@@ -138,7 +175,7 @@ cloud139 login -t your_authorization_token
 列出云盘文件。
 
 ```bash
-cloud139 ls [路径] [-p <页码>] [-s <数量>] [-o <输出文件>]
+cloud139 ls [-R] [-p <页码>] [-s <数量>] [-o <输出文件>] [路径]
 ```
 
 **参数说明：**
@@ -148,6 +185,7 @@ cloud139 ls [路径] [-p <页码>] [-s <数量>] [-o <输出文件>]
 | 路径 | - | 否 | 文件路径，默认：/ |
 | --page | -p | 否 | 页码，默认：1 |
 | --page-size | -s | 否 | 每页数量，默认：100 |
+| --recursive | -R | 否 | 递归列出全部目录和分页 |
 | --output | -o | 否 | 将结果输出为JSON到指定文件 |
 
 **示例：**
@@ -168,7 +206,7 @@ cloud139 ls / -o result.json
 
 ### upload
 
-上传文件到云盘。
+上传文件或递归上传本地目录到云盘。保留空目录，自动创建缺失的云端目标目录。
 
 ```bash
 cloud139 upload <本地路径> [远程目录] [-f]
@@ -178,7 +216,7 @@ cloud139 upload <本地路径> [远程目录] [-f]
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 本地路径 | - | 是 | 要上传的本地文件路径 |
+| 本地路径 | - | 是 | 本地文件或目录；末尾 / 表示仅上传目录内容 |
 | 远程目录 | - | 否 | 云盘目标目录，默认：/ |
 | --force | -f | 否 | 强制继续，如果云端存在同名文件则自动重命名 |
 
@@ -197,17 +235,18 @@ cloud139 upload ./file.txt / -f
 
 ### download
 
-从云盘下载文件。
+从云盘下载文件，使用 `-r / --recursive` 递归下载目录并保留空目录。不带 `-r` 下载目录会报错。
 
 ```bash
-cloud139 download <远程路径> [本地路径]
+cloud139 download [-r] <远程路径> [本地路径]
 ```
 
 **参数说明：**
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 远程路径 | - | 是 | 云盘文件路径 |
+| 远程路径 | - | 是 | 云盘文件或目录路径 |
+| --recursive | -r | 否 | 递归下载目录 |
 | 本地路径 | - | 否 | 本地保存路径，默认：当前目录的同名文件 |
 
 **示例：**
@@ -225,7 +264,7 @@ cloud139 download /folder/photo.jpg ./downloads/
 删除云盘文件或目录。
 
 ```bash
-cloud139 rm <路径> -y
+cloud139 rm [-r] --yes <路径>
 ```
 
 **参数说明：**
@@ -234,6 +273,8 @@ cloud139 rm <路径> -y
 |------|------|------|------|
 | 路径 | - | 是 | 要删除的文件或目录路径 |
 | --yes | -y | 是 | 确认删除 |
+| --recursive | -r | 目录必需 | 确认递归删除目录 |
+| --permanent | -p | 否 | 当前明确拒绝：没有可靠的永久删除协议 |
 
 **示例：**
 
@@ -242,7 +283,7 @@ cloud139 rm <路径> -y
 cloud139 rm /file.txt -y
 
 # 删除目录
-cloud139 rm /folder -y
+cloud139 rm -r --yes /folder
 ```
 
 ### mkdir
@@ -250,7 +291,7 @@ cloud139 rm /folder -y
 在云盘创建目录。
 
 ```bash
-cloud139 mkdir <路径> [-f]
+cloud139 mkdir [-p] <路径>
 ```
 
 **参数说明：**
@@ -258,7 +299,8 @@ cloud139 mkdir <路径> [-f]
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
 | 路径 | - | 是 | 新目录路径，格式：/父目录/新目录名 |
-| --force | -f | 否 | 强制继续，如果云端存在同名目录则自动重命名 |
+| --parents | -p | 否 | 递归创建父目录；已有目录成功，同名文件报错 |
+| --force | -f | 否 | 仅保留解析兼容；不会自动改名或覆盖同名条目 |
 
 **示例：**
 
@@ -266,11 +308,8 @@ cloud139 mkdir <路径> [-f]
 # 创建目录
 cloud139 mkdir /newfolder
 
-# 创建嵌套目录
-cloud139 mkdir /parent/child
-
-# 强制创建，同名目录自动重命名
-cloud139 mkdir /newfolder -f
+# 递归创建嵌套目录；重复执行成功
+cloud139 mkdir -p /parent/child
 ```
 
 ### mv
@@ -285,15 +324,15 @@ cloud139 mv <源路径...> <目标路径> [-f]
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 源路径 | - | 是 | 源文件路径，支持多个，用空格分隔 |
-| 目标路径 | - | 是 | 目标路径 |
+| 源路径 | - | 是 | 源文件或目录路径；个人盘支持多个，用空格分隔 |
+| 目标路径 | - | 是 | 必须是已有目录，不能是文件或缺失路径 |
 | --force | -f | 否 | 强制继续，如果云端存在同名文件则自动重命名 |
 
 **示例：**
 
 ```bash
 # 移动单个文件
-cloud139 mv /old.txt /new.txt
+cloud139 mv /old.txt /existing-directory/
 
 # 移动多个文件到目录
 cloud139 mv /file1.txt /file2.txt /folder/
@@ -314,8 +353,8 @@ cloud139 cp <源路径...> <目标路径> [-f]
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 源路径 | - | 是 | 源文件路径，支持多个，用空格分隔 |
-| 目标路径 | - | 是 | 目标路径 |
+| 源路径 | - | 是 | 源文件或目录路径；个人盘支持多个，用空格分隔 |
+| 目标路径 | - | 是 | 必须是已有目录，不能是文件或缺失路径 |
 | --force | -f | 否 | 强制继续，如果云端存在同名文件则自动重命名 |
 
 **示例：**
@@ -343,7 +382,7 @@ cloud139 rename <源路径> <新名称>
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 源路径 | - | 是 | 源文件路径 |
+| 源路径 | - | 是 | 源文件或目录路径 |
 | 新名称 | - | 是 | 新名称 |
 
 **示例：**

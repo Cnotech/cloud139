@@ -86,6 +86,7 @@ fn test_resolve_local_path_target_is_dir() {
 #[test]
 fn test_download_args_default() {
     let args = download::DownloadArgs {
+        recursive: false,
         remote_path: "/test.txt".to_string(),
         local_path: None,
     };
@@ -96,6 +97,7 @@ fn test_download_args_default() {
 #[test]
 fn test_download_args_with_local_path() {
     let args = download::DownloadArgs {
+        recursive: false,
         remote_path: "/test.txt".to_string(),
         local_path: Some("/local/path.txt".to_string()),
     };

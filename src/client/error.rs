@@ -40,7 +40,7 @@ pub enum ClientError {
     UnsupportedGroupBatchCopy,
     #[error("家庭云不支持重命名文件夹")]
     UnsupportedFamilyRenameFolder,
-    #[error("不支持下载目录，请使用 ls 命令查看目录内容")]
+    #[error("下载目录需要显式指定 -r / --recursive")]
     UnsupportedDownloadDirectory,
     #[error("无效的文件路径")]
     InvalidFilePath,

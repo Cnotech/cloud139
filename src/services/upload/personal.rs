@@ -1,7 +1,7 @@
-use crate::client::ClientError;
+use crate::client::{ClientError, api};
 use crate::domain::StorageType;
 use crate::models::PersonalUploadResp;
-use crate::utils::logger::{pb_debug, pb_error, pb_step, pb_success, pb_warn};
+use crate::utils::logger::{pb_debug, pb_error, pb_success, pb_warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
@@ -16,23 +16,48 @@ pub async fn upload(
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
-    let url = format!("{}/file/create", host);
-
-    pb_debug("计算文件哈希...", &pb);
-    let (parent_file_id, content_hash) =
-        prepare_upload(config.clone(), local_path, remote_path).await?;
+    let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
+        "/".to_string()
+    } else {
+        crate::client::api::get_file_id_by_path(&config, remote_path).await?
+    };
 
     if !force {
         check_file_exists(&config, &parent_file_id, file_name, &pb).await?;
     }
 
-    let init_resp = init_upload(
+    upload_to_parent(
         &config,
-        &url,
+        &host,
+        local_path,
+        &parent_file_id,
+        file_name,
+        file_size,
+        pb,
+    )
+    .await
+}
+
+pub(in crate::services) async fn upload_to_parent(
+    config: &crate::config::Config,
+    host: &str,
+    local_path: &std::path::Path,
+    parent_file_id: &str,
+    file_name: &str,
+    file_size: i64,
+    pb: Option<ProgressBar>,
+) -> Result<(), ClientError> {
+    pb_debug("计算文件哈希...", &pb);
+    let local_path_str = local_path.to_str().ok_or(ClientError::InvalidSourcePath)?;
+    let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
+
+    let init_resp = init_upload(
+        config,
+        &format!("{host}/file/create"),
         local_path,
         file_name,
         file_size,
-        &parent_file_id,
+        parent_file_id,
         &content_hash,
     )
     .await?;
@@ -68,16 +93,22 @@ pub async fn upload(
                 pb_bar.finish_and_clear();
             }
         } else {
-            let file_id_val = data.file_id.clone().unwrap_or_default();
-            let file_name_val = data.file_name.clone();
+            let file_id = data
+                .file_id
+                .filter(|id| !id.is_empty() && id != "/")
+                .ok_or(ClientError::InvalidFilePath)?;
+            let upload_id = data
+                .upload_id
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
 
             pb_debug("开始分片上传...", &pb);
             upload_parts(UploadPartsParams {
-                config: &config,
-                host: &host,
+                config,
+                host,
                 local_path,
-                upload_id: &data.upload_id.unwrap_or_default(),
-                file_id: &file_id_val,
+                upload_id: &upload_id,
+                file_id: &file_id,
                 file_size,
                 content_hash: &content_hash,
                 part_size: crate::services::upload_service::get_part_size(
@@ -88,21 +119,17 @@ pub async fn upload(
             })
             .await?;
 
-            handle_name_conflict(
-                &config,
-                &host,
-                &parent_file_id,
-                &file_id_val,
+            let saved_name = handle_name_conflict(
+                config,
+                host,
+                parent_file_id,
+                &file_id,
                 file_name,
-                &file_name_val,
-                &pb,
+                data.file_name.as_deref(),
             )
             .await?;
 
-            pb_success(
-                &format!("上传完成: {}", file_name_val.as_deref().unwrap_or("")),
-                &pb,
-            );
+            pb_success(&format!("上传完成: {saved_name}"), &pb);
             if let Some(ref pb_bar) = pb {
                 pb_bar.finish_and_clear();
             }
@@ -116,25 +143,6 @@ pub async fn upload(
     }
 
     Ok(())
-}
-
-async fn prepare_upload(
-    config: crate::config::Config,
-    local_path: &std::path::Path,
-    remote_path: &str,
-) -> Result<(String, String), ClientError> {
-    let local_path_str = local_path
-        .to_str()
-        .ok_or_else(|| ClientError::InvalidSourcePath)?;
-    let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
-
-    let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
-        "/".to_string()
-    } else {
-        crate::client::api::get_file_id_by_path(&config, remote_path).await?
-    };
-
-    Ok((parent_file_id, content_hash))
 }
 
 async fn check_file_exists(
@@ -202,8 +210,7 @@ async fn init_upload(
     });
 
     let resp: PersonalUploadResp =
-        crate::client::api::personal_api_request(config, url, body, StorageType::PersonalNew)
-            .await?;
+        api::personal_api_request(config, url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
         return Err(ClientError::Api(format!(
@@ -316,80 +323,143 @@ async fn handle_name_conflict(
     config: &crate::config::Config,
     host: &str,
     parent_file_id: &str,
-    file_id_val: &str,
+    file_id: &str,
     file_name: &str,
-    file_name_val: &Option<String>,
-    pb: &Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    if file_name_val.as_deref() != Some(file_name) {
-        pb_warn(
-            &format!(
-                "检测到文件名冲突: {} != {}",
-                file_name_val.as_deref().unwrap_or(""),
-                file_name
-            ),
-            pb,
+    reported_name: Option<&str>,
+) -> Result<String, ClientError> {
+    if reported_name == Some(file_name) {
+        return Ok(file_name.to_owned());
+    }
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    let files = api::list_personal_files(config, parent_file_id).await?;
+    let saved_name = files
+        .iter()
+        .find(|item| item.file_id.as_deref() == Some(file_id))
+        .and_then(|item| item.name.as_deref())
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| ClientError::Api("分片上传已提交，但无法确认新文件名称".into()))?;
+    if saved_name == file_name {
+        return Ok(saved_name.to_owned());
+    }
+
+    let mut conflicts = files
+        .iter()
+        .filter(|item| item.name.as_deref() == Some(file_name));
+    let old_file = conflicts.next();
+    if let Some(item) = old_file {
+        if conflicts.next().is_some() || item.is_folder() {
+            return Err(ClientError::Api(format!(
+                "同名条目无法安全替换，新文件保存在 {saved_name}"
+            )));
+        }
+        let old_id = item
+            .file_id
+            .as_deref()
+            .filter(|id| !id.is_empty() && *id != "/" && *id != file_id)
+            .ok_or(ClientError::InvalidFilePath)?;
+        let backup_name = format!(
+            ".cloud139-backup-{}",
+            crate::utils::crypto::generate_random_string(20)
         );
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        rename_uploaded_file(config, host, old_id, &backup_name)
+            .await
+            .map_err(|error| {
+                ClientError::Api(format!(
+                    "无法为旧文件保留备份，新文件保存在 {saved_name}: {error}"
+                ))
+            })?;
+        rename_uploaded_file(config, host, file_id, file_name).await.map_err(|error| {
+            ClientError::Api(format!("无法重命名新文件；旧文件保留为 {backup_name}，请检查新文件 {saved_name}: {error}"))
+        })?;
+        super::super::delete_service::trash_personal_file_id(config, host, old_id)
+            .await
+            .map_err(|error| ClientError::Api(format!(
+                "新文件已重命名为 {file_name}，但旧文件备份 {backup_name} 未确认移到回收站: {error}"
+            )))?;
+    } else {
+        rename_uploaded_file(config, host, file_id, file_name).await?;
+    }
+    Ok(file_name.to_owned())
+}
 
-        let files = crate::client::api::list_personal_files(config, parent_file_id).await?;
-        for file in &files {
-            #[allow(clippy::needless_borrow)]
-            if file.name.as_deref() == Some(&file_name) {
-                pb_step("冲突处理: 先重命名旧文件避免冲突", pb);
-                let old_name = format!(
-                    "{}_{}",
-                    file_name,
-                    crate::utils::crypto::generate_random_string(4)
-                );
-                let rename_old_url = format!("{}/file/update", host);
-                let rename_old_body = serde_json::json!({
-                    "fileId": file.file_id.as_ref().unwrap_or(&String::new()),
-                    "name": old_name,
-                    "description": ""
-                });
-                let _: PersonalUploadResp = crate::client::api::personal_api_request(
-                    config,
-                    &rename_old_url,
-                    rename_old_body,
-                    StorageType::PersonalNew,
-                )
-                .await?;
-                pb_step("冲突处理: 删除旧文件", pb);
-                let del_url = format!("{}/recyclebin/batchTrash", host);
-                let del_body = serde_json::json!({
-                    "fileIds": [file.file_id.as_ref().unwrap_or(&String::new())]
-                });
-                let _: serde_json::Value = crate::client::api::personal_api_request(
-                    config,
-                    &del_url,
-                    del_body,
-                    StorageType::PersonalNew,
-                )
-                .await?;
-                break;
-            }
-        }
-
-        for file in &files {
-            if file.file_id.as_deref() == Some(file_id_val) {
-                pb_step("冲突处理: 重命名新文件", pb);
-                let rename_url = format!("{}/file/update", host);
-                let rename_body = serde_json::json!({
-                    "fileId": file_id_val,
-                    "name": file_name,
-                    "description": ""
-                });
-                let _: PersonalUploadResp = crate::client::api::personal_api_request(
-                    config,
-                    &rename_url,
-                    rename_body,
-                    StorageType::PersonalNew,
-                )
-                .await?;
-                break;
-            }
-        }
+async fn rename_uploaded_file(
+    config: &crate::config::Config,
+    host: &str,
+    file_id: &str,
+    name: &str,
+) -> Result<(), ClientError> {
+    let response: PersonalUploadResp = api::personal_api_request(
+        config,
+        &format!("{host}/file/update"),
+        serde_json::json!({ "fileId": file_id, "name": name, "description": "" }),
+        StorageType::PersonalNew,
+    )
+    .await?;
+    if !response.base.success {
+        return Err(ClientError::Api(
+            response.base.message.unwrap_or_else(|| "重命名失败".into()),
+        ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn failed_upload_conflict_renames_do_not_trash_existing_file() {
+        for fail_backup in [true, false] {
+            let server = MockServer::start();
+            let config = crate::config::Config {
+                authorization: "fictional".into(),
+                account: "13800138000".into(),
+                personal_cloud_host: Some(server.base_url()),
+                ..Default::default()
+            };
+            let listing = server.mock(|when, then| {
+                when.method(POST).path("/file/list");
+                then.json_body(json!({"success":true,"data":{"items":[
+                    {"name":"report.txt","fileId":"old","type":"file"},
+                    {"name":"report-copy.txt","fileId":"new","type":"file"}
+                ]}}));
+            });
+            let backup = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/file/update")
+                    .json_body_includes(r#"{"fileId":"old"}"#);
+                then.json_body(json!({"success":!fail_backup}));
+            });
+            let rename = server.mock(|when, then| {
+                when.method(POST)
+                    .path("/file/update")
+                    .json_body_includes(r#"{"fileId":"new","name":"report.txt"}"#);
+                then.json_body(json!({"success":false,"message":"rename rejected"}));
+            });
+            let trash = server.mock(|when, then| {
+                when.method(POST).path("/recyclebin/batchTrash");
+                then.json_body(json!({"success":true}));
+            });
+            let result = handle_name_conflict(
+                &config,
+                &server.base_url(),
+                "/",
+                "new",
+                "report.txt",
+                Some("report-copy.txt"),
+            )
+            .await;
+            let message = result.unwrap_err().to_string();
+            assert!(message.contains("report-copy.txt"));
+            if !fail_backup {
+                assert!(message.contains(".cloud139-backup-"));
+            }
+            listing.assert_calls(1);
+            backup.assert_calls(1);
+            rename.assert_calls(usize::from(!fail_backup));
+            trash.assert_calls(0);
+        }
+    }
 }

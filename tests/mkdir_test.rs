@@ -6,6 +6,7 @@ use cloud139::services::mkdir_service;
 #[test]
 fn test_mkdir_args_defaults() {
     let args = mkdir::MkdirArgs {
+        parents: false,
         path: "/test".to_string(),
         force: false,
     };
@@ -16,6 +17,7 @@ fn test_mkdir_args_defaults() {
 #[test]
 fn test_mkdir_args_with_force() {
     let args = mkdir::MkdirArgs {
+        parents: false,
         path: "/test".to_string(),
         force: true,
     };

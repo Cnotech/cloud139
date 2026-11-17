@@ -2,13 +2,13 @@ use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
 pub struct RenameArgs {
-    #[arg(help = "源文件路径")]
+    #[arg(help = "源文件或目录路径")]
     pub source: String,
 
     #[arg(help = "新名称")]
     pub target: String,
 
-    #[arg(short, long, help = "强制继续，如果云端存在同名文件则自动重命名")]
+    #[arg(short, long, help = "个人盘文件同名时强制继续；目录冲突仍报错")]
     pub force: bool,
 }
 
