@@ -14,6 +14,14 @@ pub async fn upload(
     force: bool,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
+    super::super::upload_service::validate_upload_size(
+        StorageType::PersonalNew,
+        file_size
+            .try_into()
+            .map_err(|_| ClientError::InvalidFilePath)?,
+    )?;
+    let file_size =
+        super::super::upload_service::checked_upload_size(StorageType::PersonalNew, local_path)?;
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
@@ -47,6 +55,14 @@ pub(in crate::services) async fn upload_to_parent(
     file_size: i64,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
+    super::super::upload_service::validate_upload_size(
+        StorageType::PersonalNew,
+        file_size
+            .try_into()
+            .map_err(|_| ClientError::InvalidFilePath)?,
+    )?;
+    let file_size =
+        super::super::upload_service::checked_upload_size(StorageType::PersonalNew, local_path)?;
     pb_debug("计算文件哈希...", &pb);
     let local_path_str = local_path.to_str().ok_or(ClientError::InvalidSourcePath)?;
     let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
@@ -214,8 +230,13 @@ async fn init_upload(
 
     if !resp.base.success {
         return Err(ClientError::Api(format!(
-            "创建上传任务失败: {}",
-            resp.base.message.as_deref().unwrap_or("未知错误")
+            "创建上传任务失败: {}{}",
+            resp.base.message.as_deref().unwrap_or("未知错误"),
+            resp.base
+                .code
+                .as_deref()
+                .map(|code| format!("（错误码: {code}）"))
+                .unwrap_or_default()
         )));
     }
 

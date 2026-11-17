@@ -49,9 +49,70 @@ async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {
             deleted: 1,
             created_dirs: 1,
             failed: 0,
+            oversized: 0,
             bytes: 5,
         }
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn grown_upload_is_rejected_before_parent_mutation_and_other_actions_continue() {
+    use cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES;
+    use httpmock::prelude::*;
+    let server = MockServer::start();
+    let requests = server.mock(|when, then| {
+        when.any_request();
+        then.status(500);
+    });
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let tmp = tempdir().unwrap();
+    let large = tmp.path().join("large.bin");
+    std::fs::File::create(&large)
+        .unwrap()
+        .set_len(PERSONAL_UPLOAD_MAX_BYTES + 1)
+        .unwrap();
+    let actions = vec![
+        // A stale scan claims this file is small; execution must re-read metadata.
+        SyncAction::Upload {
+            rel_path: "large.bin".into(),
+            local_abs: large,
+            remote_abs: "/existing/large.bin".into(),
+            size: 1,
+            change: ChangeKind::SizeOrTime,
+        },
+        SyncAction::UploadBlocked {
+            rel_path: "blocked.bin".into(),
+            size: PERSONAL_UPLOAD_MAX_BYTES + 1,
+        },
+        SyncAction::CreateDir {
+            rel_path: "empty".into(),
+            target: SyncTarget::Local,
+            target_abs: tmp.path().join("empty").to_str().unwrap().into(),
+        },
+    ];
+    let summary = execute_sync_actions(
+        &config,
+        actions,
+        SyncExecuteOptions {
+            dry_run: false,
+            jobs: 2,
+            progress: false,
+            print_actions: false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary.oversized, 2);
+    assert_eq!(summary.failed, 0);
+    assert_eq!(summary.transferred, 0);
+    assert_eq!(summary.bytes, 0);
+    assert_eq!(summary.created_dirs, 1);
+    assert!(tmp.path().join("empty").is_dir());
+    requests.assert_calls(0);
 }
 
 #[tokio::test]

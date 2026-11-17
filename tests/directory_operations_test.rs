@@ -561,6 +561,82 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn oversized_uploads_continue_and_sync_delete_preserves_cloud_directory() {
+    let server = Server::new();
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("source");
+    std::fs::create_dir_all(&source).unwrap();
+    std::fs::File::create(source.join("a-large.bin"))
+        .unwrap()
+        .set_len(cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES + 1)
+        .unwrap();
+    std::fs::write(source.join("z-small.bin"), b"small").unwrap();
+    let error =
+        services::upload_service::upload_directory(&server.config(), &source, "/", true, false)
+            .await
+            .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("成功 1 个，超限未传 1 个"), "{message}");
+    assert!(
+        !server
+            .mutations()
+            .iter()
+            .any(|(_, b)| b["name"] == "a-large.bin")
+    );
+    assert!(
+        server
+            .mutations()
+            .iter()
+            .any(|(_, b)| b["name"] == "z-small.bin")
+    );
+
+    // --delete must preserve the cloud directory corresponding to a blocked file.
+    server.set("/", vec![folder("old", "a-large.bin")]);
+    server.set("old", vec![file("keep", "keep.txt")]);
+    server.state.lock().unwrap().requests.clear();
+    let config = tmp.path().join("profile.toml");
+    let mut profile = server.config();
+    profile.token_expire_time = Some(i64::MAX);
+    profile.save_to(&config).unwrap();
+    for dry_run in [true, false] {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+        command
+            .arg("--config")
+            .arg(&config)
+            .arg("sync")
+            .arg(&source)
+            .args(["cloud:/", "-r", "--delete"])
+            .current_dir(tmp.path())
+            .env("HOME", tmp.path())
+            .env("XDG_CONFIG_HOME", tmp.path());
+        if dry_run {
+            command.arg("-n");
+        }
+        let output = command.output().unwrap();
+        assert_eq!(output.status.code(), Some(if dry_run { 0 } else { 1 }));
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            text.contains("a-large.bin") && text.contains("5 GiB"),
+            "{text}"
+        );
+        let mutations = server.mutations();
+        assert!(!mutations.iter().any(|(p, _)| p == "/recyclebin/batchTrash"));
+        if dry_run {
+            assert!(mutations.is_empty());
+            assert!(text.contains("同步计划"), "{text}");
+        } else {
+            assert!(mutations.iter().any(|(_, b)| b["name"] == "z-small.bin"));
+            assert!(text.contains("1 个超限未传"), "{text}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn upload_maps_directory_or_contents_keeps_empty_and_never_skips_same_size() {
     let server = Server::new();
@@ -627,6 +703,7 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::write(tmp.path().join("a.bin"), b"data").unwrap();
     std::fs::write(tmp.path().join("z.bin"), b"fail").unwrap();
+    std::fs::write(tmp.path().join("zz.bin"), b"after failure").unwrap();
     server.state.lock().unwrap().fail_name = Some("z.bin".into());
     let error = services::upload_service::upload_directory(
         &server.config(),
@@ -645,6 +722,13 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     );
     assert_eq!(
         uploads.iter().filter(|(_, b)| b["name"] == "z.bin").count(),
+        1
+    );
+    assert_eq!(
+        uploads
+            .iter()
+            .filter(|(_, b)| b["name"] == "zz.bin")
+            .count(),
         1
     );
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);

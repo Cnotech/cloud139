@@ -2,6 +2,9 @@ use clap::Parser;
 use indicatif::MultiProgress;
 
 #[derive(Parser, Debug, Clone)]
+#[command(
+    after_help = "个人盘单文件上传上限为 5 GiB（5,368,709,120 字节）；目录中的超限文件会提示并继续处理其他文件，结束后有未完成项返回退出码 1。"
+)]
 pub struct UploadArgs {
     #[arg(help = "本地文件或目录；目录末尾 / 表示仅上传内容，否则包含目录本身")]
     pub local_path: String,
@@ -41,8 +44,9 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
 
-    let metadata = std::fs::metadata(local_path)?;
-    let file_size = metadata.len() as i64;
+    let file_size =
+        crate::services::upload_service::checked_upload_size(config.storage_type(), local_path)
+            .map_err(|error| anyhow::anyhow!("无法上传 {}: {}", args.local_path, error))?;
 
     let remote_dir = if args.remote_path == "/" {
         "".to_string()

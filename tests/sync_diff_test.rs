@@ -31,6 +31,69 @@ fn dir_entry(path: &str) -> FileEntry {
 }
 
 #[test]
+fn oversized_sources_are_blocked_without_losing_delete_protection() {
+    let max = cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES;
+    let actions = compute_diff(
+        &[
+            entry("movie", max + 1, 100),
+            entry("limit.bin", max, 100),
+            entry("unchanged", max + 1, 100),
+        ],
+        &[
+            dir_entry("movie"),
+            dir_entry("movie/sub"),
+            entry("movie/sub/keep", 4, 100),
+            entry("movie-extra", 4, 100),
+            entry("unchanged", max + 1, 100),
+        ],
+        SyncDiffOptions {
+            direction: SyncDirection::LocalToCloud,
+            delete: true,
+            local_root: "local".into(),
+            cloud_root: "/remote".into(),
+        },
+    );
+    assert!(
+        actions.iter().any(
+            |a| matches!(a, SyncAction::UploadBlocked { rel_path, .. } if rel_path == "movie")
+        )
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::Upload { rel_path, .. } if rel_path == "limit.bin"))
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::Skip { rel_path } if rel_path == "unchanged"))
+    );
+    assert_eq!(
+        actions
+            .iter()
+            .filter(|a| matches!(a, SyncAction::Delete { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::Delete { rel_path, .. } if rel_path == "movie-extra"))
+    );
+    let download = compute_diff(
+        &[entry("huge.bin", max + 1, 100)],
+        &[],
+        SyncDiffOptions {
+            direction: SyncDirection::CloudToLocal,
+            delete: false,
+            local_root: "local".into(),
+            cloud_root: "/remote".into(),
+        },
+    );
+    assert!(matches!(&download[0], SyncAction::Download { .. }));
+}
+
+#[test]
 fn test_compute_diff_uploads_missing_target() {
     let actions = compute_diff(
         &[entry("docs/readme.md", 10, 100)],
