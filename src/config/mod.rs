@@ -313,12 +313,32 @@ fn prepare_save_path(path: &Path) -> Result<PathBuf, ConfigError> {
 fn canonicalize_config_path(path: &Path) -> io::Result<PathBuf> {
     #[cfg(windows)]
     {
-        retry_windows_file_operation(|| fs::canonicalize(path))
+        retry_windows_file_operation(|| with_stable_windows_path(path, || fs::canonicalize(path)))
     }
     #[cfg(unix)]
     {
         fs::canonicalize(path)
     }
+}
+
+#[cfg(windows)]
+fn with_stable_windows_path<T>(
+    path: &Path,
+    operation: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    // canonicalize 先打开句柄再查询路径。若此时文件被原子替换，Windows
+    // 可能返回旧文件在 $Extend\\$Deleted 中的路径，导致后续锁名和写入位置错误。
+    // 查询期间不共享删除权限，固定目录项；不要求读写权限，并兼容目录与符号链接。
+    let _guard = fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    operation()
 }
 
 fn read_config(path: &Path) -> io::Result<String> {
@@ -400,6 +420,26 @@ fn save_atomically(config: &Config, path: &Path, overwrite: bool) -> Result<(), 
 #[cfg(test)]
 mod refresh_tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn canonicalization_blocks_replacement_until_path_is_resolved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let replacement = dir.path().join("replacement.toml");
+        fs::write(&path, "old").unwrap();
+        fs::write(&replacement, "new").unwrap();
+        let expected = fs::canonicalize(&path).unwrap();
+        let resolved = with_stable_windows_path(&path, || {
+            let error = fs::rename(&replacement, &path).unwrap_err();
+            assert!(matches!(error.raw_os_error(), Some(5 | 32)));
+            fs::canonicalize(&path)
+        })
+        .unwrap();
+        assert_eq!(resolved, expected);
+        fs::rename(&replacement, &path).unwrap();
+        assert_eq!(fs::read_to_string(resolved).unwrap(), "new");
+    }
 
     #[cfg(windows)]
     #[test]

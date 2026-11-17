@@ -130,3 +130,12 @@ fn concurrent_first_saves_never_expose_empty_config_or_leave_lock_files() {
     let saved: Config = toml::from_str(&fs::read_to_string(&*path).unwrap()).unwrap();
     assert!(saved.account.starts_with("writer-"));
 }
+
+#[cfg(windows)]
+#[test]
+fn repeated_concurrent_first_saves_keep_the_original_config_path() {
+    // 放大首次创建与 canonicalize/原子替换交错的窗口，覆盖 Windows CI 的偶发失败。
+    for _ in 0..32 {
+        concurrent_first_saves_never_expose_empty_config_or_leave_lock_files();
+    }
+}
