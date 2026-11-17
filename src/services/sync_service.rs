@@ -265,6 +265,7 @@ pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry
         return Err(anyhow!("本地路径不存在: {}", root.display()));
     }
 
+    super::directory_service::safe_local(root)?;
     let patterns = compile_exclude_patterns(&options.exclude)?;
     let mut items = Vec::new();
 
@@ -300,7 +301,13 @@ fn scan_local_dir(
             continue;
         }
 
-        let metadata = entry.metadata()?;
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            return Err(anyhow!("拒绝符号链接: {}", path.display()));
+        }
+        if !metadata.is_file() && !metadata.is_dir() {
+            return Err(anyhow!("不支持的本地文件类型: {}", path.display()));
+        }
         if metadata.is_dir() {
             if options.recursive {
                 // Remember position before scanning children
@@ -400,10 +407,7 @@ fn to_forward_slash(path: &Path) -> String {
 }
 
 pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileItem) -> bool {
-    matches!(
-        item.file_type.as_deref(),
-        Some("folder") | Some("dir") | Some("1")
-    )
+    item.is_folder()
 }
 
 pub fn cloud_child_path(parent: &str, name: &str) -> String {

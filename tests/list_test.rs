@@ -7,6 +7,7 @@ use cloud139::utils::parse_personal_time;
 #[test]
 fn test_list_args_defaults() {
     let args = ListArgs {
+        recursive: false,
         path: "/".to_string(),
         page: 1,
         page_size: 100,
@@ -21,6 +22,7 @@ fn test_list_args_defaults() {
 #[test]
 fn test_list_args_with_output() {
     let args = ListArgs {
+        recursive: false,
         path: "/test".to_string(),
         page: 2,
         page_size: 50,
@@ -32,6 +34,7 @@ fn test_list_args_with_output() {
 #[test]
 fn test_list_args_custom_page() {
     let args = ListArgs {
+        recursive: false,
         path: "/".to_string(),
         page: 5,
         page_size: 20,

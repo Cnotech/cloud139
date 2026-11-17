@@ -45,6 +45,15 @@ pub struct PersonalFileItem {
     pub content_hash_algorithm: Option<String>,
 }
 
+impl PersonalFileItem {
+    pub fn is_folder(&self) -> bool {
+        matches!(
+            self.file_type.as_deref(),
+            Some("folder") | Some("dir") | Some("1")
+        )
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct PersonalThumbnail {
     pub style: Option<String>,

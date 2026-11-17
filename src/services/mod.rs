@@ -20,3 +20,7 @@ pub use mkdir_service::mkdir;
 pub use move_service::mv;
 pub use rename_service::rename;
 pub use upload_service::upload;
+
+pub mod directory_service;
+
+pub mod legacy_directory;

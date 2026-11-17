@@ -15,6 +15,7 @@ pub async fn login(
 
     info!("正在校验 Token 可用性 (ls /) ...");
     let list_args = crate::commands::list::ListArgs {
+        recursive: false,
         path: "/".to_string(),
         page: 1,
         page_size: 10,

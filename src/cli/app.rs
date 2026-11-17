@@ -23,21 +23,21 @@ pub struct Cli {
 pub enum Commands {
     /// 登录账号
     Login(login::LoginArgs),
-    /// 列出文件
+    /// 列出文件和目录
     Ls(list::ListArgs),
-    /// 上传文件
+    /// 上传文件和目录
     Upload(upload::UploadArgs),
-    /// 下载文件
+    /// 下载文件和目录
     Download(download::DownloadArgs),
-    /// 删除文件
+    /// 删除文件和目录
     Rm(delete::DeleteArgs),
     /// 创建目录
     Mkdir(mkdir::MkdirArgs),
-    /// 移动文件
+    /// 移动文件和目录
     Mv(mv::MvArgs),
-    /// 复制文件
+    /// 复制文件和目录
     Cp(cp::CpArgs),
-    /// 重命名文件
+    /// 重命名文件和目录
     Rename(rename::RenameArgs),
     /// 同步本地目录和云端目录
     Sync(sync::SyncArgs),

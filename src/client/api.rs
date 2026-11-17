@@ -64,7 +64,13 @@ pub async fn get_personal_cloud_host_with_client(
 
     let headers = build_route_headers(&config.authorization, &ts, &rand_str, &sign)?;
 
-    let resp = client.post(url).headers(headers).json(&body).send().await?;
+    let resp = client
+        .post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
 
     let route_resp: QueryRoutePolicyResp = resp.json().await?;
 
@@ -88,7 +94,9 @@ pub async fn get_personal_cloud_host_with_client(
 }
 
 pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
-    if path.is_empty() || path == "/" {
+    let normalized = crate::utils::remote_path::normalize(path)?;
+    let path = normalized.as_str();
+    if path == "/" {
         debug!("get_file_id_by_path: 根路径返回空ID");
         return Ok(String::new());
     }
@@ -119,7 +127,15 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         // 后续页的失败不会拖垮本来可以解析的路径。
         let target_id = find_personal_child(&config, &host, &parent_id, part, &http_client)
             .await?
-            .map(|item| item.file_id.unwrap_or_default());
+            .map(|item| {
+                if !is_last && !item.is_folder() {
+                    return Err(ClientError::InvalidFilePath);
+                }
+                item.file_id
+                    .filter(|id| !id.is_empty())
+                    .ok_or(ClientError::InvalidFilePath)
+            })
+            .transpose()?;
 
         match target_id {
             Some(id) => {
@@ -179,9 +195,16 @@ pub(crate) async fn find_personal_child(
         )
         .await?;
 
+        if !resp.base.success {
+            return Err(ClientError::Api(
+                resp.base
+                    .message
+                    .unwrap_or_else(|| "获取目录列表失败".into()),
+            ));
+        }
         let data = match resp.data {
             Some(data) => data,
-            None => return Ok(None),
+            None => return Err(ClientError::Api("获取目录列表失败: 无数据".into())),
         };
 
         if let Some(item) = data
@@ -247,7 +270,13 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     let headers = build_signed_headers(&config.authorization, &ts, &rand_str, &sign, svctype)?;
 
     debug!("personal_api_request: POST {} svctype={}", url, svctype);
-    let resp = client.post(url).headers(headers).json(&body).send().await?;
+    let resp = client
+        .post(url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?;
 
     let result: T = resp.json().await?;
     Ok(result)
@@ -325,6 +354,13 @@ pub async fn list_personal_files_with_client(
         )
         .await?;
 
+        if !resp.base.success {
+            return Err(ClientError::Api(
+                resp.base
+                    .message
+                    .unwrap_or_else(|| "获取目录列表失败".into()),
+            ));
+        }
         match resp.data {
             Some(data) => {
                 all_items.extend(data.items);
@@ -338,8 +374,7 @@ pub async fn list_personal_files_with_client(
                 }
             }
             None => {
-                debug!("list_personal_files: 响应无数据");
-                break;
+                return Err(ClientError::Api("获取目录列表失败: 无数据".into()));
             }
         }
     }

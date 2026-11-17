@@ -5,6 +5,9 @@ use std::fs;
 
 #[derive(Parser, Debug, Clone)]
 pub struct ListArgs {
+    #[arg(short = 'R', long, help = "递归列出所有目录及全部分页")]
+    pub recursive: bool,
+
     #[arg(default_value = "/", help = "远程目录路径")]
     pub path: String,
 
@@ -24,6 +27,24 @@ pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
         "list: path={}, page={}, page_size={}",
         args.path, args.page, args.page_size
     );
+    if args.recursive {
+        let results = crate::services::list_service::list_recursive(&config, &args.path).await?;
+        for result in &results {
+            list_renderer::render_terminal(result);
+        }
+        if let Some(output) = &args.output {
+            let values = results
+                .iter()
+                .map(|result| {
+                    list_renderer::to_json_with_pagination(result, None, None).and_then(|json| {
+                        serde_json::from_str::<serde_json::Value>(&json).map_err(Into::into)
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            fs::write(output, serde_json::to_string_pretty(&values)?)?;
+        }
+        return Ok(());
+    }
     let result = crate::services::list(&config, &args).await?;
     list_renderer::render_terminal(&result);
 

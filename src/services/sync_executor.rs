@@ -285,7 +285,8 @@ async fn execute_one_action(
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             if should_pre_delete(*change) {
-                crate::services::delete(config, remote_abs, true).await.ok();
+                crate::services::delete_service::delete_recursive(config, remote_abs, false, true)
+                    .await?;
             }
             crate::services::upload::personal::upload(
                 config,
@@ -338,7 +339,8 @@ async fn execute_one_action(
                 }
             }
             SyncTarget::Cloud => {
-                crate::services::delete(config, target_abs, false).await?;
+                crate::services::delete_service::delete_recursive(config, target_abs, false, true)
+                    .await?;
             }
         },
         SyncAction::CreateDir {
@@ -423,7 +425,7 @@ pub(crate) async fn ensure_personal_cloud_dir(
         } else {
             format!("{}/{}", parent.trim_end_matches('/'), name)
         };
-        crate::services::delete(&config, &full_path, false).await?;
+        crate::services::delete_service::delete_recursive(&config, &full_path, false, true).await?;
     }
 
     // 创建目录

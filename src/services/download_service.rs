@@ -1,5 +1,4 @@
 use crate::client::ClientError;
-use crate::client::endpoints::{family, group};
 use crate::config::Config;
 use crate::debug;
 use crate::domain::StorageType;
@@ -15,6 +14,8 @@ pub async fn download(
     local_path: &str,
     pb: Option<ProgressBar>,
 ) -> Result<()> {
+    let normalized = super::directory_service::normalize(remote_path)?;
+    let remote_path = normalized.as_str();
     let storage_type = config.storage_type();
     debug!(
         "download: remote={}, local={}, storage={}",
@@ -32,11 +33,29 @@ pub async fn download(
             debug!("download_personal: file_id={}", file_id);
             download_personal(config, remote_path, &file_id, local_path, pb).await?;
         }
-        StorageType::Family => {
-            download_family(config, remote_path, local_path, pb).await?;
-        }
-        StorageType::Group => {
-            download_group(config, remote_path, local_path, pb).await?;
+        StorageType::Family | StorageType::Group => {
+            let remote = super::directory_service::normalize(remote_path)?;
+            let entry = super::legacy_directory::resolve(config, &remote).await?;
+            if entry.folder {
+                return Err(ClientError::UnsupportedDownloadDirectory.into());
+            }
+            let url = if storage_type == StorageType::Family {
+                crate::client::api::get_family_download_link(config, &entry.id, &entry.wire_path)
+                    .await?
+            } else {
+                crate::client::api::get_group_download_link(config, &entry.id, &entry.wire_path)
+                    .await?
+            };
+            if url.is_empty() {
+                return Err(ClientError::Api("下载 URL 为空".into()).into());
+            }
+            let local = Path::new(local_path);
+            let destination = if local.is_dir() {
+                local.join(&entry.name)
+            } else {
+                local.to_owned()
+            };
+            download_file(&url, &destination, pb).await?;
         }
     }
 
@@ -122,6 +141,7 @@ async fn download_personal(
                 .unwrap_or(remote_path)
                 .to_string()
         });
+        super::directory_service::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
         download_file(&download_url, &file_path, pb.clone()).await?;
     } else {
@@ -137,6 +157,7 @@ async fn download_file(
     local_path: &Path,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
+    super::directory_service::safe_local(local_path)?;
     // 重试会复用同一个进度条（clone 共享状态）；每次下载都从头写文件，进度也要归零。
     if let Some(pb) = &pb {
         pb.set_position(0);
@@ -176,233 +197,59 @@ async fn download_file(
     Ok(())
 }
 
-/// 下载家庭云文件
-async fn download_family(
+/// Recursive download retains empty directories and rejects unsafe names and local symlinks.
+pub async fn download_recursive(
     config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
-    if parts.is_empty() {
-        return Err(ClientError::InvalidFilePath);
+    remote: &str,
+    local: &str,
+    recursive: bool,
+) -> Result<()> {
+    use super::directory_service as dirs;
+    let remote = dirs::normalize(remote)?;
+    dirs::safe_local(Path::new(local))?;
+    let entry = dirs::resolve(config, &remote).await?;
+    if !entry.folder {
+        return download(config, &remote, local, None).await;
     }
-
-    let file_name = parts.last().unwrap();
-    let parent_path = if parts.len() > 1 {
-        parts[..parts.len() - 1].join("/")
-    } else {
-        config
-            .root_folder_id
-            .clone()
-            .unwrap_or_else(|| "0".to_string())
-    };
-
-    let url = family::orchestration::QUERY_CONTENT_LIST;
-
-    let body = serde_json::json!({
-        "catalogID": parent_path,
-        "sortType": 1,
-        "pageNumber": 1,
-        "pageSize": 100,
-        "cloudID": config.cloud_id,
-        "cloudType": 1,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        }
-    });
-
-    let client = crate::client::Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
-
-    let mut found_id: Option<String> = None;
-    let mut found_path: Option<String> = None;
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/cloudCatalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat
-                    .get("catalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
+    if !recursive {
+        return Err(ClientError::UnsupportedDownloadDirectory.into());
+    }
+    let entries = dirs::tree(config, &remote).await?;
+    // Check all destinations before writing any file.
+    for entry in &entries {
+        let rel = entry
+            .path
+            .strip_prefix(remote.trim_end_matches('/'))
+            .unwrap()
+            .trim_start_matches('/');
+        let dest = Path::new(local).join(rel);
+        dirs::safe_local(&dest)?;
+        if dest.exists() && dest.is_dir() != entry.folder {
+            return Err(dirs::invalid("本地文件与目录冲突").into());
         }
     }
-
-    if found_id.is_none()
-        && let Some(content_list) = resp
-            .pointer("/data/cloudContentList")
-            .and_then(|v| v.as_array())
-    {
-        for content in content_list {
-            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = content
-                    .get("contentID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = resp
-                    .pointer("/data/path")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
+    std::fs::create_dir_all(local)?;
+    for entry in entries {
+        let rel = entry
+            .path
+            .strip_prefix(remote.trim_end_matches('/'))
+            .unwrap()
+            .trim_start_matches('/');
+        let dest = Path::new(local).join(rel);
+        dirs::safe_local(&dest)?;
+        if entry.folder {
+            std::fs::create_dir_all(&dest)?;
+        } else {
+            download(
+                config,
+                &entry.path,
+                dest.to_str().ok_or(ClientError::InvalidFilePath)?,
+                None,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
         }
     }
-
-    let content_id = match found_id {
-        Some(id) => id,
-        None => {
-            return Err(ClientError::FileNotFound);
-        }
-    };
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/cloudCatalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
-        }
-    }
-
-    let path = found_path.unwrap_or_else(|| parent_path.clone());
-
-    let download_url =
-        crate::client::api::get_family_download_link(config, &content_id, &path).await?;
-
-    if download_url.is_empty() {
-        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
-    }
-
-    let local_path_obj = std::path::Path::new(local_path);
-    if local_path_obj.is_dir() {
-        let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
-    } else {
-        download_file(&download_url, local_path_obj, pb).await?;
-    }
-
-    Ok(())
-}
-
-/// 下载群组云文件
-async fn download_group(
-    config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    let parts: Vec<&str> = remote_path.trim_start_matches('/').split('/').collect();
-    if parts.is_empty() {
-        return Err(ClientError::InvalidFilePath);
-    }
-
-    let file_name = parts.last().unwrap();
-    let parent_path = if parts.len() > 1 {
-        parts[..parts.len() - 1].join("/")
-    } else {
-        "0".to_string()
-    };
-
-    let url = group::orchestration::QUERY_GROUP_CONTENT_LIST;
-
-    let body = serde_json::json!({
-        "groupID": config.cloud_id,
-        "catalogID": parent_path,
-        "contentSortType": 0,
-        "sortDirection": 1,
-        "startNumber": 1,
-        "endNumber": 100,
-        "path": if parent_path == "0" { "root:".to_string() } else { format!("root:/{}", parent_path) }
-    });
-
-    let client = crate::client::Client::new(config.clone());
-    let resp: serde_json::Value = client.api_request_post(url, body).await?;
-
-    let mut found_id: Option<String> = None;
-    let mut found_path: Option<String> = None;
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = cat
-                    .get("catalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = cat
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
-        }
-    }
-
-    if found_id.is_none()
-        && let Some(content_list) = resp
-            .pointer("/data/getGroupContentResult/contentList")
-            .and_then(|v| v.as_array())
-    {
-        for content in content_list {
-            if content.get("contentName").and_then(|v| v.as_str()) == Some(file_name) {
-                found_id = content
-                    .get("contentID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                found_path = resp
-                    .pointer("/data/getGroupContentResult/parentCatalogID")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                break;
-            }
-        }
-    }
-
-    let content_id = match found_id {
-        Some(id) => id,
-        None => {
-            return Err(ClientError::FileNotFound);
-        }
-    };
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array())
-    {
-        for cat in catalog_list {
-            if cat.get("catalogName").and_then(|v| v.as_str()) == Some(file_name) {
-                return Err(ClientError::UnsupportedDownloadDirectory);
-            }
-        }
-    }
-
-    let path = found_path.unwrap_or_else(|| format!("root:/{}", parent_path));
-
-    let download_url =
-        crate::client::api::get_group_download_link(config, &content_id, &path).await?;
-
-    if download_url.is_empty() {
-        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
-    }
-
-    let local_path_obj = std::path::Path::new(local_path);
-    if local_path_obj.is_dir() {
-        let file_path = local_path_obj.join(file_name);
-        download_file(&download_url, &file_path, pb.clone()).await?;
-    } else {
-        download_file(&download_url, local_path_obj, pb).await?;
-    }
-
     Ok(())
 }
 

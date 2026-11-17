@@ -11,3 +11,5 @@ pub use path::resolve_local_path;
 pub use rand::*;
 pub use time::*;
 pub use width::*;
+
+pub mod remote_path;
