@@ -49,6 +49,19 @@ pub(in crate::services) async fn upload_sync_to_parent(
     } = plan;
     let file_size = super::super::upload_service::checked_upload_size(local_path)?;
     super::super::directory_service::validate_name(file_name)?;
+    // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
+    // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
+    let verify_content_addressed = hash_missing.is_some() && is_content_addressed(file_name);
+    if verify_content_addressed {
+        let path = local_path.to_path_buf();
+        let local_hash =
+            tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(&path))
+                .await??;
+        anyhow::ensure!(
+            local_hash.eq_ignore_ascii_case(file_name),
+            "内容寻址对象 {file_name} 的实际内容哈希 {local_hash} 与文件名不一致，已保留远端旧副本"
+        );
+    }
     let temporary_name = format!(
         "{SYNC_UPLOAD_PREFIX}{}",
         crate::utils::rand::generate_rand_str(24)
@@ -96,6 +109,15 @@ pub(in crate::services) async fn upload_sync_to_parent(
         format!("同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}")
     })?;
     let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
+    // The source may change after the preflight read. This is the digest used by
+    // upload initialization and remote verification; bind publication to it too.
+    if verify_content_addressed {
+        anyhow::ensure!(
+            uploaded.sha256.eq_ignore_ascii_case(file_name),
+            "内容寻址对象 {file_name} 的上传内容哈希 {} 与文件名不一致；临时名称 {saved_name}，旧条目未替换",
+            uploaded.sha256
+        );
+    }
     let promote = async {
         let id = uploaded.id.as_str();
         if before
@@ -159,6 +181,11 @@ pub(in crate::services) async fn upload_sync_to_parent(
     .await
     .with_context(|| format!("临时名称 {saved_name}，替换 {file_name} 未完成"))?;
     Ok(promote)
+}
+
+/// 内容寻址对象：文件名即内容的 SHA-256（64 个十六进制字符）。
+fn is_content_addressed(name: &str) -> bool {
+    name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn check_destination(
