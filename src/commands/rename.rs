@@ -8,7 +8,11 @@ pub struct RenameArgs {
     #[arg(help = "新名称")]
     pub target: String,
 
-    #[arg(short, long, help = "个人盘文件同名时强制继续；目录冲突仍报错")]
+    #[arg(
+        short,
+        long,
+        help = "新名称已被其他文件使用时，仍提交重命名。涉及目录的同名冲突会报错"
+    )]
     pub force: bool,
 }
 

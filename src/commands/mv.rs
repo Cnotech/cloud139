@@ -8,7 +8,11 @@ pub struct MvArgs {
     #[arg(help = "必须是已有目标目录")]
     pub target: String,
 
-    #[arg(short, long, help = "个人盘文件同名时强制继续；目录冲突仍报错")]
+    #[arg(
+        short,
+        long,
+        help = "目标目录已有同名文件时，仍提交移动。涉及目录的同名冲突会报错"
+    )]
     pub force: bool,
 }
 

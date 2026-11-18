@@ -12,7 +12,11 @@ pub struct UploadArgs {
     #[arg(default_value = "/", help = "远程目录路径")]
     pub remote_path: String,
 
-    #[arg(short, long, help = "个人盘文件同名时强制继续；目录冲突仍报错")]
+    #[arg(
+        short,
+        long,
+        help = "允许上传同名文件，由云端为新文件分配名称。文件与目录同名时会报错"
+    )]
     pub force: bool,
 }
 
