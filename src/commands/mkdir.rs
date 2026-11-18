@@ -9,7 +9,7 @@ pub struct MkdirArgs {
     #[arg(help = "新目录路径，格式: /父目录/新目录名")]
     pub path: String,
 
-    #[arg(short, long, help = "兼容选项；目录重名仍报错，不自动改名")]
+    #[arg(short, long, help = "为旧脚本保留。传入后与省略时行为相同")]
     pub force: bool,
 }
 

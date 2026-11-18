@@ -18,10 +18,10 @@ pub struct LoginArgs {
     )]
     pub storage_type: String,
 
-    #[arg(long, help = "云盘 ID（兼容参数）")]
+    #[arg(long, help = "把云盘 ID 写入配置。个人云根据 Token 识别")]
     pub cloud_id: Option<String>,
 
-    #[arg(long, help = "云盘根目录（兼容参数）")]
+    #[arg(long, help = "群组盘根目录 ID。当前传入会报错")]
     pub root_folder_id: Option<String>,
 }
 
