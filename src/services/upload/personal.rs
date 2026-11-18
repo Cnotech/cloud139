@@ -56,6 +56,7 @@ fn finish_upload(name: &str, pb: &Option<ProgressBar>) {
 pub(in crate::services) struct SyncUploadPlan<'a> {
     pub host: &'a str,
     pub parent_id: &'a str,
+    pub remote_parent: &'a str,
     pub file_name: &'a str,
     pub replace_directory_id: Option<&'a str>,
     pub verification: Option<SyncUploadVerification<'a>>,
@@ -76,6 +77,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
     let SyncUploadPlan {
         host,
         parent_id,
+        remote_parent,
         file_name,
         replace_directory_id,
         verification,
@@ -150,6 +152,8 @@ pub(in crate::services) async fn upload_sync_to_parent(
                 check_destination(&files, file_name, check.existing_id)?;
             }
         }
+        super::super::sync_service::confirm_cloud_directory(config, remote_parent, parent_id)
+            .await?;
         let installed = install_uploaded_file(
             config,
             host,

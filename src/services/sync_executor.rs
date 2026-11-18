@@ -141,7 +141,7 @@ async fn ensure_cloud_path(
         prefix.push_str(name);
         let cell = directory_cell(cache, &prefix).await;
         let id = cell
-            .get_or_try_init(|| ensure_personal_child(config, &parent_id, name, &seen))
+            .get_or_try_init(|| ensure_personal_child(config, &prefix, &parent_id, name, &seen))
             .await?;
         ensure!(seen.insert(id.clone()), "目录解析返回重复 ID: {prefix}");
         parent_id.clone_from(id);
@@ -275,6 +275,7 @@ async fn execute_one_action(
                 SyncUploadPlan {
                     host: &host,
                     parent_id: &parent_id,
+                    remote_parent: &remote_dir,
                     file_name,
                     replace_directory_id: replace_directory_id.as_deref(),
                     verification: None,
@@ -376,6 +377,7 @@ fn remote_parent(remote_abs: &str) -> String {
 
 async fn ensure_personal_child(
     config: &crate::config::Config,
+    path: &str,
     parent_id: &str,
     name: &str,
     ancestors: &HashSet<String>,
@@ -391,7 +393,7 @@ async fn ensure_personal_child(
         })
     };
     let children = list_children().await?;
-    if let Some(item) = unique_child(&children, name)? {
+    let replace_id = if let Some(item) = unique_child(&children, name)? {
         let id = item
             .file_id
             .as_deref()
@@ -400,6 +402,22 @@ async fn ensure_personal_child(
         if item.is_folder() {
             return Ok(id.to_owned());
         }
+        Some(id)
+    } else {
+        None
+    };
+    super::sync_service::confirm_cloud_directory(&config, &remote_parent(path), parent_id).await?;
+    if let Some(id) = replace_id {
+        let current = crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
+            super::directory_service::resolve(&config, path)
+                .await
+                .map_err(Into::into)
+        })
+        .await?;
+        ensure!(
+            !current.folder && current.id == id,
+            "云端同名文件 {path} 已变更"
+        );
         super::delete_service::trash_personal_file_id(&config, &host, id).await?;
     }
 
@@ -587,7 +605,7 @@ mod tests {
             .await
             .expect("cloud dir creation should replace same-name file");
         assert_eq!(id, "dir_1");
-        list_for_existing.assert_calls(1);
+        list_for_existing.assert_calls(2);
         delete_file.assert_calls(1);
         create_dir.assert_calls(1);
     }
@@ -682,7 +700,7 @@ mod tests {
         );
         create_result.expect("create dir action should succeed");
 
-        root_existing_list.assert_calls(1);
+        root_existing_list.assert_calls(2);
         remote_list.assert_calls(1);
         create_dir.assert_calls(1);
     }

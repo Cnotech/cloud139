@@ -545,6 +545,23 @@ fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
 pub(crate) const SYNC_RETRIES: u32 = 4;
 pub(crate) const SYNC_BACKOFF_SECS: u64 = 2;
 
+pub(super) async fn confirm_cloud_directory(
+    config: &crate::config::Config,
+    path: &str,
+    expected_id: &str,
+) -> Result<()> {
+    use anyhow::Context;
+    let current = crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
+        super::directory_service::directory(config, path)
+            .await
+            .map_err(Into::into)
+    })
+    .await
+    .with_context(|| format!("无法复核云端目录 {path}"))?;
+    anyhow::ensure!(current == expected_id, "云端目录 {path} 的 ID 已变更");
+    Ok(())
+}
+
 pub(crate) const SYNC_UPLOAD_PREFIX: &str = ".cloud139-upload-";
 pub(crate) const UPLOAD_BACKUP_PREFIX: &str = ".cloud139-backup-";
 

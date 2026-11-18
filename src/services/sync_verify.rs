@@ -3,7 +3,8 @@ use crate::config::Config;
 use crate::domain::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
 use crate::services::sync_service::{
-    CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES,
+    CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES, cloud_child_path,
+    confirm_cloud_directory,
 };
 use crate::services::upload::personal::{
     SyncUploadPlan, SyncUploadVerification, upload_sync_to_parent,
@@ -176,14 +177,7 @@ impl VerifiedSync<'_> {
             .cloud
             .directory_id("")
             .context("扫描缺少云端根目录 ID")?;
-        let current = with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-            super::directory_service::directory(self.config, self.cloud_root)
-                .await
-                .map_err(Into::into)
-        })
-        .await?;
-        ensure!(root == current, "云端根目录在扫描后发生变化");
-        Ok(())
+        confirm_cloud_directory(self.config, self.cloud_root, root).await
     }
 
     fn listing(&self) -> api::PersonalListing<'_> {
@@ -222,6 +216,8 @@ impl VerifiedSync<'_> {
                 );
                 expected.to_owned()
             } else {
+                let parent = cloud_child_path(self.cloud_root, parent_and_name(&path).0);
+                confirm_cloud_directory(self.config, &parent, &id).await?;
                 super::directory_service::ensure_personal_child_dir(
                     &listing, &id, part, true, false,
                 )
@@ -284,6 +280,7 @@ impl VerifiedSync<'_> {
             SyncUploadPlan {
                 host: &self.cloud.host,
                 parent_id: &parent_id,
+                remote_parent: &cloud_child_path(self.cloud_root, parent),
                 file_name: name,
                 replace_directory_id: replace_directory_id.as_deref(),
                 verification: Some(SyncUploadVerification {
@@ -333,25 +330,19 @@ impl VerifiedSync<'_> {
         // Recheck every parent and file before submitting any trash request.
         for (parent, files) in by_parent {
             let path = files[0].0;
-            let remote = super::sync_service::cloud_child_path(self.cloud_root, parent);
-            let id = with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-                super::directory_service::directory(self.config, remote.trim_end_matches('/'))
-                    .await
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|error| (path, error))?;
-            let expected = self
+            let expected_id = self
                 .directory_ids
                 .get(parent)
                 .map(String::as_str)
-                .or_else(|| self.cloud.directory_id(parent));
-            if Some(id.as_str()) != expected {
-                return Err((path, anyhow!("删除前复核发现云端目录已变更")));
-            }
+                .or_else(|| self.cloud.directory_id(parent))
+                .ok_or_else(|| (path, anyhow!("删除前复核缺少云端目录 ID")))?;
+            let remote = cloud_child_path(self.cloud_root, parent);
+            confirm_cloud_directory(self.config, &remote, expected_id)
+                .await
+                .map_err(|error| (path, error))?;
             let current = self
                 .listing()
-                .list_files(&id)
+                .list_files(expected_id)
                 .await
                 .map_err(|error| (path, error.into()))?;
             let mut by_name = BTreeMap::new();
@@ -373,6 +364,18 @@ impl VerifiedSync<'_> {
         }
 
         for (path, id) in delete_ids {
+            // Another client can move an object after the grouped preflight.
+            let remote = cloud_child_path(self.cloud_root, path);
+            let current = with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
+                super::directory_service::resolve(self.config, &remote)
+                    .await
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| (path, error))?;
+            if current.folder || current.id != id {
+                return Err((path, anyhow!("提交删除前发现云端文件已变更")));
+            }
             super::delete_service::trash_personal_file_id(self.config, &self.cloud.host, id)
                 .await
                 .map_err(|error: ClientError| (path, error.into()))?;

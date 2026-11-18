@@ -38,6 +38,8 @@ struct State {
     uploaded_content: Option<(&'static [u8], bool)>,
     fail_download: Option<String>,
     replace_extra_on_promotion: bool,
+    replace_extra_after_trash: bool,
+    move_parent_on_stage: bool,
 }
 struct Server {
     host: String,
@@ -136,7 +138,15 @@ impl Server {
                                         }
                                         item["size"] = json!(bytes.len());
                                     }
-                                    state.children.entry(parent).or_default().push(item);
+                                    state.children.entry(parent.clone()).or_default().push(item);
+                                    if state.move_parent_on_stage
+                                        && body["type"] == "file"
+                                        && let Some(root) = state.children.get_mut("/")
+                                        && let Some(directory) =
+                                            root.iter_mut().find(|item| item["fileId"] == parent)
+                                    {
+                                        directory["name"] = json!("moved");
+                                    }
                                     // Fast-upload mock acknowledges by hash without a data transfer.
                                     if state.sync_mutations {
                                         let file_id = (!state.omit_staged_id).then_some(&id);
@@ -214,6 +224,16 @@ impl Server {
                                     for items in state.children.values_mut() {
                                         items.retain(|item| !ids.contains(&item["fileId"]));
                                     }
+                                    if state.replace_extra_after_trash
+                                        && let Some(item) =
+                                            state.children.get_mut("/").and_then(|items| {
+                                                items
+                                                    .iter_mut()
+                                                    .find(|item| item["fileId"] == "extra")
+                                            })
+                                    {
+                                        item["fileId"] = json!("different-extra");
+                                    }
                                 }
                                 json!({"success":true,"data":{"results":[{"success":!state.fail_trash_item}]}})
                             }
@@ -274,6 +294,10 @@ impl Server {
     }
 
     fn sync_command(&self, root: &std::path::Path) -> std::process::Command {
+        self.sync_command_to(root, "cloud:/")
+    }
+
+    fn sync_command_to(&self, root: &std::path::Path, destination: &str) -> std::process::Command {
         let source = root.join("source");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(source.join("movie.bin"), b"new content").unwrap();
@@ -283,7 +307,7 @@ impl Server {
             .arg(self.save_profile(root))
             .arg("sync")
             .arg(&source)
-            .arg("cloud:/");
+            .arg(destination);
         isolate_cli(&mut command, root);
         command
     }
@@ -546,6 +570,80 @@ fn verified_sync_rechecks_frozen_delete_ids_before_any_extra_file_is_removed() {
             .mutations()
             .iter()
             .all(|(path, _)| path != "/recyclebin/batchTrash")
+    );
+}
+
+#[test]
+fn sync_never_replaces_a_file_inside_a_parent_moved_during_upload() {
+    for verify in [false, true] {
+        let server = Server::new();
+        let root = tempfile::tempdir().unwrap();
+        server.set("/", vec![folder("dest", "destination")]);
+        server.set("dest", vec![file("old", "movie.bin")]);
+        {
+            let mut state = server.state.lock().unwrap();
+            state.sync_mutations = true;
+            state.uploaded_content = Some((b"new content", true));
+            state.move_parent_on_stage = true;
+        }
+        let mut command = server.sync_command_to(root.path(), "cloud:/destination");
+        if verify {
+            command.arg("--verify");
+        }
+        let output = command.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("无法复核云端目录"), "{stderr}");
+        assert_eq!(
+            server
+                .mutations()
+                .iter()
+                .map(|(path, _)| path.as_str())
+                .collect::<Vec<_>>(),
+            ["/file/create"]
+        );
+        let state = server.state.lock().unwrap();
+        assert_eq!(state.children["/"], vec![folder("dest", "moved")]);
+        assert_eq!(state.children["dest"][0], file("old", "movie.bin"));
+    }
+}
+
+#[test]
+fn verified_sync_stops_pruning_if_a_later_extra_changes_after_preflight() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![
+            verified_file("old", "movie.bin", b"new content", true),
+            file("another", "another.txt"),
+            file("extra", "extra.txt"),
+        ],
+    );
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.replace_extra_after_trash = true;
+    }
+    let report = verified_report(
+        server
+            .sync_command(root.path())
+            .args(["--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(report["skipped"], 1);
+    assert_eq!(report["deleted"], 1);
+    assert_eq!(report["failures"][0]["path"], "extra.txt");
+    let writes = server.mutations();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].1["fileIds"], json!(["another"]));
+    let state = server.state.lock().unwrap();
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "different-extra")
     );
 }
 
