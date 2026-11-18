@@ -25,6 +25,9 @@ struct State {
     fail_upload: bool,
     fail_rename_to: Option<String>,
     sync_mutations: bool,
+    reuse_existing_upload_id: bool,
+    mutate_source_on_list: Option<(usize, std::path::PathBuf, &'static [u8])>,
+    multipart_content: Option<&'static [u8]>,
     staged_id_mismatch: bool,
     omit_staged_id: bool,
     staged_visibility_delay: usize,
@@ -73,6 +76,18 @@ impl Server {
                         state.requests.push((path.clone(), body.clone()));
                         let response = match path.as_str() {
                             "/file/list" => {
+                                if let Some((request, _, _)) = &state.mutate_source_on_list {
+                                    let count = state
+                                        .requests
+                                        .iter()
+                                        .filter(|(path, _)| path == "/file/list")
+                                        .count();
+                                    if count == *request {
+                                        let (_, path, contents) =
+                                            state.mutate_source_on_list.take().unwrap();
+                                        std::fs::write(path, contents).unwrap();
+                                    }
+                                }
                                 let parent = body["parentFileId"].as_str().unwrap();
                                 let cursor = body["pageInfo"]["pageCursor"].as_str().unwrap_or("");
                                 if state.drop_list_cursor_once.as_deref() == Some(cursor) {
@@ -118,6 +133,9 @@ impl Server {
                                         .is_some_and(|name| body["name"] == name)
                                 {
                                     json!({"success":false,"code":"04010319","message":"injected failure"})
+                                } else if state.reuse_existing_upload_id && body["type"] == "file" {
+                                    // A faulty success receipt must not make an existing object disposable.
+                                    json!({"success":true,"data":{"fileId":"good-id","fileName":body["name"],"exist":true,"partInfos":[]}})
                                 } else {
                                     let id = format!("id-{}", state.requests.len());
                                     let staged_id = if state.staged_id_mismatch {
@@ -148,7 +166,9 @@ impl Server {
                                         directory["name"] = json!("moved");
                                     }
                                     // Fast-upload mock acknowledges by hash without a data transfer.
-                                    if state.sync_mutations {
+                                    if state.multipart_content.is_some() {
+                                        json!({"success":true,"data":{"fileId":id,"fileName":body["name"],"exist":false,"uploadId":"test-upload","partInfos":[{"partNumber":1,"uploadUrl":format!("{base}/part/{id}")}]}})
+                                    } else if state.sync_mutations {
                                         let file_id = (!state.omit_staged_id).then_some(&id);
                                         json!({"success":true,"data":{"fileId":file_id,"fileName":body["name"],"exist":true,"partInfos":[]}})
                                     } else {
@@ -156,6 +176,22 @@ impl Server {
                                     }
                                 }
                             }
+                            path if path.starts_with("/part/") => {
+                                let id = path.trim_start_matches("/part/");
+                                let content = state.multipart_content.unwrap();
+                                assert_eq!(body.as_str().unwrap().as_bytes(), content);
+                                for items in state.children.values_mut() {
+                                    for item in items.iter_mut().filter(|item| item["fileId"] == id)
+                                    {
+                                        item["size"] = json!(content.len());
+                                        item["contentHash"] = json!(hash_bytes(content));
+                                        item["contentHashAlgorithm"] = json!("SHA256");
+                                    }
+                                }
+                                state.file_payloads.insert(id.to_owned(), content);
+                                json!({"success":true})
+                            }
+                            "/file/complete" => json!({"success":true}),
                             "/file/getDownloadUrl" => {
                                 let id = body["fileId"].as_str().unwrap();
                                 if state.fail_download.as_deref() == Some(id) {
@@ -765,6 +801,217 @@ fn plain_sync_accepts_ordinary_hex_filename_without_verify() {
 }
 
 #[test]
+fn verified_sync_never_trashes_a_reused_receipt_id() {
+    for corrupt in [true, false] {
+        let server = Server::new();
+        let root = tempfile::tempdir().unwrap();
+        let name = hash_bytes(b"good");
+        let mut old = verified_file("good-id", &name, b"good", true);
+        old.as_object_mut().unwrap().remove("size");
+        server.set("/", vec![old, file("extra", "extra.txt")]);
+        {
+            let mut state = server.state.lock().unwrap();
+            state.sync_mutations = true;
+            state.reuse_existing_upload_id = true;
+            state.file_payloads.insert("good-id".to_owned(), b"good");
+        }
+        let mut command = server.sync_command(root.path());
+        let source = root.path().join("source");
+        std::fs::remove_file(source.join("movie.bin")).unwrap();
+        let content = if corrupt {
+            &b"broken"[..]
+        } else {
+            &b"good"[..]
+        };
+        std::fs::write(source.join(&name), content).unwrap();
+        let report = verified_report(
+            command
+                .args(["--verify", "--json", "--delete"])
+                .output()
+                .unwrap(),
+            1,
+        );
+        assert_eq!(report["uploaded"], 0);
+        assert_eq!(report["deleted"], 0);
+        assert_eq!(report["failures"].as_array().unwrap().len(), 1);
+        let writes = server.mutations();
+        if corrupt {
+            assert!(writes.is_empty());
+        } else {
+            assert_eq!(writes.len(), 1);
+            assert_eq!(writes[0].0, "/file/create");
+            assert!(
+                report["failures"][0]["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("临时文件 ID 已存在")
+            );
+        }
+        let state = server.state.lock().unwrap();
+        assert!(
+            state.children["/"]
+                .iter()
+                .any(|item| item["fileId"] == "good-id" && item["name"] == name)
+        );
+        assert!(
+            state.children["/"]
+                .iter()
+                .any(|item| item["fileId"] == "extra")
+        );
+    }
+}
+
+fn rejects_content_addressed_source_changed_during_upload(existing: bool) {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let name = hash_bytes(b"good");
+    let mut items = vec![file("extra", "extra.txt")];
+    if existing {
+        let mut old = verified_file("good-id", &name, b"good", true);
+        // An optional missing size forces repair of this otherwise good object.
+        old.as_object_mut().unwrap().remove("size");
+        items.push(old);
+    }
+    server.set("/", items);
+    let mut command = server.sync_command(root.path());
+    let source = root.path().join("source");
+    std::fs::remove_file(source.join("movie.bin")).unwrap();
+    let path = source.join(&name);
+    std::fs::write(&path, b"good").unwrap();
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.multipart_content = Some(b"bad!");
+        state.file_payloads.insert("good-id".to_owned(), b"good");
+        // Listing #2 occurs after preflight and before the transfer digest read.
+        state.mutate_source_on_list = Some((2, path.clone(), b"bad!"));
+    }
+    let report = verified_report(
+        command
+            .args(["--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"bad!");
+    assert_eq!(report["uploaded"], 0);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(report["failures"].as_array().unwrap().len(), 1);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("上传内容哈希")
+    );
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains(".cloud139-upload-")
+    );
+    let state = server.state.lock().unwrap();
+    let create = state
+        .requests
+        .iter()
+        .find(|(p, _)| p == "/file/create")
+        .unwrap();
+    assert_eq!(create.1["contentHash"], hash_bytes(b"bad!"));
+    assert!(
+        state
+            .requests
+            .iter()
+            .any(|(p, body)| p.starts_with("/part/") && body == "bad!")
+    );
+    assert!(state.requests.iter().any(|(p, _)| p == "/file/complete"));
+    assert!(
+        state
+            .requests
+            .iter()
+            .all(|(p, _)| p != "/file/update" && p != "/recyclebin/batchTrash")
+    );
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "extra")
+    );
+    assert!(state.children["/"].iter().any(|item| {
+        item["name"]
+            .as_str()
+            .unwrap()
+            .starts_with(".cloud139-upload-")
+            && item["contentHash"] == hash_bytes(b"bad!")
+    }));
+    if existing {
+        assert!(
+            state.children["/"]
+                .iter()
+                .any(|item| item["fileId"] == "good-id" && item["name"] == name)
+        );
+    } else {
+        assert!(state.children["/"].iter().all(|item| item["name"] != name));
+    }
+}
+
+#[test]
+fn verified_sync_rejects_changed_content_addressed_new_upload() {
+    rejects_content_addressed_source_changed_during_upload(false);
+}
+
+#[test]
+fn verified_sync_rejects_changed_content_addressed_replacement() {
+    rejects_content_addressed_source_changed_during_upload(true);
+}
+
+#[test]
+fn verified_sync_publishes_lowercase_uppercase_and_ordinary_names() {
+    for name in [
+        hash_bytes(b"good"),
+        hash_bytes(b"good").to_uppercase(),
+        "ordinary.txt".to_owned(),
+    ] {
+        for existing in [false, true] {
+            let server = Server::new();
+            let root = tempfile::tempdir().unwrap();
+            let items = if existing {
+                vec![verified_file("old", &name, b"old!", true)]
+            } else {
+                vec![]
+            };
+            server.set("/", items);
+            {
+                let mut state = server.state.lock().unwrap();
+                state.sync_mutations = true;
+                state.multipart_content = Some(b"good");
+            }
+            let mut command = server.sync_command(root.path());
+            let source = root.path().join("source");
+            std::fs::remove_file(source.join("movie.bin")).unwrap();
+            std::fs::write(source.join(&name), b"good").unwrap();
+            let report = verified_report(command.args(["--verify", "--json"]).output().unwrap(), 0);
+            assert_eq!(report["uploaded"], 1);
+            assert_eq!(report["failures"], json!([]));
+            let state = server.state.lock().unwrap();
+            assert!(
+                state
+                    .requests
+                    .iter()
+                    .any(|(p, body)| p.starts_with("/part/") && body == "good")
+            );
+            assert!(
+                state.children["/"]
+                    .iter()
+                    .any(|item| item["name"] == name && item["contentHash"] == hash_bytes(b"good"))
+            );
+            assert!(
+                state.children["/"]
+                    .iter()
+                    .all(|item| item["fileId"] != "old")
+            );
+        }
+    }
+}
+
+#[test]
 fn recursive_sync_download_reuses_scanned_file_ids_and_validates_names() {
     let server = Server::new();
     let root = tempfile::tempdir().unwrap();
@@ -873,6 +1120,8 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, Value)> {
     }
     let body = if length == 0 {
         Value::Null
+    } else if path.starts_with("/part/") {
+        json!(std::str::from_utf8(&data[end..end + length]).ok()?)
     } else {
         serde_json::from_slice(&data[end..end + length]).ok()?
     };
