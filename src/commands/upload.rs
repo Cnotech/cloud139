@@ -3,7 +3,7 @@ use indicatif::MultiProgress;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    after_help = "个人盘统一使用 PC 客户端标识，上传大小由服务器按账号权益校验；目录中的文件上传失败后继续处理其他文件，有失败项返回退出码 1。"
+    after_help = "单个文件的上传大小上限因账号而异。上传目录时，单个文件失败后仍会处理其余文件。有文件上传失败时，退出码为 1。"
 )]
 pub struct UploadArgs {
     #[arg(help = "本地文件或目录；目录末尾 / 表示仅上传内容，否则包含目录本身")]

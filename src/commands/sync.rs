@@ -22,7 +22,7 @@ fn parse_jobs(value: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    after_help = "个人盘统一使用 PC 客户端标识，上传大小由服务器按账号权益校验。同步上传成功后才替换同名条目；有失败项返回退出码 1，-n 仅预览计划。"
+    after_help = "确认上传成功后，才替换云端的同名文件或目录。执行计划时如有操作失败，退出码为 1。"
 )]
 pub struct SyncArgs {
     #[arg(help = "源路径，本地路径或 cloud:/remote/path")]
@@ -34,7 +34,7 @@ pub struct SyncArgs {
     #[arg(short = 'r', long, help = "递归同步子目录，空目录也会同步")]
     pub recursive: bool,
 
-    #[arg(short = 'n', long, help = "演习模式，只输出操作计划")]
+    #[arg(short = 'n', long, help = "只预览同步计划")]
     pub dry_run: bool,
 
     #[arg(long, help = "删除目标中源没有的文件或空目录")]
