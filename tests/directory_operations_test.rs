@@ -691,6 +691,80 @@ fn verified_sync_dry_run_has_no_content_reads_and_refuses_to_prune_an_empty_scop
 }
 
 #[test]
+fn verified_sync_rejects_corrupt_content_addressed_local_file_and_keeps_remote() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let good = b"good";
+    let name = hash_bytes(good);
+    server.set(
+        "/",
+        vec![
+            verified_file("good-id", &name, good, true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.uploaded_content = Some((b"broken", true));
+    }
+    let mut command = server.sync_command(root.path());
+    let source = root.path().join("source");
+    std::fs::remove_file(source.join("movie.bin")).unwrap();
+    std::fs::write(source.join(&name), b"broken").unwrap();
+    command.args(["--verify", "--json", "--delete"]);
+    let report = verified_report(command.output().unwrap(), 1);
+    assert_eq!(report["uploaded"], 0);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(report["failures"][0]["path"], name);
+    assert!(
+        server.mutations().is_empty(),
+        "本地内容身份检查必须在创建远端对象之前完成，不能有 create/trash：{:?}",
+        server.mutations()
+    );
+    let state = server.state.lock().unwrap();
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "good-id" && item["size"] == json!(good.len())),
+        "远端完好对象必须保留"
+    );
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "extra"),
+        "删除闸门必须关闭，多余文件不能删"
+    );
+}
+
+#[test]
+fn plain_sync_accepts_ordinary_hex_filename_without_verify() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set("/", vec![]);
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+    }
+    let mut command = server.sync_command(root.path());
+    let source = root.path().join("source");
+    std::fs::remove_file(source.join("movie.bin")).unwrap();
+    let name = "a".repeat(64);
+    std::fs::write(source.join(&name), b"x").unwrap();
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let state = server.state.lock().unwrap();
+    assert!(
+        state.children["/"].iter().any(|item| item["name"] == name),
+        "普通同步必须仍能发布 64-hex 文件名"
+    );
+}
+
+#[test]
 fn recursive_sync_download_reuses_scanned_file_ids_and_validates_names() {
     let server = Server::new();
     let root = tempfile::tempdir().unwrap();
