@@ -136,3 +136,24 @@ async fn test_execute_create_dir_preserves_existing_local_file() {
     assert_eq!(summary.created_dirs, 0);
     assert_eq!(summary.failed, 1);
 }
+
+#[tokio::test]
+async fn sync_executor_rejects_invalid_concurrency_before_execution() {
+    let config = Config::default();
+    let options = SyncExecuteOptions {
+        dry_run: true,
+        jobs: 32,
+        progress: false,
+        print_actions: false,
+    };
+    execute_sync_actions(&config, vec![], options)
+        .await
+        .unwrap();
+
+    for jobs in [0, 33] {
+        let error = execute_sync_actions(&config, vec![], SyncExecuteOptions { jobs, ..options })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("1 和 32"));
+    }
+}

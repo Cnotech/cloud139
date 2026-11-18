@@ -7,7 +7,8 @@ use futures_util::StreamExt;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::{path::Path, time::Duration};
 
-pub(crate) const MAX_JOBS: usize = tokio::sync::Semaphore::MAX_PERMITS;
+// 限制单次同步同时占用的网络连接、打开的文件和哈希任务。
+pub(crate) const MAX_JOBS: usize = 32;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SyncExecuteOptions {
@@ -35,7 +36,7 @@ pub(crate) async fn execute_scanned_sync(
     config.require_personal()?;
     ensure!(
         (1..=MAX_JOBS).contains(&options.jobs),
-        "同步并发数量超出允许范围"
+        "同步并发数量必须介于 1 和 {MAX_JOBS} 之间"
     );
     if options.dry_run {
         return Ok(summarize_actions(&actions));

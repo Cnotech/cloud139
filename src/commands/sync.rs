@@ -44,7 +44,7 @@ pub struct SyncArgs {
     pub exclude: Vec<String>,
 
     #[arg(short = 'j', long, default_value_t = 4, default_value_if("verify", "true", Some("1")),
-        value_parser = parse_jobs, help = "并发传输数量上限，默认 4；--verify 固定为 1")]
+        value_parser = parse_jobs, help = format!("同时传输的文件数，范围 1 到 {MAX_JOBS}。默认 4，--verify 固定为 1"))]
     pub jobs: usize,
 
     #[arg(long, help = "校验内容并修复不一致的文件（仅本地到个人盘）")]

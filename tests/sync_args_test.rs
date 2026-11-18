@@ -174,8 +174,13 @@ fn test_sync_help_delete_mentions_empty_dirs() {
 }
 
 #[test]
-fn sync_rejects_jobs_above_the_executor_limit() {
-    use cloud139::commands::sync::SyncArgs;
-    let value = usize::MAX.to_string();
-    assert!(SyncArgs::try_parse_from(["sync", "local", "cloud:/", "--jobs", &value]).is_err());
+fn sync_enforces_the_concurrency_limit() {
+    let args = SyncArgs::try_parse_from(["sync", "local", "cloud:/", "--jobs", "32"]).unwrap();
+    assert_eq!(args.jobs, 32);
+
+    for jobs in ["33".to_owned(), usize::MAX.to_string()] {
+        let error = SyncArgs::try_parse_from(["sync", "local", "cloud:/", "--jobs", &jobs])
+            .expect_err("jobs above the supported range must be rejected");
+        assert!(error.to_string().contains("1 和 32"));
+    }
 }

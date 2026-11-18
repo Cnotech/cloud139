@@ -58,6 +58,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - 创建目录时去掉 `mkdir -f` 或 `mkdir --force`。需要同时创建父目录时使用 `mkdir -p`。
 - 登录使用 `cloud139 login -t <TOKEN>`。旧脚本可移除 `--storage-type`、`--cloud-id` 和 `--root-folder-id`。
 - `rm --yes` 将文件移到回收站，目录另加 `-r`。`--permanent` 已移除。
+- `sync --jobs` 接受 1 到 32，默认 4。
 - 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
 
 ### 基本使用
@@ -435,7 +436,7 @@ cloud139 sync <源路径> <目标路径> [选项]
 | --dry-run | -n | 否 | 演习模式，只输出操作计划，不执行实际同步 |
 | --delete | - | 否 | 删除目标中源没有的文件或空目录 |
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
-| --jobs | -j | 否 | 并发传输数量上限，默认 4；校验模式固定为 1 |
+| --jobs | -j | 否 | 同时传输的文件数，范围 1 到 32。默认 4，校验模式固定为 1 |
 | --verify | - | 否 | 校验内容并修复不一致的文件，仅支持本地到个人盘 |
 | --json | - | 否 | 输出一行 JSON 校验汇总，需配合 `--verify` |
 
