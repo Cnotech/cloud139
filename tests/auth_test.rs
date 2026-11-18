@@ -47,12 +47,12 @@ async fn test_login_valid() {
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
 
-    let result = cloud139::client::auth::login(&token, "family", Some("cloud123")).await;
+    let result = cloud139::client::auth::login(&token, "personal_new", Some("cloud123")).await;
     assert!(result.is_ok());
 
     let config = result.unwrap();
     assert_eq!(config.account, "13800138000");
-    assert_eq!(config.storage_type, "family");
+    assert_eq!(config.storage_type, "personal_new");
     assert_eq!(config.cloud_id, Some("cloud123".to_string()));
     assert!(config.refresh_token.is_some());
     assert!(config.token_expire_time.is_some());
@@ -64,7 +64,7 @@ async fn test_login_no_cloud_id() {
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
 
-    let result = cloud139::client::auth::login(&token, "group", None).await;
+    let result = cloud139::client::auth::login(&token, "personal_new", None).await;
     assert!(result.is_ok());
 
     let config = result.unwrap();

@@ -1,6 +1,5 @@
 use crate::client::ClientError;
 use crate::client::endpoints::ROUTE_POLICY_URL;
-use crate::client::endpoints::{family, group};
 use crate::client::headers::{build_route_headers, build_signed_headers};
 use crate::config::Config;
 use crate::debug;
@@ -20,7 +19,11 @@ impl Default for HttpClientWrapper {
 impl HttpClientWrapper {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .read_timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("HTTP 客户端初始化失败"),
         }
     }
 
@@ -37,6 +40,7 @@ pub async fn get_personal_cloud_host_with_client(
     config: &mut Config,
     http_client: &HttpClientWrapper,
 ) -> Result<String, ClientError> {
+    config.require_personal()?;
     if let Some(ref host) = config.personal_cloud_host {
         debug!("get_personal_cloud_host: 使用缓存 host={}", host);
         return Ok(host.clone());
@@ -57,6 +61,7 @@ pub(crate) async fn fetch_personal_cloud_host(
     config: &Config,
     http_client: &HttpClientWrapper,
 ) -> Result<String, ClientError> {
+    config.require_personal()?;
     let url = ROUTE_POLICY_URL;
     debug!("get_personal_cloud_host: 请求 url={}", url);
 
@@ -101,6 +106,7 @@ pub(crate) async fn fetch_personal_cloud_host(
 }
 
 pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
+    config.require_personal()?;
     let normalized = crate::utils::remote_path::normalize(path)?;
     let path = normalized.as_str();
     if path == "/" {
@@ -214,12 +220,11 @@ pub async fn personal_api_request_with_client<T: for<'de> serde::Deserialize<'de
     storage_type: crate::domain::StorageType,
     http_client: &HttpClientWrapper,
 ) -> Result<T, ClientError> {
-    let svctype = match storage_type {
-        crate::domain::StorageType::PersonalNew => "1",
-        crate::domain::StorageType::Family => "2",
-        crate::domain::StorageType::Group => "3",
-    };
-
+    config.require_personal()?;
+    if storage_type != crate::domain::StorageType::PersonalNew {
+        return Err(ClientError::UnsupportedStorage);
+    }
+    let svctype = "1";
     let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let rand_str = generate_rand_str(16);
     let body_str = body.to_string();
@@ -401,173 +406,27 @@ impl PersonalListing<'_> {
 }
 
 pub async fn get_family_download_link(
-    config: &Config,
-    content_id: &str,
-    path: &str,
+    _config: &Config,
+    _content_id: &str,
+    _path: &str,
 ) -> Result<String, ClientError> {
-    let client = crate::client::Client::new(config.clone());
-
-    let body = serde_json::json!({
-        "contentID": content_id,
-        "path": path,
-        "catalogType": 3,
-        "cloudID": config.cloud_id,
-        "cloudType": 1,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        }
-    });
-
-    let resp: serde_json::Value = client
-        .api_request_post(family::orchestration::GET_FILE_DOWNLOAD_URL, body)
-        .await?;
-
-    let url = resp
-        .pointer("/data/downloadURL")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    debug!(
-        "get_family_download_link: content_id={}, url_len={}",
-        content_id,
-        url.len()
-    );
-    Ok(url)
+    Err(ClientError::UnsupportedStorage)
 }
 
 pub async fn get_group_download_link(
-    config: &Config,
-    content_id: &str,
-    path: &str,
+    _config: &Config,
+    _content_id: &str,
+    _path: &str,
 ) -> Result<String, ClientError> {
-    let client = crate::client::Client::new(config.clone());
-
-    let body = serde_json::json!({
-        "contentID": content_id,
-        "groupID": config.cloud_id,
-        "path": path,
-        "catalogType": 3,
-        "cloudID": config.cloud_id,
-        "cloudType": 1,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        }
-    });
-
-    let resp: serde_json::Value = client
-        .api_request_post(group::orchestration::GET_FILE_DOWNLOAD_URL, body)
-        .await?;
-
-    let url = resp
-        .pointer("/data/downloadURL")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    debug!(
-        "get_group_download_link: content_id={}, url_len={}",
-        content_id,
-        url.len()
-    );
-    Ok(url)
+    Err(ClientError::UnsupportedStorage)
 }
 
-pub async fn get_family_root_path(config: &Config) -> Result<String, ClientError> {
-    let client = crate::client::Client::new(config.clone());
-
-    let body = serde_json::json!({
-        "catalogID": "",
-        "catalogType": 3,
-        "cloudID": config.cloud_id,
-        "cloudType": 1,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        },
-        "contentSortType": 0,
-        "pageInfo": {
-            "pageNum": 1,
-            "pageSize": 1
-        },
-        "sortDirection": 1
-    });
-
-    let resp: serde_json::Value = client
-        .api_request_post(family::orchestration::QUERY_CONTENT_LIST, body)
-        .await?;
-
-    let path = resp
-        .pointer("/data/path")
-        .and_then(|v| v.as_str())
-        .map(|s| {
-            let s = s.trim_start_matches("root:/");
-            let s = s.trim_start_matches("root:");
-            s.to_string()
-        })
-        .unwrap_or_default();
-
-    debug!("get_family_root_path: path={}", path);
-    if path.is_empty()
-        && let Some(catalog_list) = resp
-            .pointer("/data/cloudCatalogList")
-            .and_then(|v| v.as_array())
-        && let Some(first) = catalog_list.first()
-        && let Some(p) = first.get("path").and_then(|v| v.as_str())
-    {
-        let p = p.trim_start_matches("root:/");
-        let p = p.trim_start_matches("root:");
-        return Ok(p.to_string());
-    }
-
-    Ok(path)
+pub async fn get_family_root_path(_config: &Config) -> Result<String, ClientError> {
+    Err(ClientError::UnsupportedStorage)
 }
 
-pub async fn get_group_root_by_cloud_id(config: &Config) -> Result<String, ClientError> {
-    let client = crate::client::Client::new(config.clone());
-
-    let body = serde_json::json!({
-        "groupID": config.cloud_id,
-        "commonAccountInfo": {
-            "account": config.account,
-            "accountType": 1
-        },
-        "pageInfo": {
-            "pageNum": 1,
-            "pageSize": 1
-        }
-    });
-
-    let resp: serde_json::Value = client
-        .api_request_post(group::orchestration::QUERY_GROUP_CATALOG, body)
-        .await?;
-
-    if let Some(parent_catalog_id) = resp
-        .pointer("/data/getGroupContentResult/parentCatalogID")
-        .and_then(|v| v.as_str())
-        && !parent_catalog_id.is_empty()
-    {
-        debug!(
-            "get_group_root_by_cloud_id: parentCatalogID={}",
-            parent_catalog_id
-        );
-        return Ok(parent_catalog_id.to_string());
-    }
-
-    if let Some(catalog_list) = resp
-        .pointer("/data/getGroupContentResult/catalogList")
-        .and_then(|v| v.as_array())
-        && let Some(first) = catalog_list.first()
-        && let Some(p) = first.get("path").and_then(|v| v.as_str())
-    {
-        return Ok(p.to_string());
-    }
-
-    Err(ClientError::Other(
-        "Failed to get group root path".to_string(),
-    ))
+pub async fn get_group_root_by_cloud_id(_config: &Config) -> Result<String, ClientError> {
+    Err(ClientError::UnsupportedStorage)
 }
 
 pub async fn get_personal_file_detail(

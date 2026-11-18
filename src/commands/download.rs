@@ -14,7 +14,7 @@ pub struct DownloadArgs {
 }
 
 pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
 
     let normalized = crate::services::directory_service::normalize(&args.remote_path)?;
     let remote_path = &normalized;

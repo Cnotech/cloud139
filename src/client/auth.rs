@@ -14,6 +14,7 @@ pub async fn login(
     storage_type: &str,
     cloud_id: Option<&str>,
 ) -> Result<Config, ClientError> {
+    Config::validate_storage_type(storage_type)?;
     debug!("正在解析 Token ...");
 
     let (account, token_info, expire_time) = parse_token(token)?;
@@ -81,6 +82,7 @@ async fn refresh_token_with_timeout(
     url: &str,
     timeout: Duration,
 ) -> Result<Config, ClientError> {
+    config.require_personal()?;
     debug!("Refreshing token for account: {}", config.account);
 
     // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
@@ -190,6 +192,7 @@ pub async fn refresh_if_needed_at(
     config: &Config,
     url: &str,
 ) -> Result<Option<Config>, ClientError> {
+    config.require_personal()?;
     if !config.needs_refresh() {
         return Ok(None);
     }
@@ -219,6 +222,7 @@ async fn maybe_refresh_config_at(
         // 没有配置时交给命令自己报「配置文件未找到」，这里不抢错误。
         Err(_) => return Ok(()),
     };
+    config.require_personal()?;
     if !config.needs_refresh() {
         return Ok(());
     }
@@ -232,6 +236,7 @@ async fn maybe_refresh_config_at(
         }
     };
     // 等待锁之前可能已有进程完成了续期，必须使用锁内重新读取的配置判断。
+    update.config.require_personal()?;
     if !update.config.needs_refresh() {
         return Ok(());
     }

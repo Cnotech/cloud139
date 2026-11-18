@@ -13,7 +13,7 @@ pub struct CpArgs {
 }
 
 pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
     crate::services::copy_service::cp(&config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

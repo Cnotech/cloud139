@@ -269,7 +269,7 @@ async fn refreshed_authorization_can_be_parsed_by_login() {
     let new_token = "new-id|1|RCS|1900000000000|new-signature";
     let original_authorization =
         base64::engine::general_purpose::STANDARD.encode(format!("pc:13800138000:{old_token}"));
-    let mut config = auth::login(&original_authorization, "family", Some("family-id"))
+    let mut config = auth::login(&original_authorization, "personal_new", Some("cloud-id"))
         .await
         .unwrap();
     config.use_large_thumbnail = true;
@@ -291,7 +291,7 @@ async fn refreshed_authorization_can_be_parsed_by_login() {
         .await
         .unwrap();
     mock.assert_calls(1);
-    let parsed = auth::login(&refreshed.authorization, "family", Some("family-id"))
+    let parsed = auth::login(&refreshed.authorization, "personal_new", Some("cloud-id"))
         .await
         .unwrap();
     assert_eq!(parsed.account, config.account);

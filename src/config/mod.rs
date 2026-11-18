@@ -239,6 +239,23 @@ impl Config {
             && self.cloud_id == other.cloud_id
     }
 
+    pub fn require_personal(&self) -> Result<(), crate::client::ClientError> {
+        Self::validate_storage_type(&self.storage_type)
+    }
+
+    pub(crate) fn validate_storage_type(value: &str) -> Result<(), crate::client::ClientError> {
+        match value {
+            "" | "personal" | "personal_new" => Ok(()),
+            _ => Err(crate::client::ClientError::UnsupportedStorage),
+        }
+    }
+
+    pub fn load_personal() -> Result<Self, crate::client::ClientError> {
+        let config = Self::load()?;
+        config.require_personal()?;
+        Ok(config)
+    }
+
     pub fn storage_type(&self) -> StorageType {
         match self.storage_type.as_str() {
             "family" => StorageType::Family,

@@ -1,6 +1,5 @@
 use crate::client::ClientError;
 use crate::config::Config;
-use crate::debug;
 use crate::domain::StorageType;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
@@ -29,49 +28,19 @@ async fn download_with_size(
 ) -> Result<()> {
     let normalized = super::directory_service::normalize(remote_path)?;
     let remote_path = normalized.as_str();
-    let storage_type = config.storage_type();
-    debug!(
-        "download: remote={}, local={}, storage={}",
-        remote_path,
-        local_path,
-        storage_type.as_str()
-    );
-
-    match storage_type {
-        StorageType::PersonalNew => {
-            let file_id = crate::client::api::get_file_id_by_path(config, remote_path).await?;
-            if file_id.is_empty() {
-                return Err(ClientError::InvalidFilePath.into());
-            }
-            debug!("download_personal: file_id={}", file_id);
-            download_personal(config, remote_path, &file_id, local_path, pb, listed_size).await?;
-        }
-        StorageType::Family | StorageType::Group => {
-            let remote = super::directory_service::normalize(remote_path)?;
-            let entry = super::legacy_directory::resolve(config, &remote).await?;
-            if entry.folder {
-                return Err(ClientError::UnsupportedDownloadDirectory.into());
-            }
-            let url = if storage_type == StorageType::Family {
-                crate::client::api::get_family_download_link(config, &entry.id, &entry.wire_path)
-                    .await?
-            } else {
-                crate::client::api::get_group_download_link(config, &entry.id, &entry.wire_path)
-                    .await?
-            };
-            if url.is_empty() {
-                return Err(ClientError::Api("下载 URL 为空".into()).into());
-            }
-            let local = Path::new(local_path);
-            let destination = if local.is_dir() {
-                local.join(&entry.name)
-            } else {
-                local.to_owned()
-            };
-            download_file(&url, &destination, pb, listed_size.or(entry.size)).await?;
-        }
+    let (file, size) = super::directory_service::resolve_with_size(config, remote_path).await?;
+    if file.folder {
+        return Err(ClientError::UnsupportedDownloadDirectory.into());
     }
-
+    download_personal(
+        config,
+        remote_path,
+        &file.id,
+        local_path,
+        pb,
+        listed_size.or(size),
+    )
+    .await?;
     Ok(())
 }
 
@@ -86,35 +55,6 @@ async fn download_personal(
 ) -> Result<(), ClientError> {
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
-
-    let parts: Vec<&str> = remote_path
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect();
-    let file_name = parts.last().unwrap_or(&remote_path);
-    let parent_id = if parts.len() > 1 {
-        crate::client::api::get_file_id_by_path(&config, &parts[..parts.len() - 1].join("/"))
-            .await?
-    } else {
-        "/".to_string()
-    };
-
-    // 父目录可能超过一页（>100 个子项），按页找、命中即停，避免后续页的失败
-    // 拖垮本来能判断的目录检查。
-    let child = crate::client::api::find_personal_child(
-        &config,
-        &host,
-        &parent_id,
-        file_name,
-        &crate::client::api::HttpClientWrapper::new(),
-    )
-    .await?;
-
-    if child.as_ref().is_some_and(|item| item.is_folder()) {
-        return Err(ClientError::UnsupportedDownloadDirectory);
-    }
-    let listed_size = listed_size.or_else(|| child.and_then(|item| item.size));
 
     let (download_url, reported_name) = personal_download_link(&config, &host, file_id).await?;
 
@@ -235,11 +175,17 @@ async fn download_file(
         pb.reset_eta();
     }
 
-    let client = reqwest::Client::new();
+    let client = crate::client::api::HttpClientWrapper::new();
     // Reject HTTP error pages before creating or truncating the destination.
-    let response = client.get(url).send().await?.error_for_status()?;
+    let response = client
+        .client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(reqwest::Error::without_url)?;
 
-    let parent = parent_directory(local_path);
+    let parent = super::directory_service::local_parent_directory(local_path);
     std::fs::create_dir_all(parent)?;
 
     let expected_size = listed_size
@@ -263,7 +209,7 @@ async fn download_file(
     let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
+        let chunk = chunk.map_err(reqwest::Error::without_url)?;
         file.write_all(&chunk)?;
         if let Some(pb) = &pb {
             pb.inc(chunk.len() as u64);
@@ -291,12 +237,6 @@ async fn download_file(
     Ok(())
 }
 
-fn parent_directory(path: &Path) -> &Path {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-}
-
 fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientError> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_file() && !metadata.permissions().readonly() => {
@@ -319,11 +259,12 @@ pub async fn download_recursive(
     recursive: bool,
 ) -> Result<()> {
     use super::directory_service as dirs;
+    config.require_personal()?;
     let remote = dirs::normalize(remote)?;
     dirs::safe_local(Path::new(local))?;
-    let entry = dirs::resolve(config, &remote).await?;
+    let (entry, size) = dirs::resolve_with_size(config, &remote).await?;
     if !entry.folder {
-        return download(config, &remote, local, None).await;
+        return Ok(download_personal(config, &remote, &entry.id, local, None, size).await?);
     }
     if !recursive {
         return Err(ClientError::UnsupportedDownloadDirectory.into());
@@ -352,7 +293,15 @@ pub async fn download_recursive(
         plan.push((entry, dest));
     }
     if !plan.is_empty() {
-        check_destination_collisions(destination_root, &plan)?;
+        let paths = plan.iter().map(|(entry, destination)| {
+            (
+                destination
+                    .strip_prefix(destination_root)
+                    .expect("planned descendant"),
+                entry.folder,
+            )
+        });
+        dirs::check_destination_collisions(destination_root, paths)?;
     }
     std::fs::create_dir_all(destination_root)?;
     for (entry, dest) in plan {
@@ -369,45 +318,6 @@ pub async fn download_recursive(
             )
             .await
             .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
-        }
-    }
-    Ok(())
-}
-
-fn check_destination_collisions(
-    destination_root: &Path,
-    plan: &[(super::directory_service::TreeEntry, PathBuf)],
-) -> Result<()> {
-    let mut parent = destination_root;
-    loop {
-        match std::fs::metadata(parent) {
-            Ok(metadata) if metadata.is_dir() => break,
-            Ok(_) => return Err(super::directory_service::invalid("本地文件与目录冲突").into()),
-            Err(error) if error.kind() == ErrorKind::NotFound => parent = parent_directory(parent),
-            Err(error) => return Err(error.into()),
-        }
-    }
-    // Use the destination filesystem's own case and Unicode name rules.
-    let probe = tempfile::tempdir_in(parent)?;
-    for (entry, destination) in plan {
-        let relative = destination
-            .strip_prefix(destination_root)
-            .map_err(|_| ClientError::InvalidFilePath)?;
-        let path = probe.path().join(relative);
-        let result = if entry.folder {
-            std::fs::create_dir(path)
-        } else {
-            std::fs::File::create_new(path).map(drop)
-        };
-        if let Err(error) = result {
-            if error.kind() == ErrorKind::AlreadyExists {
-                return Err(super::directory_service::invalid(format!(
-                    "多个远程条目映射到同一本地路径: {}",
-                    destination.display()
-                ))
-                .into());
-            }
-            return Err(error.into());
         }
     }
     Ok(())

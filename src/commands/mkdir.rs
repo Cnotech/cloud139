@@ -13,7 +13,7 @@ pub struct MkdirArgs {
 }
 
 pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
     if args.parents {
         crate::services::mkdir_service::mkdir_parents(&config, &args.path).await?;
     } else {

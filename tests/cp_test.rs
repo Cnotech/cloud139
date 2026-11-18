@@ -49,10 +49,7 @@ async fn test_cp_family_rejects_multiple_sources() {
 
     let result = copy_service::cp(&config, &sources, "/target/", false).await;
 
-    assert!(matches!(
-        result,
-        Err(ClientError::UnsupportedFamilyBatchCopy)
-    ));
+    assert!(matches!(result, Err(ClientError::UnsupportedStorage)));
 }
 
 #[tokio::test]
@@ -65,8 +62,5 @@ async fn test_cp_group_rejects_multiple_sources() {
 
     let result = copy_service::cp(&config, &sources, "/target/", false).await;
 
-    assert!(matches!(
-        result,
-        Err(ClientError::UnsupportedGroupBatchCopy)
-    ));
+    assert!(matches!(result, Err(ClientError::UnsupportedStorage)));
 }

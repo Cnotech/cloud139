@@ -1,3 +1,5 @@
+pub use super::sync_local::scan_local;
+pub(crate) use super::sync_local::{LocalSyncScan, scan_local_target, scan_upload_source};
 use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
@@ -5,9 +7,7 @@ use crate::domain::{
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone)]
 pub struct SyncDiffOptions {
@@ -69,7 +69,7 @@ pub fn compute_diff(
     target: &[FileEntry],
     options: SyncDiffOptions,
 ) -> Vec<SyncAction> {
-    compute_diff_inner(source, target, options, None, false)
+    compute_diff_inner(source, target, options, None, None, false)
 }
 
 fn compute_diff_inner(
@@ -77,6 +77,7 @@ fn compute_diff_inner(
     target: &[FileEntry],
     options: SyncDiffOptions,
     cloud_target: Option<&CloudSyncScan>,
+    local_target: Option<&LocalSyncScan>,
     verify: bool,
 ) -> Vec<SyncAction> {
     debug!(
@@ -112,7 +113,8 @@ fn compute_diff_inner(
 
     for path in paths {
         let protected = recovery_paths.contains(path)
-            || cloud_target.is_some_and(|scan| scan.protected.contains(path));
+            || cloud_target.is_some_and(|scan| scan.protected.contains(path))
+            || local_target.is_some_and(|scan| scan.protected.contains(path));
         if options.direction == SyncDirection::LocalToCloud && is_recovery_path(path) {
             if source_by_path.contains_key(path) {
                 actions.push(SyncAction::Conflict {
@@ -129,29 +131,25 @@ fn compute_diff_inner(
         {
             actions.push(SyncAction::Conflict {
                 rel_path: path.to_owned(),
-                reason: "云端同名目录未完整纳入同步范围，无法替换",
+                reason: "目标同名目录未完整纳入同步范围，无法替换",
             });
             continue;
         }
         match (source_by_path.get(path), target_by_path.get(path)) {
             (Some(src), Some(dst)) if src.kind != dst.kind => {
-                // Type conflict: file vs directory - always treat as change
-                match src.kind {
-                    SyncEntryKind::Directory => {
-                        // Source is directory, target is file -> create dir (file will be overwritten)
-                        actions.push(create_dir_action(src, &options));
-                    }
-                    SyncEntryKind::File => {
-                        let replace_directory_id = cloud_target
-                            .and_then(|scan| scan.directories.get(path))
-                            .cloned();
-                        actions.push(transfer_action(
-                            src,
-                            &options,
-                            ChangeKind::New,
-                            replace_directory_id,
-                        ));
-                    }
+                if src.kind == SyncEntryKind::Directory || local_target.is_some() {
+                    actions.push(SyncAction::Conflict {
+                        rel_path: path.to_owned(),
+                        reason: "存在同名的不同类型条目，无法安全替换",
+                    });
+                } else {
+                    let directory_id = cloud_target.and_then(|scan| scan.directories.get(path));
+                    actions.push(transfer_action(
+                        src,
+                        &options,
+                        ChangeKind::New,
+                        directory_id.cloned(),
+                    ));
                 }
             }
             (Some(src), Some(dst)) => {
@@ -186,18 +184,35 @@ fn compute_diff_inner(
 
     // An upload may replace a cloud directory. Keep its descendants until the
     // replacement succeeds; recycling the old directory also removes its children.
-    let replacement_paths: std::collections::HashSet<_> = actions
+    let blocked_paths: BTreeSet<_> = actions
         .iter()
         .filter_map(|action| match action {
-            SyncAction::Upload { rel_path, .. } | SyncAction::Conflict { rel_path, .. } => {
+            SyncAction::Conflict { rel_path, .. } => Some(rel_path.clone()),
+            _ => None,
+        })
+        .collect();
+    let replacement_paths: BTreeSet<_> = actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::Upload { rel_path, .. }
+                if target_by_path
+                    .get(rel_path.as_str())
+                    .is_some_and(|target| target.kind == SyncEntryKind::Directory) =>
+            {
                 Some(rel_path.clone())
             }
             _ => None,
         })
         .collect();
-    actions.retain(|action| {
-        !matches!(action, SyncAction::Delete { rel_path, .. }
-        if path_and_ancestors(rel_path).any(|path| replacement_paths.contains(path)))
+    actions.retain(|action| match action {
+        SyncAction::Upload { rel_path, .. }
+        | SyncAction::Download { rel_path, .. }
+        | SyncAction::CreateDir { rel_path, .. } => {
+            !path_and_ancestors(rel_path).any(|path| blocked_paths.contains(path))
+        }
+        SyncAction::Delete { rel_path, .. } => !path_and_ancestors(rel_path)
+            .any(|path| blocked_paths.contains(path) || replacement_paths.contains(path)),
+        _ => true,
     });
 
     actions.sort_by_key(|action| match action {
@@ -343,114 +358,7 @@ pub struct SyncScanOptions {
     pub exclude: Vec<String>,
 }
 
-pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry>> {
-    if !root.exists() {
-        return Err(anyhow!("本地路径不存在: {}", root.display()));
-    }
-
-    super::directory_service::safe_local(root)?;
-    let patterns = compile_exclude_patterns(&options.exclude)?;
-    let mut items = Vec::new();
-
-    if root.is_file() {
-        let file_name = root
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow!("无法读取文件名: {}", root.display()))?;
-        if !is_excluded(file_name, &patterns) {
-            items.push(file_entry_from_local(root, file_name.to_string())?);
-        }
-        return Ok(items);
-    }
-
-    scan_local_dir(root, root, &options, &patterns, &mut items)?;
-    items.sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
-    Ok(items)
-}
-
-fn scan_local_dir(
-    root: &Path,
-    dir: &Path,
-    options: &SyncScanOptions,
-    patterns: &[Pattern],
-    items: &mut Vec<FileEntry>,
-) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        let rel_path = to_forward_slash(path.strip_prefix(root)?);
-
-        if is_excluded(&rel_path, patterns) {
-            continue;
-        }
-
-        let metadata = std::fs::symlink_metadata(&path)?;
-        if metadata.file_type().is_symlink() {
-            return Err(anyhow!("拒绝符号链接: {}", path.display()));
-        }
-        if !metadata.is_file() && !metadata.is_dir() {
-            return Err(anyhow!("不支持的本地文件类型: {}", path.display()));
-        }
-        if metadata.is_dir() {
-            if options.recursive {
-                // Remember position before scanning children
-                let items_before = items.len();
-                scan_local_dir(root, &path, options, patterns, items)?;
-
-                // Add directory if:
-                // 1. It has non-excluded children (items.len() > items_before), OR
-                // 2. It's truly empty (no entries at all)
-                let is_truly_empty = dir_is_truly_empty(&path)?;
-                if items.len() > items_before || is_truly_empty {
-                    items.insert(
-                        items_before,
-                        FileEntry {
-                            rel_path: rel_path.clone(),
-                            size: 0,
-                            mtime: metadata
-                                .modified()
-                                .ok()
-                                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                                .map(|duration| duration.as_secs() as i64),
-                            kind: SyncEntryKind::Directory,
-                        },
-                    );
-                }
-            }
-            continue;
-        }
-
-        if metadata.is_file() {
-            items.push(file_entry_from_local(&path, rel_path)?);
-        }
-    }
-
-    Ok(())
-}
-
-fn dir_is_truly_empty(dir: &Path) -> Result<bool> {
-    // Check if directory has any entries at all (regardless of exclusion)
-    let mut entries = fs::read_dir(dir)?;
-    Ok(entries.next().is_none())
-}
-
-fn file_entry_from_local(path: &Path, rel_path: String) -> Result<FileEntry> {
-    let metadata = fs::metadata(path)?;
-    let mtime = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_secs() as i64);
-
-    Ok(FileEntry {
-        rel_path,
-        size: metadata.len(),
-        mtime,
-        kind: SyncEntryKind::File,
-    })
-}
-
-fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
+pub(super) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
     exclude
         .iter()
         .map(|pattern| {
@@ -459,7 +367,7 @@ fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
         .collect()
 }
 
-fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
+pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
     let options = glob::MatchOptions {
         case_sensitive: true,
         require_literal_separator: true,
@@ -480,13 +388,6 @@ fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
         }
         false
     })
-}
-
-fn to_forward_slash(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileItem) -> bool {
@@ -573,7 +474,7 @@ fn is_recovery_path(path: &str) -> bool {
     path.split('/').any(is_recovery_name)
 }
 
-fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
+pub(super) fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
     std::iter::successors(Some(path), |path| {
         path.rsplit_once('/').map(|(parent, _)| parent)
     })
@@ -581,11 +482,12 @@ fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
 
 #[derive(Default)]
 pub(crate) struct CloudSyncScan {
-    items: Vec<FileEntry>,
+    pub(super) items: Vec<FileEntry>,
     directories: BTreeMap<String, String>,
     protected: BTreeSet<String>,
     pub(crate) files: BTreeMap<String, CloudSyncFile>,
     pub(crate) host: String,
+    pub(crate) root: String,
 }
 
 #[derive(PartialEq, Eq)]
@@ -593,6 +495,7 @@ pub(crate) struct CloudSyncFile {
     pub(crate) id: Option<String>,
     pub(crate) size: Option<u64>,
     pub(crate) sha256: Option<String>,
+    modified: Option<String>,
 }
 
 impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
@@ -618,7 +521,17 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
                     && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
             })
             .map(str::to_ascii_lowercase);
-        Self { id, size, sha256 }
+        Self {
+            id,
+            size,
+            sha256,
+            modified: item
+                .updated_at
+                .as_ref()
+                .or(item.update_date.as_ref())
+                .or(item.last_modified.as_ref())
+                .cloned(),
+        }
     }
 }
 
@@ -629,19 +542,96 @@ impl CloudSyncScan {
         options: SyncDiffOptions,
         verify: bool,
     ) -> Vec<SyncAction> {
-        compute_diff_inner(source, &self.items, options, Some(self), verify)
+        compute_diff_inner(source, &self.items, options, Some(self), None, verify)
     }
 
     pub(crate) fn compute_download_diff(
         &self,
-        target: &[FileEntry],
+        target: &LocalSyncScan,
         options: SyncDiffOptions,
     ) -> Vec<SyncAction> {
-        compute_diff(&self.items, target, options)
+        compute_diff_inner(
+            &self.items,
+            &target.items,
+            options,
+            None,
+            Some(target),
+            false,
+        )
     }
 
     pub(crate) fn directory_id(&self, rel_path: &str) -> Option<&str> {
         self.directories.get(rel_path).map(String::as_str)
+    }
+
+    pub(super) fn expected_id(&self, rel_path: &str) -> Result<Option<&str>> {
+        use anyhow::Context;
+        if let Some(file) = self.files.get(rel_path) {
+            return Ok(Some(file.id.as_deref().context("扫描未返回有效文件 ID")?));
+        }
+        Ok(self.directory_id(rel_path))
+    }
+
+    pub(super) async fn confirm_subtree(
+        &self,
+        listing: &crate::client::api::PersonalListing<'_>,
+        root_path: &str,
+        root_id: &str,
+    ) -> Result<()> {
+        let prefix = format!("{root_path}/");
+        let files = self
+            .files
+            .range(prefix.clone()..)
+            .map(|(path, _)| path.as_str())
+            .take_while(|path| path.starts_with(&prefix));
+        let directories = self
+            .directories
+            .range(prefix.clone()..)
+            .map(|(path, _)| path.as_str())
+            .take_while(|path| path.starts_with(&prefix));
+        let mut children = BTreeMap::<&str, BTreeSet<&str>>::new();
+        for path in files.chain(directories) {
+            let (parent, _) = path.rsplit_once('/').expect("subtree path has parent");
+            children.entry(parent).or_default().insert(path);
+        }
+        let mut pending = vec![(root_path.to_owned(), root_id.to_owned())];
+        while let Some((parent, parent_id)) = pending.pop() {
+            let expected_paths = children.remove(parent.as_str()).unwrap_or_default();
+            let current = listing.list_files(&parent_id).await?;
+            anyhow::ensure!(
+                current.len() == expected_paths.len(),
+                "云端目录 {parent} 的内容已变更"
+            );
+            let mut seen = BTreeSet::new();
+            for item in &current {
+                let name = item
+                    .name
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("云端目录条目缺少名称"))?;
+                let path = format!("{parent}/{name}");
+                anyhow::ensure!(
+                    expected_paths.contains(path.as_str()) && seen.insert(path.clone()),
+                    "云端目录 {parent} 的内容已变更"
+                );
+                if item.is_folder() {
+                    let id = self
+                        .directory_id(&path)
+                        .ok_or_else(|| anyhow!("云端目录 {path} 已变更"))?;
+                    anyhow::ensure!(
+                        item.file_id.as_deref() == Some(id),
+                        "云端目录 {path} 已变更"
+                    );
+                    pending.push((path, id.to_owned()));
+                } else {
+                    anyhow::ensure!(
+                        self.files.get(&path) == Some(&CloudSyncFile::from(item))
+                            && self.expected_id(&path)?.is_some(),
+                        "云端文件 {path} 已变更"
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 
     fn protect(&mut self, rel_path: &str) {
@@ -684,6 +674,8 @@ async fn scan_cloud_personal_inner(
     options: SyncScanOptions,
     upload_target: bool,
 ) -> Result<CloudSyncScan> {
+    config.require_personal()?;
+    let cloud_root = super::directory_service::normalize(cloud_root)?;
     let mut config = config.clone();
     let host = match &config.personal_cloud_host {
         Some(host) => host.clone(),
@@ -694,7 +686,7 @@ async fn scan_cloud_personal_inner(
         "/".to_string()
     } else {
         crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-            super::directory_service::directory(&config, cloud_root)
+            super::directory_service::directory(&config, &cloud_root)
                 .await
                 .map_err(anyhow::Error::from)
         })
@@ -706,7 +698,7 @@ async fn scan_cloud_personal_inner(
         directories: BTreeMap::from([(String::new(), root_id.clone())]),
         ..CloudSyncScan::default()
     };
-    let mut seen_directories = BTreeSet::from([root_id.clone()]);
+    let mut seen_objects = BTreeSet::from([root_id.clone()]);
     scan_cloud_personal_dir(
         &config,
         &host,
@@ -716,12 +708,13 @@ async fn scan_cloud_personal_inner(
         &patterns,
         upload_target,
         &mut scan,
-        &mut seen_directories,
+        &mut seen_objects,
     )
     .await?;
     scan.items
         .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
     scan.host = host;
+    scan.root = cloud_root;
     Ok(scan)
 }
 
@@ -735,7 +728,7 @@ fn scan_cloud_personal_dir<'a>(
     patterns: &'a [Pattern],
     upload_target: bool,
     scan: &'a mut CloudSyncScan,
-    seen_directories: &'a mut BTreeSet<String>,
+    seen_objects: &'a mut BTreeSet<String>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let url = format!("{}/file/list", host);
@@ -811,6 +804,9 @@ fn scan_cloud_personal_dir<'a>(
                         .file_id
                         .as_deref()
                         .filter(|id| !id.is_empty() && *id != "/");
+                    if !upload_target && options.recursive && child_id.is_none() {
+                        return Err(anyhow!("云端目录缺少有效 ID: {rel_path}"));
+                    }
                     let Some(child_id) = child_id.filter(|_| options.recursive) else {
                         if upload_target {
                             // Ordinary non-recursive scans encounter only top-level folders.
@@ -828,7 +824,7 @@ fn scan_cloud_personal_dir<'a>(
                     {
                         return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
                     }
-                    if !seen_directories.insert(child_id.to_owned()) {
+                    if !seen_objects.insert(child_id.to_owned()) {
                         return Err(anyhow!("云端扫描返回了重复的目录 ID: {rel_path}"));
                     }
                     scan.directories
@@ -848,7 +844,7 @@ fn scan_cloud_personal_dir<'a>(
                         patterns,
                         upload_target,
                         scan,
-                        seen_directories,
+                        seen_objects,
                     )
                     .await?;
                 } else {
@@ -862,6 +858,11 @@ fn scan_cloud_personal_dir<'a>(
                     }
                     if scan.directories.contains_key(&rel_path) {
                         return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
+                    }
+                    if let Some(id) = &file.id
+                        && !seen_objects.insert(id.to_owned())
+                    {
+                        return Err(anyhow!("云端扫描返回了重复的条目 ID: {rel_path}"));
                     }
                     scan.files.insert(rel_path, file);
                     scan.items.push(entry);

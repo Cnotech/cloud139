@@ -138,7 +138,7 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
 }
 
 #[test]
-fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
+fn test_local_dir_vs_cloud_file_reports_conflict() {
     // Local has empty directory "conflict", cloud has 0-byte file "conflict"
     // This should NOT be treated as skip - it's a type conflict
     let actions = compute_diff(
@@ -152,12 +152,11 @@ fn test_local_dir_vs_cloud_file_creates_dir_not_skip() {
         },
     );
 
-    // Should create directory, not skip
     assert!(
         actions
             .iter()
-            .any(|a| matches!(a, SyncAction::CreateDir { rel_path, .. } if rel_path == "conflict")),
-        "Expected CreateDir action for local dir vs cloud file, got: {:?}",
+            .any(|a| matches!(a, SyncAction::Conflict { rel_path, .. } if rel_path == "conflict")),
+        "Expected Conflict action for local dir vs cloud file, got: {:?}",
         actions
     );
 }

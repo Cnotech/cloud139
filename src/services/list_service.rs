@@ -16,6 +16,7 @@ pub async fn list(
     config: &crate::config::Config,
     args: &CliListArgs,
 ) -> anyhow::Result<ListResult> {
+    config.require_personal()?;
     if args.page < 1 || args.page_size < 1 {
         anyhow::bail!("页码和每页数量必须大于 0");
     }
@@ -26,13 +27,7 @@ pub async fn list(
         normalized
     };
 
-    let storage_type = config.storage_type();
-
-    match storage_type {
-        StorageType::PersonalNew => list_personal(config, &path, args.page, args.page_size).await,
-        StorageType::Family => list_legacy(config, &path, args.page, args.page_size).await,
-        StorageType::Group => list_legacy(config, &path, args.page, args.page_size).await,
-    }
+    list_personal(config, &path, args.page, args.page_size).await
 }
 
 async fn list_personal(
@@ -146,40 +141,6 @@ async fn list_personal(
     debug!("list_personal: 返回 {} 个条目 (总 {})", items.len(), total);
     Ok(ListResult {
         path: path.to_string(),
-        total,
-        items,
-    })
-}
-
-async fn list_legacy(
-    config: &crate::config::Config,
-    path: &str,
-    page: i32,
-    page_size: i32,
-) -> anyhow::Result<ListResult> {
-    let dir = super::legacy_directory::resolve(config, path).await?;
-    let all = super::legacy_directory::list_all(config, &dir).await?;
-    let total = all.len() as i32;
-    let start = (page as usize - 1).saturating_mul(page_size as usize);
-    let items = all
-        .into_iter()
-        .skip(start)
-        .take(page_size as usize)
-        .map(|i| FileItem {
-            name: i.name,
-            kind: if i.folder {
-                EntryKind::Folder
-            } else {
-                EntryKind::File
-            },
-            size: i.size.unwrap_or(0),
-            modified: i.modified,
-            content_hash: None,
-            content_hash_algorithm: None,
-        })
-        .collect();
-    Ok(ListResult {
-        path: path.into(),
         total,
         items,
     })

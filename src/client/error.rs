@@ -30,16 +30,8 @@ pub enum ClientError {
     CannotOperateOnRoot,
     #[error("没有有效的源文件需要处理")]
     NoSourceFiles,
-    #[error("家庭云暂不支持批量移动")]
-    UnsupportedFamilyBatchMove,
-    #[error("群组云暂不支持批量移动")]
-    UnsupportedGroupBatchMove,
-    #[error("家庭云暂不支持批量复制")]
-    UnsupportedFamilyBatchCopy,
-    #[error("群组云暂不支持批量复制")]
-    UnsupportedGroupBatchCopy,
-    #[error("家庭云不支持重命名文件夹")]
-    UnsupportedFamilyRenameFolder,
+    #[error("未实现：当前仅支持个人云")]
+    UnsupportedStorage,
     #[error("下载目录需要显式指定 -r / --recursive")]
     UnsupportedDownloadDirectory,
     #[error("无效的文件路径")]

@@ -1,6 +1,5 @@
 use crate::client::api;
 use crate::config::Config;
-use crate::domain::StorageType;
 use crate::{debug, info, success};
 
 pub async fn login(
@@ -20,30 +19,12 @@ pub async fn login_with_group_root(
     let token = token.strip_prefix("Basic ").unwrap_or(token);
     let mut config = crate::client::auth::login(token, storage_type, cloud_id).await?;
     let path = Config::save_path();
-    if config.storage_type() == StorageType::Group {
-        config.root_folder_id = match root_folder_id {
-            Some(root) if !root.trim().is_empty() => Some(root.to_owned()),
-            Some(_) => anyhow::bail!("--root-folder-id 不能为空"),
-            None => Config::load_from_candidates(std::slice::from_ref(&path))
-                .ok()
-                .map(|(old, _)| old)
-                .filter(|old| {
-                    old.storage_type() == StorageType::Group
-                        && old.account == config.account
-                        && old.cloud_id == config.cloud_id
-                })
-                .and_then(|old| old.root_folder_id),
-        };
-        super::legacy_directory::root(&config)?;
-    } else if root_folder_id.is_some() {
-        anyhow::bail!("--root-folder-id 仅用于群组盘登录");
+    if root_folder_id.is_some() {
+        return Err(crate::client::ClientError::UnsupportedStorage.into());
     }
-
     info!("正在校验 Token 可用性 (ls /) ...");
-    if config.storage_type() == StorageType::PersonalNew {
-        config.personal_cloud_host =
-            Some(api::fetch_personal_cloud_host(&config, &api::HttpClientWrapper::new()).await?);
-    }
+    config.personal_cloud_host =
+        Some(api::fetch_personal_cloud_host(&config, &api::HttpClientWrapper::new()).await?);
     let list_args = crate::commands::list::ListArgs {
         recursive: false,
         path: "/".to_string(),

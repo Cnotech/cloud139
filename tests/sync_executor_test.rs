@@ -102,7 +102,7 @@ async fn missing_local_upload_preserves_cloud_objects_and_other_actions_continue
 }
 
 #[tokio::test]
-async fn test_execute_create_dir_replaces_existing_local_file() {
+async fn test_execute_create_dir_preserves_existing_local_file() {
     // Setup: create a temp dir with a file named "conflict"
     let dir = tempdir().unwrap();
     let conflict_path = dir.path().join("conflict");
@@ -113,7 +113,6 @@ async fn test_execute_create_dir_replaces_existing_local_file() {
         "Precondition: conflict should be a file"
     );
 
-    // Action: CreateDir should replace the file with a directory
     let actions = vec![SyncAction::CreateDir {
         rel_path: "conflict".to_string(),
         target: SyncTarget::Local,
@@ -133,11 +132,7 @@ async fn test_execute_create_dir_replaces_existing_local_file() {
     .await
     .unwrap();
 
-    // Verify: conflict should now be a directory
-    assert!(
-        conflict_path.is_dir(),
-        "After CreateDir, conflict should be a directory"
-    );
-    assert_eq!(summary.created_dirs, 1);
-    assert_eq!(summary.failed, 0);
+    assert_eq!(std::fs::read(&conflict_path).unwrap(), b"I am a file");
+    assert_eq!(summary.created_dirs, 0);
+    assert_eq!(summary.failed, 1);
 }

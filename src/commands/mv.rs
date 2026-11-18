@@ -13,7 +13,7 @@ pub struct MvArgs {
 }
 
 pub async fn execute(args: MvArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
     crate::services::move_service::mv(&config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

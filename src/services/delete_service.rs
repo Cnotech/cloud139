@@ -13,14 +13,10 @@ pub async fn delete_recursive(
     permanent: bool,
     recursive: bool,
 ) -> anyhow::Result<()> {
+    config.require_personal()?;
     let path = dirs::non_root(path)?;
     if permanent {
         return Err(dirs::invalid("尚无可靠的永久删除协议，已拒绝操作；未移动到回收站").into());
-    }
-    if config.storage_type() != StorageType::PersonalNew {
-        return super::legacy_directory::trash(config, &path, recursive)
-            .await
-            .map_err(Into::into);
     }
     let entry = dirs::resolve(config, &path).await?;
     if entry.folder && !recursive {

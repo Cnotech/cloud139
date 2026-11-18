@@ -17,10 +17,15 @@ async fn main() -> anyhow::Result<()> {
 
     // 除登录外的命令，启动时按需续期。139 的 refresh 接口每次滚动发放 30 天有效的新 token，
     // 所以只要 CLI 每天被调用，就不需要额外的定时任务来维持登录态。
-    if !matches!(&cli.command, Commands::Login(_))
-        && let Err(err) = cloud139::client::auth::maybe_refresh_config().await
-    {
-        cloud139::warn!("自动续期检查失败: {}", err);
+    if !matches!(&cli.command, Commands::Login(_)) {
+        match cloud139::client::auth::maybe_refresh_config().await {
+            Err(ClientError::UnsupportedStorage) => {
+                error!("{}", ClientError::UnsupportedStorage);
+                std::process::exit(1);
+            }
+            Err(err) => cloud139::warn!("自动续期检查失败: {}", err),
+            Ok(()) => {}
+        }
     }
 
     let result = match cli.command {

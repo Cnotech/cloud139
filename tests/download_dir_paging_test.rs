@@ -29,7 +29,7 @@ fn folder(id: &str, name: &str) -> serde_json::Value {
     json!({ "fileId": id, "name": name, "type": "folder" })
 }
 
-/// 目标在第一页：路径解析 + 目录检查各读一次首页；第二页即使返回无效 JSON 也不应被请求。
+/// 目标在第一页：解析路径时同一次列表请求就能判断类型；第二页即使返回无效 JSON 也不应被请求。
 #[tokio::test]
 async fn download_dir_check_stops_at_first_page() {
     let server = MockServer::start();
@@ -60,6 +60,6 @@ async fn download_dir_check_stops_at_first_page() {
         client_err,
         ClientError::UnsupportedDownloadDirectory
     ));
-    first.assert_calls(2);
+    first.assert_calls(1);
     second.assert_calls(0);
 }

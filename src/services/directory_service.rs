@@ -15,40 +15,54 @@ pub struct RemoteEntry {
 }
 
 pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientError> {
+    resolve_with_size(config, path)
+        .await
+        .map(|(entry, _)| entry)
+}
+
+pub(super) async fn resolve_with_size(
+    config: &Config,
+    path: &str,
+) -> Result<(RemoteEntry, Option<i64>), ClientError> {
+    config.require_personal()?;
     let path = normalize(path)?;
-    if config.storage_type() != StorageType::PersonalNew {
-        let item = super::legacy_directory::resolve(config, &path).await?;
-        return Ok(RemoteEntry {
-            id: item.id,
-            folder: item.folder,
-        });
-    }
+    let mut cached = config.clone();
+    let http_client = api::HttpClientWrapper::new();
+    let host = if path == "/" {
+        String::new()
+    } else {
+        api::get_personal_cloud_host_with_client(&mut cached, &http_client).await?
+    };
+    let listing = api::PersonalListing {
+        config: &cached,
+        host: &host,
+        http_client: &http_client,
+        retry_transient: false,
+    };
+    resolve_entry(&listing, &path).await
+}
+
+async fn resolve_entry(
+    listing: &api::PersonalListing<'_>,
+    path: &str,
+) -> Result<(RemoteEntry, Option<i64>), ClientError> {
     let mut current = RemoteEntry {
         id: "/".into(),
         folder: true,
     };
-    if path == "/" {
-        return Ok(current);
-    }
     if path.split('/').count() > 258 {
         return Err(invalid("目录层级过深"));
     }
-    let mut cached = config.clone();
-    let host = api::get_personal_cloud_host(&mut cached).await?;
     let mut seen_ids = HashSet::from(["/".to_owned()]);
+    let mut size = None;
     for part in path.split('/').filter(|p| !p.is_empty()) {
         if !current.folder {
             return Err(invalid("父路径不是目录"));
         }
-        let item = api::find_personal_child(
-            &cached,
-            &host,
-            &current.id,
-            part,
-            &api::HttpClientWrapper::new(),
-        )
-        .await?
-        .ok_or(ClientError::FileNotFound)?;
+        let item = listing
+            .find_child(&current.id, part)
+            .await?
+            .ok_or(ClientError::FileNotFound)?;
         let folder = is_folder(&item);
         let id = item
             .file_id
@@ -58,8 +72,9 @@ pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientE
             return Err(invalid("路径解析返回根目录别名或目录循环"));
         }
         current = RemoteEntry { id, folder };
+        size = item.size;
     }
-    Ok(current)
+    Ok((current, size))
 }
 
 pub async fn directory(config: &Config, path: &str) -> Result<String, ClientError> {
@@ -70,7 +85,19 @@ pub async fn directory(config: &Config, path: &str) -> Result<String, ClientErro
     Ok(entry.id)
 }
 
+pub(super) async fn directory_with_listing(
+    listing: &api::PersonalListing<'_>,
+    path: &str,
+) -> Result<String, ClientError> {
+    let (entry, _) = resolve_entry(listing, path).await?;
+    if !entry.folder {
+        return Err(invalid("目标路径不是目录"));
+    }
+    Ok(entry.id)
+}
+
 pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<(), ClientError> {
+    config.require_personal()?;
     let path = normalize(path)?;
     if path == "/" {
         return if parents {
@@ -78,9 +105,6 @@ pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<()
         } else {
             Err(ClientError::CannotOperateOnRoot)
         };
-    }
-    if config.storage_type() != StorageType::PersonalNew {
-        return super::legacy_directory::ensure_dir(config, &path, parents).await;
     }
     let mut cached = config.clone();
     let host = api::get_personal_cloud_host(&mut cached).await?;
@@ -201,6 +225,54 @@ pub fn safe_local(path: &Path) -> Result<(), ClientError> {
     Ok(())
 }
 
+pub(super) fn local_parent_directory(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+}
+
+pub(super) fn check_destination_collisions<'a>(
+    destination_root: &Path,
+    paths: impl IntoIterator<Item = (&'a Path, bool)>,
+) -> anyhow::Result<()> {
+    let mut paths = paths.into_iter().peekable();
+    if paths.peek().is_none() {
+        return Ok(());
+    }
+    let mut parent = destination_root;
+    loop {
+        match std::fs::metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => return Err(invalid("本地文件与目录冲突").into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                parent = local_parent_directory(parent)
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    // Use the destination filesystem's own case and Unicode name rules.
+    let probe = tempfile::tempdir_in(parent)?;
+    for (relative, folder) in paths {
+        let path = probe.path().join(relative);
+        let result = if folder {
+            std::fs::create_dir(path)
+        } else {
+            std::fs::File::create_new(path).map(drop)
+        };
+        if let Err(error) = result {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                return Err(invalid(format!(
+                    "多个远程条目映射到同一本地路径: {}",
+                    destination_root.join(relative).display()
+                ))
+                .into());
+            }
+            return Err(error.into());
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct TreeEntry {
     pub path: String,
@@ -213,24 +285,6 @@ pub async fn children(
     config: &Config,
     path: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
-    if config.storage_type() != StorageType::PersonalNew {
-        let dir = super::legacy_directory::resolve(config, path).await?;
-        return Ok(super::legacy_directory::list_all(config, &dir)
-            .await?
-            .into_iter()
-            .map(|i| {
-                (
-                    i.name,
-                    RemoteEntry {
-                        id: i.id,
-                        folder: i.folder,
-                    },
-                    i.size,
-                    i.modified,
-                )
-            })
-            .collect());
-    }
     let id = directory(config, path).await?;
     api::list_personal_files(config, &id)
         .await?
@@ -295,6 +349,7 @@ pub async fn transfer(
     force: bool,
     moving: bool,
 ) -> Result<(), ClientError> {
+    config.require_personal()?;
     if sources.is_empty() {
         return Err(ClientError::NoSourceFiles);
     }
@@ -307,12 +362,6 @@ pub async fn transfer(
         if target == *source || target.starts_with(&format!("{source}/")) {
             return Err(invalid("不能复制或移动到自身或子目录"));
         }
-    }
-    if config.storage_type() != StorageType::PersonalNew {
-        if moving {
-            return super::legacy_directory::move_group(config, &sources, &target).await;
-        }
-        return Err(invalid("家庭/群组复制协议未可靠核实，已拒绝操作"));
     }
     let target_id = directory(config, &target).await?;
     let existing = api::list_personal_files(config, &target_id).await?;

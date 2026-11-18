@@ -10,11 +10,9 @@ pub async fn rename(
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
+    config.require_personal()?;
     let source = dirs::non_root(source)?;
     dirs::validate_name(target)?;
-    if config.storage_type() != StorageType::PersonalNew {
-        return super::legacy_directory::rename(config, &source, target).await;
-    }
     let entry = dirs::resolve(config, &source).await?;
     let (parent, name) = source.rsplit_once('/').unwrap();
     if name == target {

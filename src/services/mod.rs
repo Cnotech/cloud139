@@ -8,6 +8,8 @@ pub mod mkdir_service;
 pub mod move_service;
 pub mod rename_service;
 pub mod sync_executor;
+mod sync_local;
+mod sync_remote;
 pub mod sync_service;
 pub(crate) mod sync_verify;
 pub mod upload;
@@ -23,5 +25,3 @@ pub use rename_service::rename;
 pub use upload_service::upload;
 
 pub mod directory_service;
-
-pub mod legacy_directory;

@@ -14,14 +14,14 @@ pub struct LoginArgs {
         short,
         long,
         default_value = "personal_new",
-        help = "存储类型: personal_new, family, group"
+        help = "存储类型（仅实现 personal_new）"
     )]
     pub storage_type: String,
 
-    #[arg(long, help = "云盘ID (家庭云/群组云时需要)")]
+    #[arg(long, help = "云盘 ID（兼容参数）")]
     pub cloud_id: Option<String>,
 
-    #[arg(long, help = "已核实的群组盘根目录路径")]
+    #[arg(long, help = "云盘根目录（兼容参数）")]
     pub root_folder_id: Option<String>,
 }
 

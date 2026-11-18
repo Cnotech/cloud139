@@ -1,14 +1,11 @@
-use crate::client::{ClientError, api};
+use super::sync_remote::SyncCloud;
 use crate::config::Config;
 use crate::domain::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
 use crate::services::sync_service::{
     CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES, cloud_child_path,
-    confirm_cloud_directory,
 };
-use crate::services::upload::personal::{
-    SyncUploadPlan, SyncUploadVerification, upload_sync_to_parent,
-};
+use crate::services::upload::personal::{SyncUploadPlan, upload_sync_to_parent};
 use crate::utils::retry::{RetryError, with_retries};
 use anyhow::{Context, Result, anyhow, ensure};
 use indicatif::MultiProgress;
@@ -89,12 +86,11 @@ pub(crate) async fn execute_verified_sync(
     };
     let mut deletes = Vec::new();
     let mut retained_files = BTreeMap::new();
-    let mut sync = VerifiedSync {
+    let sync = VerifiedSync {
         config,
         cloud,
         cloud_root,
-        directory_ids: BTreeMap::new(),
-        http_client: api::HttpClientWrapper::new(),
+        remote: SyncCloud::new(config, Some(cloud)),
     };
     if !options.dry_run
         && let Err(error) = sync.confirm_root().await
@@ -134,7 +130,11 @@ pub(crate) async fn execute_verified_sync(
                 target: SyncTarget::Cloud,
                 ..
             } if !options.dry_run => {
-                if let Err(error) = sync.ensure_directory(rel_path).await {
+                if let Err(error) = sync
+                    .remote
+                    .ensure_directory(&cloud_child_path(cloud_root, rel_path))
+                    .await
+                {
                     report.fail(rel_path, error);
                 }
             }
@@ -167,70 +167,17 @@ struct VerifiedSync<'a> {
     config: &'a Config,
     cloud: &'a CloudSyncScan,
     cloud_root: &'a str,
-    directory_ids: BTreeMap<String, String>,
-    http_client: api::HttpClientWrapper,
+    remote: SyncCloud<'a>,
 }
 
 impl VerifiedSync<'_> {
     async fn confirm_root(&self) -> Result<()> {
-        let root = self
-            .cloud
-            .directory_id("")
-            .context("扫描缺少云端根目录 ID")?;
-        confirm_cloud_directory(self.config, self.cloud_root, root).await
-    }
-
-    fn listing(&self) -> api::PersonalListing<'_> {
-        api::PersonalListing {
-            config: self.config,
-            host: &self.cloud.host,
-            http_client: &self.http_client,
-            retry_transient: true,
-        }
-    }
-
-    async fn ensure_directory(&mut self, rel_path: &str) -> Result<String> {
-        let mut id = self
-            .cloud
-            .directory_id("")
-            .context("扫描缺少云端根目录 ID")?
-            .to_owned();
-        let mut path = String::new();
-        for part in rel_path.split('/').filter(|part| !part.is_empty()) {
-            if !path.is_empty() {
-                path.push('/');
-            }
-            path.push_str(part);
-            if let Some(existing) = self.directory_ids.get(&path) {
-                id.clone_from(existing);
-                continue;
-            }
-            let listing = self.listing();
-            let child_id = if let Some(expected) = self.cloud.directory_id(&path) {
-                let item = listing.find_child(&id, part).await?;
-                ensure!(
-                    item.is_some_and(
-                        |item| item.is_folder() && item.file_id.as_deref() == Some(expected)
-                    ),
-                    "目标目录 {path} 在扫描后发生变化"
-                );
-                expected.to_owned()
-            } else {
-                let parent = cloud_child_path(self.cloud_root, parent_and_name(&path).0);
-                confirm_cloud_directory(self.config, &parent, &id).await?;
-                super::directory_service::ensure_personal_child_dir(
-                    &listing, &id, part, true, false,
-                )
-                .await?
-            };
-            self.directory_ids.insert(path.clone(), child_id.clone());
-            id = child_id;
-        }
-        Ok(id)
+        self.remote.ensure_directory(self.cloud_root).await?;
+        Ok(())
     }
 
     async fn upload_or_verify(
-        &mut self,
+        &self,
         action: &SyncAction,
         pb: Option<indicatif::ProgressBar>,
         hash_missing: &mut bool,
@@ -247,30 +194,42 @@ impl VerifiedSync<'_> {
         };
         let size = super::upload_service::checked_upload_size(local_abs)? as u64;
         let (parent, name) = parent_and_name(rel_path);
-        let parent_id = self.ensure_directory(parent).await?;
-        let previous = self.cloud.files.get(rel_path);
-        let existing_id = if let Some(file) = previous {
-            Some(
-                file.id
-                    .as_deref()
-                    .context("原文件缺少 ID，无法验证或替换")?,
-            )
-        } else {
-            replace_directory_id.as_deref()
-        };
-
-        if *change == ChangeKind::Verify
-            && let Some(file) = previous
-            && file.size.is_none_or(|remote_size| remote_size == size)
-        {
-            let path = local_abs.clone();
-            let local_hash =
-                tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(&path))
-                    .await??;
-            let remote_hash =
-                remote_sha256(self.config, &self.cloud.host, file, file.size, hash_missing).await?;
-            if local_hash == remote_hash {
-                return Ok((existing_id.context("原文件缺少 ID")?.to_owned(), false));
+        let remote_parent = cloud_child_path(self.cloud_root, parent);
+        let parent_id = self.remote.ensure_directory(&remote_parent).await?;
+        if *change == ChangeKind::Verify {
+            let expected_id = self.cloud.expected_id(rel_path)?.context("原文件缺少 ID")?;
+            self.remote
+                .confirm_directory(&remote_parent, &parent_id)
+                .await?;
+            let file = self
+                .remote
+                .current_file(&parent_id, name, expected_id)
+                .await?;
+            if file.size.is_none_or(|remote_size| remote_size == size) {
+                let path = local_abs.clone();
+                let local_hash = tokio::task::spawn_blocking(move || {
+                    crate::utils::crypto::calc_file_sha256(&path)
+                })
+                .await??;
+                let remote_hash = remote_sha256(
+                    self.config,
+                    &self.cloud.host,
+                    &file,
+                    file.size,
+                    hash_missing,
+                )
+                .await?;
+                if local_hash == remote_hash {
+                    self.remote
+                        .confirm_directory(&remote_parent, &parent_id)
+                        .await?;
+                    let latest = self
+                        .remote
+                        .current_file(&parent_id, name, expected_id)
+                        .await?;
+                    ensure!(file == latest, "云端文件在校验期间发生变化");
+                    return Ok((expected_id.to_owned(), false));
+                }
             }
         }
 
@@ -280,13 +239,12 @@ impl VerifiedSync<'_> {
             SyncUploadPlan {
                 host: &self.cloud.host,
                 parent_id: &parent_id,
-                remote_parent: &cloud_child_path(self.cloud_root, parent),
+                remote_parent: &remote_parent,
                 file_name: name,
                 replace_directory_id: replace_directory_id.as_deref(),
-                verification: Some(SyncUploadVerification {
-                    existing_id,
-                    hash_missing,
-                }),
+                scan: Some(self.cloud),
+                rel_path,
+                hash_missing: Some(hash_missing),
             },
             pb,
         )
@@ -330,19 +288,19 @@ impl VerifiedSync<'_> {
         // Recheck every parent and file before submitting any trash request.
         for (parent, files) in by_parent {
             let path = files[0].0;
-            let expected_id = self
-                .directory_ids
-                .get(parent)
-                .map(String::as_str)
-                .or_else(|| self.cloud.directory_id(parent))
-                .ok_or_else(|| (path, anyhow!("删除前复核缺少云端目录 ID")))?;
             let remote = cloud_child_path(self.cloud_root, parent);
-            confirm_cloud_directory(self.config, &remote, expected_id)
+            let expected_id = self
+                .remote
+                .ensure_directory(&remote)
                 .await
                 .map_err(|error| (path, error))?;
-            let current = self
-                .listing()
-                .list_files(expected_id)
+            self.remote
+                .confirm_directory(&remote, &expected_id)
+                .await
+                .map_err(|error| (path, error))?;
+            let listing = self.remote.listing().await.map_err(|error| (path, error))?;
+            let current = listing
+                .list_files(&expected_id)
                 .await
                 .map_err(|error| (path, error.into()))?;
             let mut by_name = BTreeMap::new();
@@ -363,22 +321,11 @@ impl VerifiedSync<'_> {
             }
         }
 
-        for (path, id) in delete_ids {
-            // Another client can move an object after the grouped preflight.
-            let remote = cloud_child_path(self.cloud_root, path);
-            let current = with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-                super::directory_service::resolve(self.config, &remote)
-                    .await
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|error| (path, error))?;
-            if current.folder || current.id != id {
-                return Err((path, anyhow!("提交删除前发现云端文件已变更")));
-            }
-            super::delete_service::trash_personal_file_id(self.config, &self.cloud.host, id)
+        for (path, _) in delete_ids {
+            self.remote
+                .delete_extra(path)
                 .await
-                .map_err(|error: ClientError| (path, error.into()))?;
+                .map_err(|error| (path, error))?;
             report.deleted += 1;
         }
         Ok(())

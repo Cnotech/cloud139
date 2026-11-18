@@ -224,7 +224,12 @@ async fn test_client_login_with_cloud_id() {
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
 
-    let result = Client::login(token, "family".to_string(), Some("cloud123".to_string())).await;
+    let result = Client::login(
+        token,
+        "personal_new".to_string(),
+        Some("cloud123".to_string()),
+    )
+    .await;
     assert!(result.is_ok());
 
     let client = result.unwrap();

@@ -312,7 +312,7 @@ async fn startup_persists_refreshed_credentials_and_skips_next_refresh() {
         let path = dir.path().join("config.toml");
         let mut config = expiring_config("account-a");
         config.token_expire_time = expiry;
-        config.storage_type = "family".into();
+        config.storage_type = "personal_new".into();
         config.cloud_id = Some("family-id".into());
         config.root_folder_id = Some("root-id".into());
         config.use_large_thumbnail = true;

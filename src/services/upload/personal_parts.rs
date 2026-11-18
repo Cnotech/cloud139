@@ -106,44 +106,56 @@ pub async fn upload_single_part(
     buffer: &[u8],
     pb: Option<indicatif::ProgressBar>,
 ) -> Result<(), ClientError> {
+    let client = crate::client::api::HttpClientWrapper::new();
+    upload_part(
+        &client.client,
+        upload_urls,
+        part_number,
+        std::io::Cursor::new(buffer.to_vec()),
+        buffer.len() as u64,
+        pb,
+    )
+    .await
+}
+
+pub(super) async fn upload_part(
+    client: &reqwest::Client,
+    upload_urls: &std::collections::HashMap<i32, String>,
+    part_number: i32,
+    reader: impl tokio::io::AsyncRead + Send + Unpin + 'static,
+    size: u64,
+    pb: Option<indicatif::ProgressBar>,
+) -> Result<(), ClientError> {
+    use tokio::io::AsyncReadExt;
+
     let upload_url = upload_urls
         .get(&part_number)
-        .cloned()
-        .ok_or_else(|| ClientError::Api(format!("找不到分片 {} 的上传URL", part_number)))?;
-
-    let total_size = buffer.len();
-    const CHUNK_SIZE: usize = 64 * 1024;
-
-    // Bounded channel (capacity=1): producer blocks until hyper consumes the previous
-    // chunk from its send buffer, so pb.inc() fires in step with actual network sends.
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
-    let owned: Vec<u8> = buffer.to_vec();
-
-    tokio::spawn(async move {
-        for chunk in owned.chunks(CHUNK_SIZE) {
-            let n = chunk.len();
-            if tx.send(Ok(chunk.to_vec())).await.is_err() {
-                break;
+        .ok_or_else(|| ClientError::Api(format!("找不到分片 {part_number} 的上传 URL")))?;
+    let stream = futures_util::stream::try_unfold(
+        (reader, size, pb),
+        |(mut reader, remaining, pb)| async move {
+            if remaining == 0 {
+                return Ok::<_, std::io::Error>(None);
             }
-            if let Some(ref p) = pb {
-                p.inc(n as u64);
+            let mut chunk = vec![0; remaining.min(64 * 1024) as usize];
+            reader.read_exact(&mut chunk).await?;
+            let read = chunk.len() as u64;
+            if let Some(pb) = &pb {
+                pb.inc(read);
             }
-        }
-    });
-
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-    let body = reqwest::Body::wrap_stream(stream);
-
-    let resp = reqwest::Client::new()
-        .put(&upload_url)
+            Ok(Some((chunk, (reader, remaining - read, pb))))
+        },
+    );
+    let resp = client
+        .put(upload_url)
         .header("Content-Type", "application/octet-stream")
-        .header("Content-Length", total_size.to_string())
+        .header("Content-Length", size)
         .header("Origin", "https://yun.139.com")
         .header("Referer", "https://yun.139.com/")
-        .body(body)
+        .body(reqwest::Body::wrap_stream(stream))
         .send()
         .await
-        .map_err(|e| ClientError::Api(format!("分片 {} 上传失败: {}", part_number, e)))?;
+        .map_err(reqwest::Error::without_url)?;
 
     let status = resp.status().as_u16();
     if status != 200 {

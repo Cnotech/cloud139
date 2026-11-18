@@ -1,23 +1,22 @@
 use crate::commands::CommandExit;
-use crate::domain::StorageType;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
-use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
+use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, format_action_line, parse_sync_endpoint,
-    resolve_sync_direction, scan_cloud_download_source, scan_cloud_upload_target, scan_local,
+    resolve_sync_direction, scan_cloud_download_source, scan_cloud_upload_target,
+    scan_local_target, scan_upload_source,
 };
 use crate::services::sync_verify::execute_verified_sync;
 use crate::step;
 use clap::Parser;
 use std::io::IsTerminal;
-use std::sync::Arc;
 
 fn parse_jobs(value: &str) -> Result<usize, String> {
     let jobs = value
         .parse::<usize>()
         .map_err(|_| "jobs must be a positive integer".to_string())?;
-    if jobs == 0 {
-        return Err("jobs must be greater than 0".to_string());
+    if !(1..=MAX_JOBS).contains(&jobs) {
+        return Err(format!("并发数量必须介于 1 和 {MAX_JOBS} 之间"));
     }
     Ok(jobs)
 }
@@ -66,12 +65,10 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         return Err(CommandExit::new(2, "--verify 只允许 -j 1").into());
     }
 
-    let mut config =
-        crate::config::Config::load().map_err(|err| CommandExit::new(2, err.to_string()))?;
-
-    if config.storage_type() != StorageType::PersonalNew {
-        return Err(CommandExit::new(2, "sync 当前仅支持个人云").into());
-    }
+    let mut config = crate::config::Config::load_personal().map_err(|error| match error {
+        crate::client::ClientError::UnsupportedStorage => anyhow::Error::from(error),
+        _ => CommandExit::new(2, error.to_string()).into(),
+    })?;
 
     let src = parse_sync_endpoint(&args.src);
     let dest = parse_sync_endpoint(&args.dest);
@@ -94,13 +91,13 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         local_root,
         cloud_root,
     };
-    let (actions, cloud) = match (direction, src, dest) {
+    let (actions, cloud, local) = match (direction, src, dest) {
         (
             SyncDirection::LocalToCloud,
             SyncEndpoint::Local(local_root),
             SyncEndpoint::Cloud(cloud_root),
         ) => {
-            let source = scan_local(&local_root, scan_options.clone())
+            let (local_root, source) = scan_upload_source(local_root, &scan_options, args.delete)
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             let objects = source
                 .iter()
@@ -117,6 +114,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             config.personal_cloud_host = Some(target.host.clone());
+            let cloud_root = target.root.clone();
             step!("正在计算同步差异...");
             let actions = target.compute_upload_diff(
                 &source,
@@ -154,7 +152,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
                 }
                 return finish(args.dry_run, report.failures.len());
             }
-            (actions, target)
+            (actions, Some(target), None)
         }
         (
             SyncDirection::CloudToLocal,
@@ -165,22 +163,22 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             config.personal_cloud_host = Some(source.host.clone());
-            let target = if local_root.exists() {
-                scan_local(&local_root, scan_options)
-                    .map_err(|err| CommandExit::new(2, err.to_string()))?
-            } else {
-                Vec::new()
-            };
+            let target = scan_local_target(&local_root, &scan_options)
+                .map_err(|err| CommandExit::new(2, err.to_string()))?;
+            target
+                .validate_destinations(&source, &local_root)
+                .map_err(|err| CommandExit::new(2, err.to_string()))?;
             step!("正在计算同步差异...");
             let actions =
                 source.compute_download_diff(&target, diff_options(local_root, cloud_root));
             print_plan(&actions, args.dry_run);
-            (actions, source)
+            (actions, Some(source), Some(target))
         }
         _ => return Err(CommandExit::new(2, "无效的同步方向").into()),
     };
 
-    let summary = execute_scanned_sync(&config, actions, execution, Some(Arc::new(cloud))).await?;
+    let summary =
+        execute_scanned_sync(&config, actions, execution, cloud.as_ref(), local.as_ref()).await?;
     crate::presentation::sync_renderer::print_summary_with_mode(&summary, args.dry_run);
     finish(args.dry_run, summary.failed)
 }

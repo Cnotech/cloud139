@@ -27,6 +27,8 @@ struct State {
     sync_mutations: bool,
     staged_id_mismatch: bool,
     omit_staged_id: bool,
+    omit_upload_receipt: bool,
+    replace_after_scan: Option<(&'static str, &'static str)>,
     staged_visibility_delay: usize,
     fail_batch: bool,
     fail_trash_item: bool,
@@ -100,6 +102,14 @@ impl Server {
                                         })
                                     });
                                 }
+                                if let Some((previous, replacement)) =
+                                    state.replace_after_scan.take()
+                                    && let Some(children) = state.children.get_mut(parent)
+                                    && let Some(item) =
+                                        children.iter_mut().find(|item| item["fileId"] == previous)
+                                {
+                                    item["fileId"] = json!(replacement);
+                                }
                                 let end = (offset + state.page_size).min(items.len());
                                 let next = if state.cycle {
                                     "1".into()
@@ -148,11 +158,11 @@ impl Server {
                                         directory["name"] = json!("moved");
                                     }
                                     // Fast-upload mock acknowledges by hash without a data transfer.
-                                    if state.sync_mutations {
+                                    if state.omit_upload_receipt {
+                                        json!({"success": true})
+                                    } else {
                                         let file_id = (!state.omit_staged_id).then_some(&id);
                                         json!({"success":true,"data":{"fileId":file_id,"fileName":body["name"],"exist":true,"partInfos":[]}})
-                                    } else {
-                                        json!({"success":true})
                                     }
                                 }
                             }
@@ -301,13 +311,14 @@ impl Server {
         let source = root.join("source");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(source.join("movie.bin"), b"new content").unwrap();
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+        let mut command = self.cli(root);
+        command.arg("sync").arg(&source).arg(destination);
         command
-            .arg("--config")
-            .arg(self.save_profile(root))
-            .arg("sync")
-            .arg(&source)
-            .arg(destination);
+    }
+
+    fn cli(&self, root: &std::path::Path) -> std::process::Command {
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+        command.arg("--config").arg(self.save_profile(root));
         isolate_cli(&mut command, root);
         command
     }
@@ -844,7 +855,7 @@ fn rejected_group_login_preserves_existing_profile() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("root_folder_id"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("未实现：当前仅支持个人云"));
     assert_eq!(std::fs::read(&config).unwrap(), original);
 }
 
@@ -925,12 +936,9 @@ fn normalizes_root_aliases_and_checks_names() {
 }
 
 #[tokio::test]
-async fn root_mutations_are_rejected_for_every_backend_without_network() {
-    for storage in ["personal_new", "family", "group"] {
-        let config = Config {
-            storage_type: storage.into(),
-            ..Default::default()
-        };
+async fn root_mutations_are_rejected_for_personal_storage_without_network() {
+    {
+        let config = Config::default();
         for root in ["/", "//./", "/a/..", ""] {
             assert!(
                 services::delete_service::delete_recursive(&config, root, false, true)
@@ -1283,7 +1291,7 @@ fn pc_sync_delete_retry_preserves_recovery_copies_and_their_ancestors() {
     assert!(String::from_utf8_lossy(&retry.stderr).contains("04010319"));
     let state = server.state.lock().unwrap();
     let mut expected = recovery_items;
-    expected.push(folder("parent", "orphan"));
+    expected.extend([folder("parent", "orphan"), file("extra", "extra.txt")]);
     assert_eq!(state.children["/"], expected);
     assert_eq!(state.children["old"], vec![file("keep", "keep.txt")]);
     assert_eq!(
@@ -1296,7 +1304,7 @@ fn pc_sync_delete_retry_preserves_recovery_copies_and_their_ancestors() {
         .filter(|(path, _)| path == "/recyclebin/batchTrash")
         .map(|(_, body)| &body["fileIds"])
         .collect();
-    assert_eq!(trash, vec![&json!(["extra"])]);
+    assert!(trash.is_empty());
 }
 
 #[test]
@@ -1325,7 +1333,7 @@ fn pc_sync_refuses_to_replace_cloud_directories_outside_the_scope() {
                 String::from_utf8_lossy(&output.stderr)
             );
             assert_eq!(output.status.code(), Some(i32::from(!dry_run)), "{text}");
-            assert!(text.contains("云端同名目录未完整纳入同步范围"), "{text}");
+            assert!(text.contains("目标同名目录未完整纳入同步范围"), "{text}");
             assert!(server.mutations().is_empty(), "{text}");
         }
     }
@@ -1352,7 +1360,7 @@ fn pc_sync_refuses_staged_files_without_a_matching_creation_id() {
         assert_eq!(output.status.code(), Some(1), "{text}");
         assert!(
             text.contains(if missing {
-                "未返回临时文件 ID"
+                "未返回新文件 ID"
             } else {
                 "身份"
             }),
@@ -1503,7 +1511,7 @@ async fn recursive_upload_retries_the_failed_page_without_replaying_writes() {
     .unwrap_err();
     let message = error.to_string();
     assert!(message.contains("上传 z.txt 失败"), "{message}");
-    assert!(message.contains("云端已有同名条目"), "{message}");
+    assert!(message.contains("云端同名目录阻止上传文件"), "{message}");
 
     let state = server.state.lock().unwrap();
     let mut target_cursors = Vec::new();
@@ -1805,5 +1813,282 @@ fn cli_delete_requires_yes_and_rejects_permanent_without_credentials() {
         );
         assert!(text.contains(expected), "{text}");
         assert!(!text.contains("已永久删除"));
+    }
+}
+
+#[test]
+fn sync_preserves_excluded_local_subtree_and_skips_cleanup_on_conflict() {
+    let server = Server::new();
+    server.set("/", vec![file("replacement", "nested")]);
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    std::fs::create_dir_all(destination.join("nested")).unwrap();
+    std::fs::write(destination.join("nested/unique.keep"), b"keep").unwrap();
+    std::fs::write(destination.join("extra"), b"keep on failure").unwrap();
+
+    let output = server
+        .cli(root.path())
+        .args(["sync", "cloud:/"])
+        .arg(&destination)
+        .args(["-r", "--delete", "--exclude", "*.keep"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        std::fs::read(destination.join("nested/unique.keep")).unwrap(),
+        b"keep"
+    );
+    assert_eq!(
+        std::fs::read(destination.join("extra")).unwrap(),
+        b"keep on failure"
+    );
+    assert!(
+        server
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .all(|(path, _)| path == "/file/list")
+    );
+}
+
+#[test]
+fn sync_local_case_alias_is_never_downloaded_then_deleted() {
+    let server = Server::new();
+    server.set("/", vec![file("download", "LOWER.txt")]);
+    let root = tempfile::tempdir().unwrap();
+    let destination = root.path().join("destination");
+    std::fs::create_dir(&destination).unwrap();
+    let original = destination.join("lower.txt");
+    let download = destination.join("LOWER.txt");
+    std::fs::write(&original, b"keep").unwrap();
+    let aliases = download.exists();
+    let output = server
+        .cli(root.path())
+        .args(["sync", "cloud:/"])
+        .arg(&destination)
+        .args(["--delete", "-j", "1"])
+        .output()
+        .unwrap();
+
+    if aliases {
+        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(std::fs::read(&original).unwrap(), b"keep");
+        assert!(
+            server
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .all(|(path, _)| path == "/file/list")
+        );
+    } else {
+        assert!(output.status.success());
+        assert!(!original.exists());
+        assert_eq!(std::fs::read(&download).unwrap(), b"data");
+    }
+}
+
+#[test]
+fn ordinary_sync_refuses_to_delete_a_replacement_file() {
+    let server = Server::new();
+    server.set("/", vec![file("original", "extra")]);
+    server.state.lock().unwrap().replace_after_scan = Some(("original", "different"));
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("empty");
+    std::fs::create_dir(&source).unwrap();
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/", "--delete"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(server.mutations().is_empty());
+    assert_eq!(
+        server.state.lock().unwrap().children["/"][0]["fileId"],
+        "different"
+    );
+}
+
+#[test]
+fn ordinary_sync_only_recycles_parent_after_its_children() {
+    let server = Server::new();
+    server.set("/", vec![folder("parent", "extra-dir")]);
+    server.set("parent", vec![file("child", "extra-file")]);
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("empty");
+    std::fs::create_dir(&source).unwrap();
+    for fail in [true, false] {
+        {
+            let mut state = server.state.lock().unwrap();
+            state.fail_trash_item = fail;
+            state.sync_mutations = true;
+            state.requests.clear();
+        }
+        let output = server
+            .cli(root.path())
+            .arg("sync")
+            .arg(&source)
+            .args(["cloud:/", "-r", "--delete", "-j", "4"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(fail)));
+        let ids: Vec<_> = server
+            .mutations()
+            .into_iter()
+            .map(|(_, body)| body["fileIds"].clone())
+            .collect();
+        assert_eq!(
+            ids,
+            if fail {
+                vec![json!(["child"])]
+            } else {
+                vec![json!(["child"]), json!(["parent"])]
+            }
+        );
+    }
+}
+
+#[test]
+fn cloud_file_is_preserved_when_local_directory_has_the_same_name() {
+    let server = Server::new();
+    server.set("/", vec![file("existing", "nested")]);
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    std::fs::create_dir_all(source.join("nested")).unwrap();
+    std::fs::write(source.join("nested/file"), b"content").unwrap();
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/", "-r"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(server.mutations().is_empty());
+    assert_eq!(
+        server.state.lock().unwrap().children["/"][0]["fileId"],
+        "existing"
+    );
+}
+
+#[test]
+fn verified_sync_rechecks_matches_even_without_delete() {
+    let server = Server::new();
+    server.set(
+        "/",
+        vec![verified_file("original", "movie.bin", b"new content", true)],
+    );
+    server.state.lock().unwrap().replace_after_scan = Some(("original", "different"));
+    let root = tempfile::tempdir().unwrap();
+    let output = server
+        .sync_command(root.path())
+        .args(["--verify", "--json"])
+        .output()
+        .unwrap();
+    let report = verified_report(output, 1);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["failures"][0]["path"], "movie.bin");
+    assert!(server.mutations().is_empty());
+}
+
+#[test]
+fn sync_uploads_single_file_and_rejects_a_prune_of_the_entire_target() {
+    let server = Server::new();
+    server.state.lock().unwrap().sync_mutations = true;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("sample.bin");
+    std::fs::write(&source, b"data").unwrap();
+    let mut command = server.cli(root.path());
+    command.arg("sync").arg(&source).arg("cloud:/");
+    let accepted = command.output().unwrap();
+    assert!(
+        accepted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&accepted.stderr)
+    );
+    assert_eq!(
+        server.state.lock().unwrap().children["/"][0]["name"],
+        "sample.bin"
+    );
+    let refused = command.arg("--delete").output().unwrap();
+    assert_eq!(refused.status.code(), Some(2));
+}
+
+#[test]
+fn upload_refuses_a_success_response_without_a_receipt() {
+    let server = Server::new();
+    server.state.lock().unwrap().omit_upload_receipt = true;
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("sample.bin");
+    std::fs::write(&source, b"data").unwrap();
+    let result = server
+        .cli(root.path())
+        .arg("upload")
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("未返回上传结果"));
+}
+
+#[tokio::test]
+async fn ordinary_multipart_upload_preserves_server_selected_name_and_never_trashes() {
+    use httpmock::prelude::*;
+
+    for force in [true, false] {
+        let server = MockServer::start();
+        let config = Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Config::default()
+        };
+        let list = server.mock(|when, then| {
+            when.method(POST).path("/file/list");
+            let items = if force {
+                vec![file("old-id", "report.txt")]
+            } else {
+                // The initially vacant name can become occupied at the creation step.
+                Vec::new()
+            };
+            then.json_body(json!({"success":true,"data":{"items":items}}));
+        });
+        let create = server.mock(|when, then| {
+            when.method(POST).path("/file/create");
+            then.json_body(json!({"success":true, "data":{
+                "fileId":"new-id", "fileName":"report-copy.txt", "uploadId":"transfer",
+                "partInfos":[{"partNumber":1, "uploadUrl":server.url("/part")}]
+            }}));
+        });
+        let part = server.mock(|when, then| {
+            when.method(PUT).path("/part").body("test content");
+            then.status(200);
+        });
+        let finish = server.mock(|when, then| {
+            when.method(POST).path("/file/complete");
+            then.json_body(json!({"success":true}));
+        });
+        let rename = server.mock(|when, then| {
+            when.path("/file/update");
+            then.status(500);
+        });
+        let trash = server.mock(|when, then| {
+            when.path("/recyclebin/batchTrash");
+            then.status(500);
+        });
+        let local = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(local.path(), b"test content").unwrap();
+        services::upload(&config, local.path(), "/", "report.txt", 12, force, None)
+            .await
+            .unwrap();
+        list.assert_calls(1);
+        create.assert_calls(1);
+        part.assert_calls(1);
+        finish.assert_calls(1);
+        rename.assert_calls(0);
+        trash.assert_calls(0);
     }
 }

@@ -159,3 +159,10 @@ fn test_sync_help_delete_mentions_empty_dirs() {
     let help = SyncArgs::command().render_long_help().to_string();
     assert!(help.contains("或空目录"));
 }
+
+#[test]
+fn sync_rejects_jobs_above_the_executor_limit() {
+    use cloud139::commands::sync::SyncArgs;
+    let value = usize::MAX.to_string();
+    assert!(SyncArgs::try_parse_from(["sync", "local", "cloud:/", "--jobs", &value]).is_err());
+}

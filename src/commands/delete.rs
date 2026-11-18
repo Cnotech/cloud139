@@ -31,7 +31,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
         return Err(ClientError::ConfirmationRequired.into());
     }
 
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
 
     debug!("delete: path={}, permanent={}", args.path, args.permanent);
     crate::services::delete_service::delete_recursive(
@@ -42,9 +42,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
     )
     .await?;
 
-    if config.storage_type() == crate::domain::StorageType::PersonalNew {
-        success!("文件或目录已移动到回收站");
-    }
+    success!("文件或目录已移动到回收站");
 
     Ok(())
 }

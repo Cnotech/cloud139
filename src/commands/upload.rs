@@ -17,7 +17,7 @@ pub struct UploadArgs {
 }
 
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load()?;
+    let config = crate::config::Config::load_personal()?;
 
     let local_path = std::path::Path::new(&args.local_path);
     if !local_path.exists() {
