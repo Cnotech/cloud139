@@ -1,19 +1,10 @@
 use crate::client::api;
 use crate::config::Config;
-use crate::{debug, info, success};
+use crate::{info, success};
 
-pub async fn login(
-    token: &str,
-    storage_type: &str,
-    cloud_id: Option<&str>,
-    root_folder_id: Option<&str>,
-) -> anyhow::Result<Config> {
-    let token = token.strip_prefix("Basic ").unwrap_or(token);
-    let mut config = crate::client::auth::login(token, storage_type, cloud_id).await?;
+pub async fn login(token: &str) -> anyhow::Result<Config> {
+    let mut config = crate::client::auth::parse_login_token(token)?;
     let path = Config::save_path();
-    if root_folder_id.is_some() {
-        return Err(crate::client::ClientError::UnsupportedStorage.into());
-    }
     info!("正在校验 Token 可用性 (ls /) ...");
     config.personal_cloud_host = Some(
         api::HttpClientWrapper::new()
@@ -33,7 +24,6 @@ pub async fn login(
     config.save_to(&path)?;
 
     success!("Token 验证成功!");
-    debug!("已验证存储类型 storage_type={}", storage_type);
     success!("配置文件已保存到: {}", path.display());
 
     Ok(config)

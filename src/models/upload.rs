@@ -71,12 +71,3 @@ pub struct UploadRequest {
     #[serde(rename = "commonAccountInfo")]
     pub common_account_info: Option<CommonAccountInfo>,
 }
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FamilyCreateFolderRequest {
-    #[serde(rename = "catalogName")]
-    pub catalog_name: String,
-    #[serde(rename = "parentCatalogID")]
-    pub parent_catalog_id: String,
-}

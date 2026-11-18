@@ -1,5 +1,4 @@
 //! Shared path validation, directory traversal, and mutation preflight.
-pub use crate::client::api::mutation_succeeded;
 use crate::client::{ClientError, api};
 use crate::config::Config;
 use std::collections::HashSet;

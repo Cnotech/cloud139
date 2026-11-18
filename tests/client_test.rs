@@ -1,5 +1,4 @@
 use cloud139::client::{ClientError, auth};
-use cloud139::domain::StorageType;
 
 #[test]
 fn test_generate_rand_str() {
@@ -82,71 +81,6 @@ fn test_sort_json_nested() {
 }
 
 #[test]
-fn test_storage_type_as_str_personal() {
-    assert_eq!(StorageType::PersonalNew.as_str(), "personal_new");
-}
-
-#[test]
-fn test_storage_type_as_str_family() {
-    assert_eq!(StorageType::Family.as_str(), "family");
-}
-
-#[test]
-fn test_storage_type_as_str_group() {
-    assert_eq!(StorageType::Group.as_str(), "group");
-}
-
-#[test]
-fn test_storage_type_from_str_raw_family() {
-    assert_eq!(StorageType::from_str_raw("family"), StorageType::Family);
-}
-
-#[test]
-fn test_storage_type_from_str_raw_group() {
-    assert_eq!(StorageType::from_str_raw("group"), StorageType::Group);
-}
-
-#[test]
-fn test_storage_type_from_str_raw_default() {
-    assert_eq!(StorageType::from_str_raw("other"), StorageType::PersonalNew);
-    assert_eq!(StorageType::from_str_raw(""), StorageType::PersonalNew);
-}
-
-#[test]
-fn test_storage_type_svc_type_personal() {
-    assert_eq!(StorageType::PersonalNew.svc_type(), "1");
-}
-
-#[test]
-fn test_storage_type_svc_type_family() {
-    assert_eq!(StorageType::Family.svc_type(), "2");
-}
-
-#[test]
-fn test_storage_type_svc_type_group() {
-    assert_eq!(StorageType::Group.svc_type(), "3");
-}
-
-#[test]
-fn test_storage_type_default() {
-    let st: StorageType = Default::default();
-    assert_eq!(st, StorageType::PersonalNew);
-}
-
-#[test]
-fn test_storage_type_serialize() {
-    let st = StorageType::PersonalNew;
-    let json = serde_json::to_string(&st).unwrap();
-    assert_eq!(json, "\"personalnew\"");
-}
-
-#[test]
-fn test_storage_type_deserialize() {
-    let st: StorageType = serde_json::from_str("\"family\"").unwrap();
-    assert_eq!(st, StorageType::Family);
-}
-
-#[test]
 fn test_client_error_display() {
     let err = ClientError::NotLoggedIn;
     assert_eq!(err.to_string(), "未登录");
@@ -158,26 +92,12 @@ fn test_client_error_display() {
     assert_eq!(err.to_string(), "其他错误: test error");
 }
 
-#[tokio::test]
-async fn test_login_invalid_format() {
+#[test]
+fn test_login_invalid_format() {
     let token =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "invalid_format");
-    let result = auth::login(&token, "personal", None).await;
+    let result = auth::parse_login_token(&token);
     assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_login_accepts_legacy_personal_storage() {
-    let expire_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
-    let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
-    let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
-
-    let result = auth::login(&token, "personal", None).await;
-    assert!(result.is_ok());
-
-    let config = result.unwrap();
-    assert_eq!(config.account, "13800138000");
-    assert_eq!(config.storage_type, "personal");
 }
 
 #[test]
@@ -205,23 +125,4 @@ fn test_client_error_from_json() {
 fn test_client_error_other_new() {
     let err = ClientError::Other("custom error".to_string());
     assert_eq!(err.to_string(), "其他错误: custom error");
-}
-
-#[test]
-fn test_storage_type_serialize_new() {
-    let st = StorageType::PersonalNew;
-    let json = serde_json::to_string(&st).unwrap();
-    assert!(json.contains("personalnew"));
-}
-
-#[test]
-fn test_storage_type_deserialize_new() {
-    let st: StorageType = serde_json::from_str("\"family\"").unwrap();
-    assert_eq!(st, StorageType::Family);
-}
-
-#[test]
-fn test_storage_type_default_new() {
-    let st = StorageType::default();
-    assert_eq!(st, StorageType::PersonalNew);
 }

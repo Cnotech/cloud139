@@ -30,7 +30,7 @@ src/
 │   └── services/         # 业务服务实现
 │       ├── login / list / download / upload / delete
 │       ├── mkdir / mv / cp / rename / sync
-│       └── upload/       # 上传子模块（按存储类型拆分）
+│       └── upload/       # 个人云上传流程
 ├── domain/               # 领域层：核心业务模型
 ├── presentation/         # 展示层：输出格式化、进度条
 ├── commands/             # 命令层：命令执行逻辑
@@ -63,8 +63,7 @@ clap, reqwest, tokio, serde, thiserror 等
 
 ## 开发注意事项
 
-- 139 云盘 API 区分三种存储类型: PersonalNew, Family, Group
-- 某些操作在不同存储类型下行为不同
+- 当前 CLI 仅支持个人云，配置使用 `personal_new`
 - 遵循分层架构，避免跨层依赖
 
 详细注意事项见 [docs/notes.md](docs/notes.md)

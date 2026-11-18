@@ -29,7 +29,7 @@ async fn test_get_personal_cloud_host_with_empty_account() {
 
 #[tokio::test]
 async fn personal_post_sends_expected_signed_headers() {
-    use cloud139::{client::api::headers::PC_CLIENT_INFO, domain::StorageType};
+    use cloud139::client::api::headers::PC_CLIENT_INFO;
     use httpmock::prelude::*;
     use serde_json::{Value, json};
 
@@ -50,7 +50,7 @@ async fn personal_post_sends_expected_signed_headers() {
     let body = json!({"key":"中文"});
     let url = server.url("/post");
     let response: Value = HttpClientWrapper::new()
-        .personal_api_request(&config, &url, &body, StorageType::PersonalNew)
+        .personal_api_request(&config, &url, &body)
         .await
         .unwrap();
     assert_eq!(response, json!({"success": true}));

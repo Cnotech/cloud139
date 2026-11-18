@@ -7,5 +7,3 @@ pub mod models;
 pub mod presentation;
 pub mod services;
 pub mod utils;
-
-pub use config::Config as AppConfig;

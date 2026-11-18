@@ -27,18 +27,3 @@ pub struct RoutePolicy {
     #[serde(rename = "httpsUrl", default)]
     pub https_url: Option<String>,
 }
-
-#[derive(Debug, Deserialize)]
-#[serde(rename = "root")]
-pub struct RefreshTokenResp {
-    #[serde(rename = "return", default)]
-    pub return_code: Option<String>,
-    #[serde(default)]
-    pub token: Option<String>,
-    #[serde(default)]
-    pub expiretime: Option<i32>,
-    #[serde(rename = "accessToken", default)]
-    pub access_token: Option<String>,
-    #[serde(default)]
-    pub desc: Option<String>,
-}

@@ -3,8 +3,9 @@
 mod utils_test_extended {
     use cloud139::utils::crypto::{
         aes_cbc_decrypt, aes_cbc_encrypt, calc_file_hash, calc_file_sha256, calc_sign,
-        encode_uri_component, generate_random_string, md5_hash, pkcs7_pad, sha1_hash,
+        encode_uri_component, md5_hash, pkcs7_pad, sha1_hash,
     };
+    use cloud139::utils::rand::generate_rand_str;
     use cloud139::utils::width::{pad_with_width, str_width, truncate_with_width};
     use std::fs;
     use tempfile::TempDir;
@@ -198,19 +199,19 @@ mod utils_test_extended {
 
     #[test]
     fn test_generate_random_string_length() {
-        let result = generate_random_string(16);
+        let result = generate_rand_str(16);
         assert_eq!(result.len(), 16);
     }
 
     #[test]
     fn test_generate_random_string_zero() {
-        let result = generate_random_string(0);
+        let result = generate_rand_str(0);
         assert!(result.is_empty());
     }
 
     #[test]
     fn test_generate_random_string_alphanumeric() {
-        let result = generate_random_string(100);
+        let result = generate_rand_str(100);
         for c in result.chars() {
             assert!(c.is_ascii_alphanumeric());
         }
@@ -218,7 +219,7 @@ mod utils_test_extended {
 
     #[test]
     fn test_generate_random_string_randomness() {
-        let results: Vec<String> = (0..100).map(|_| generate_random_string(8)).collect();
+        let results: Vec<String> = (0..100).map(|_| generate_rand_str(8)).collect();
         let unique: std::collections::HashSet<_> = results.into_iter().collect();
         assert!(unique.len() > 90);
     }

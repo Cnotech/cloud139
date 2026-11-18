@@ -299,15 +299,10 @@ async fn refreshed_authorization_can_be_parsed_by_login() {
     let new_token = "new-id|1|RCS|1900000000000|new-signature";
     let original_authorization =
         base64::engine::general_purpose::STANDARD.encode(format!("pc:13800138000:{old_token}"));
-    let mut config = auth::login(&original_authorization, "personal_new", Some("cloud-id"))
-        .await
-        .unwrap();
+    let mut config = auth::parse_login_token(&original_authorization).unwrap();
     config.use_large_thumbnail = true;
     config.personal_cloud_host = Some("https://example.invalid".into());
-    config.root_folder_id = Some("root-id".into());
-    config.user_domain_id = Some("domain-id".into());
     config.custom_upload_part_size = 8 * 1024 * 1024;
-    config.report_real_size = false;
     let original = toml::to_string(&config).unwrap();
 
     let server = MockServer::start();
@@ -321,9 +316,7 @@ async fn refreshed_authorization_can_be_parsed_by_login() {
         .await
         .unwrap();
     mock.assert_calls(1);
-    let parsed = auth::login(&refreshed.authorization, "personal_new", Some("cloud-id"))
-        .await
-        .unwrap();
+    let parsed = auth::parse_login_token(&refreshed.authorization).unwrap();
     assert_eq!(parsed.account, config.account);
     assert_eq!(parsed.refresh_token.as_deref(), Some(new_token));
     assert_eq!(parsed.token_expire_time, Some(1_900_000_000_000));

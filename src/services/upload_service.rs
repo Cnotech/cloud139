@@ -6,8 +6,6 @@ use std::path::Path;
 
 use super::directory_service as dirs;
 
-pub use crate::client::api::upload::get_part_size;
-
 /// Re-read metadata before hashing or any destructive sync operation.
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     dirs::safe_local(path)?;

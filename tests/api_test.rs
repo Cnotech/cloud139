@@ -58,50 +58,6 @@ fn test_download_url_data_defaults() {
 }
 
 #[test]
-fn test_query_content_list_data_defaults() {
-    let json = r#"{
-        "result": {"resultCode": "0"},
-        "path": "/",
-        "cloudContentList": [],
-        "cloudCatalogList": [],
-        "totalCount": 0
-    }"#;
-    let data: QueryContentListData = serde_json::from_str(json).unwrap();
-    assert_eq!(data.path, "/");
-    assert_eq!(data.total_count, 0);
-}
-
-#[test]
-fn test_get_group_content_result_defaults() {
-    let json = r#"{
-        "parentCatalogID": "0",
-        "catalogList": [],
-        "contentList": [],
-        "nodeCount": 0,
-        "ctlgCnt": 0,
-        "contCnt": 0
-    }"#;
-    let result: GetGroupContentResult = serde_json::from_str(json).unwrap();
-    assert_eq!(result.parent_catalog_id, "0");
-    assert_eq!(result.node_count, 0);
-}
-
-#[test]
-fn test_group_content_with_digest() {
-    let json = r#"{
-        "contentID": "123",
-        "contentName": "test.txt",
-        "contentSize": 1024,
-        "createTime": "2024-01-01",
-        "updateTime": "2024-01-02",
-        "thumbnailURL": "http://example.com/thumb.jpg",
-        "digest": "abc123"
-    }"#;
-    let content: GroupContent = serde_json::from_str(json).unwrap();
-    assert_eq!(content.digest, Some("abc123".to_string()));
-}
-
-#[test]
 fn test_route_policy_full_deserialize() {
     let json = r#"{
         "siteID": "site1",
@@ -114,15 +70,6 @@ fn test_route_policy_full_deserialize() {
     assert_eq!(policy.site_id, Some("site1".to_string()));
     assert_eq!(policy.mod_name, Some("personal".to_string()));
     assert_eq!(policy.https_url, Some("https://example.com".to_string()));
-}
-
-#[test]
-fn test_refresh_token_resp_with_desc() {
-    let xml = r#"<root><return>1</return><token></token><expiretime>3600</expiretime><desc>error</desc></root>"#;
-    let resp: RefreshTokenResp = serde_xml_rs::from_str(xml).unwrap();
-    assert_eq!(resp.return_code, Some("1".to_string()));
-    assert_eq!(resp.expiretime, Some(3600));
-    assert_eq!(resp.desc, Some("error".to_string()));
 }
 
 #[test]
@@ -155,80 +102,6 @@ fn test_common_account_info_default() {
     let json = serde_json::to_string(&info).unwrap();
     assert!(json.contains("\"account\":\"\""));
     assert!(json.contains("\"accountType\":0"));
-}
-
-#[test]
-fn test_list_request_with_none_options() {
-    let req = ListRequest {
-        parent_file_id: "parent123".to_string(),
-        page_num: 1,
-        page_size: 100,
-        order_by: None,
-        descending: None,
-    };
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("\"parentFileId\":\"parent123\""));
-}
-
-#[test]
-fn test_page_info_serialize() {
-    let info = PageInfo {
-        page_num: 1,
-        page_size: 50,
-    };
-    let json = serde_json::to_string(&info).unwrap();
-    assert!(json.contains("\"pageNum\":1"));
-    assert!(json.contains("\"pageSize\":50"));
-}
-
-#[test]
-fn test_family_create_folder_request_serialize() {
-    let req = FamilyCreateFolderRequest {
-        catalog_name: "new_folder".to_string(),
-        parent_catalog_id: "parent123".to_string(),
-    };
-    let json = serde_json::to_string(&req).unwrap();
-    assert!(json.contains("\"catalogName\":\"new_folder\""));
-    assert!(json.contains("\"parentCatalogID\":\"parent123\""));
-}
-
-#[test]
-fn test_cloud_content_with_optional_fields() {
-    let json = r#"{
-        "contentID": "123",
-        "contentName": "test.txt",
-        "contentSize": 1024,
-        "createTime": "2024-01-01",
-        "lastUpdateTime": "2024-01-02"
-    }"#;
-    let content: CloudContent = serde_json::from_str(json).unwrap();
-    assert_eq!(content.thumbnail_url, None);
-}
-
-#[test]
-fn test_cloud_catalog_with_all_fields() {
-    let json = r#"{
-        "catalogID": "123",
-        "catalogName": "folder",
-        "createTime": "2024-01-01",
-        "lastUpdateTime": "2024-01-02"
-    }"#;
-    let catalog: CloudCatalog = serde_json::from_str(json).unwrap();
-    assert_eq!(catalog.catalog_id, "123");
-    assert_eq!(catalog.catalog_name, "folder");
-}
-
-#[test]
-fn test_group_catalog_defaults() {
-    let json = r#"{
-        "catalogID": "123",
-        "catalogName": "folder",
-        "createTime": "2024-01-01",
-        "updateTime": "2024-01-02",
-        "path": "/folder"
-    }"#;
-    let catalog: GroupCatalog = serde_json::from_str(json).unwrap();
-    assert_eq!(catalog.path, "/folder");
 }
 
 #[test]

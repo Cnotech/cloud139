@@ -1,7 +1,5 @@
 use crate::client::{ClientError, api::HttpClientWrapper};
 
-pub use crate::client::api::upload::get_upload_urls;
-
 pub(super) async fn upload_part(
     client: &HttpClientWrapper,
     upload_urls: &std::collections::HashMap<i32, String>,

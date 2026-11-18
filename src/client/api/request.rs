@@ -1,4 +1,4 @@
-use super::headers::{build_route_headers, build_signed_headers};
+use super::headers::{build_personal_headers, build_route_headers};
 use crate::client::ClientError;
 use crate::debug;
 use crate::utils::generate_rand_str;
@@ -64,7 +64,7 @@ fn build_signed_post(
     let sign = crate::utils::crypto::calc_sign(&payload, &ts, &nonce);
     let mut headers = match endpoint {
         SignedEndpoint::Route => build_route_headers(authorization, &ts, &nonce, &sign),
-        SignedEndpoint::Personal => build_signed_headers(authorization, &ts, &nonce, &sign, "1"),
+        SignedEndpoint::Personal => build_personal_headers(authorization, &ts, &nonce, &sign),
     }?;
     headers.entry(reqwest::header::CONTENT_TYPE).or_insert(
         reqwest::header::HeaderValue::from_static("application/json"),

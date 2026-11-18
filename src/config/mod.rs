@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
 
-use crate::domain::StorageType;
-
 mod lock;
 use lock::ConfigLock;
 
@@ -68,13 +66,9 @@ pub enum ConfigError {
 pub struct Config {
     pub authorization: String,
     pub account: String,
-    #[serde(default)]
     pub storage_type: String,
-    pub cloud_id: Option<String>,
     #[serde(default)]
     pub custom_upload_part_size: i64,
-    #[serde(default = "default_true")]
-    pub report_real_size: bool,
     #[serde(default)]
     pub use_large_thumbnail: bool,
     #[serde(default)]
@@ -83,31 +77,21 @@ pub struct Config {
     pub refresh_token: Option<String>,
     #[serde(default)]
     pub token_expire_time: Option<i64>,
-    #[serde(default)]
-    pub root_folder_id: Option<String>,
-    #[serde(default)]
-    pub user_domain_id: Option<String>,
 }
 
-fn default_true() -> bool {
-    true
-}
+const PERSONAL_STORAGE_TYPE: &str = "personal_new";
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             authorization: String::new(),
             account: String::new(),
-            storage_type: String::new(),
-            cloud_id: None,
+            storage_type: PERSONAL_STORAGE_TYPE.to_owned(),
             custom_upload_part_size: 0,
-            report_real_size: default_true(),
             use_large_thumbnail: false,
             personal_cloud_host: None,
             refresh_token: None,
             token_expire_time: None,
-            root_folder_id: None,
-            user_domain_id: None,
         }
     }
 }
@@ -219,19 +203,14 @@ impl Config {
     }
 
     fn same_account(&self, other: &Config) -> bool {
-        self.account == other.account
-            && self.storage_type == other.storage_type
-            && self.cloud_id == other.cloud_id
+        self.account == other.account && self.storage_type == other.storage_type
     }
 
     pub fn require_personal(&self) -> Result<(), crate::client::ClientError> {
-        Self::validate_storage_type(&self.storage_type)
-    }
-
-    pub(crate) fn validate_storage_type(value: &str) -> Result<(), crate::client::ClientError> {
-        match value {
-            "" | "personal" | "personal_new" => Ok(()),
-            _ => Err(crate::client::ClientError::UnsupportedStorage),
+        if self.storage_type == PERSONAL_STORAGE_TYPE {
+            Ok(())
+        } else {
+            Err(crate::client::ClientError::UnsupportedStorage)
         }
     }
 
@@ -239,10 +218,6 @@ impl Config {
         let config = Self::load()?;
         config.require_personal()?;
         Ok(config)
-    }
-
-    pub fn storage_type(&self) -> StorageType {
-        StorageType::from_str_raw(&self.storage_type)
     }
 
     /// 下一次命令启动时是否需要续期（唯一判断）。

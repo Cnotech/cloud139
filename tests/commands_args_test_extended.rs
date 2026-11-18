@@ -55,12 +55,6 @@ mod commands_args_test_extended {
     }
 
     #[test]
-    fn test_delete_args_permanent() {
-        let args = DeleteArgs::parse_from(&["delete", "file.txt", "--permanent"]);
-        assert!(args.permanent);
-    }
-
-    #[test]
     fn test_mv_args() {
         let args = MvArgs::parse_from(&["mv", "source.txt", "dest.txt"]);
         assert_eq!(args.source, vec!["source.txt"]);

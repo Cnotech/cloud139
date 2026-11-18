@@ -4,46 +4,33 @@ use cloud139::{
         auth,
     },
     config::Config,
-    domain::StorageType,
 };
-use headers::{CLIENT_INFO, DEVICE_INFO, PC_CLIENT_INFO};
+use headers::{DEVICE_INFO, PC_CLIENT_INFO};
 use httpmock::prelude::*;
 use serde_json::json;
 
 #[test]
-fn pc_identity_is_personal_only_and_keeps_auth_and_legacy_protocol_fields() {
-    for (svc, expected) in [
-        ("1", PC_CLIENT_INFO),
-        ("2", CLIENT_INFO),
-        ("3", CLIENT_INFO),
-    ] {
-        let h = headers::build_signed_headers(
-            "existing-token",
-            "timestamp",
-            "random",
-            "signature",
-            svc,
-        )
-        .unwrap();
-        assert_eq!(h["x-yun-client-info"], expected);
-        assert_eq!(h["Authorization"], "Basic existing-token");
-        assert_eq!(h["mcloud-sign"], "timestamp,random,signature");
-        assert_eq!(h["x-DeviceInfo"], DEVICE_INFO);
-        assert_eq!(h["Caller"], "web");
-    }
-    let route =
-        headers::build_route_headers("existing-token", "timestamp", "random", "signature").unwrap();
-    assert!(!route.contains_key("x-yun-client-info"));
-    assert_eq!(route["x-DeviceInfo"], DEVICE_INFO);
-    let group = headers::build_group_signed_headers(
+fn personal_requests_use_pc_identity_and_route_keeps_its_headers() {
+    let headers =
+        headers::build_personal_headers("existing-token", "timestamp", "random", "signature")
+            .unwrap();
+    assert_eq!(headers["x-yun-client-info"], PC_CLIENT_INFO);
+    assert_eq!(headers["x-yun-svc-type"], "1");
+    assert_eq!(headers["x-svctype"], "1");
+    assert_eq!(headers["authorization"], "Basic existing-token");
+    assert_eq!(headers["mcloud-sign"], "timestamp,random,signature");
+    assert_eq!(headers["x-deviceinfo"], DEVICE_INFO);
+
+    let route = cloud139::client::api::headers::build_route_headers(
         "existing-token",
         "timestamp",
         "random",
         "signature",
-        "3",
     )
     .unwrap();
-    assert!(!group.contains_key("x-yun-client-info"));
+    assert_eq!(route["x-deviceinfo"], DEVICE_INFO);
+    assert_eq!(route["x-svctype"], "1");
+    assert!(!route.contains_key("x-yun-client-info"));
 }
 
 #[tokio::test]
@@ -52,7 +39,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
     let server = MockServer::start();
     let token = base64::engine::general_purpose::STANDARD
         .encode("pc:13800138000:old|1|RCS|9999999999999|signature");
-    let mut config = auth::login(&token, "personal_new", None).await.unwrap();
+    let mut config = auth::parse_login_token(&token).unwrap();
     config.personal_cloud_host = Some(server.base_url());
     let old_list = server.mock(|when, then| {
         when.method(POST)
@@ -101,12 +88,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
             then.json_body(json!({"success":true}));
         });
         let response: serde_json::Value = api::HttpClientWrapper::new()
-            .personal_api_request(
-                &refreshed,
-                &server.url(endpoint),
-                &json!({}),
-                StorageType::PersonalNew,
-            )
+            .personal_api_request(&refreshed, &server.url(endpoint), &json!({}))
             .await
             .unwrap();
         assert_eq!(response["success"], true);
@@ -167,7 +149,7 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
             then.json_body(json!({"success":true,"data":{"partInfos":response}}));
         }));
     }
-    let urls = cloud139::services::upload::personal_parts::get_upload_urls(
+    let urls = api::upload::get_upload_urls(
         &config,
         &server.base_url(),
         "file",

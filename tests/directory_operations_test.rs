@@ -828,35 +828,45 @@ fn hash_bytes(bytes: &[u8]) -> String {
 }
 
 #[test]
-fn rejected_group_login_preserves_existing_profile() {
-    use base64::Engine;
-
+fn removed_options_fail_before_config_changes() {
     let temp = tempfile::tempdir().unwrap();
     let config = temp.path().join("profile.toml");
-    let original = b"root_folder_id = \"root:/existing-group\"\n";
+    let original = br#"account = "test"
+authorization = "test"
+storage_type = "personal_new"
+"#;
     std::fs::write(&config, original).unwrap();
-    let token = base64::engine::general_purpose::STANDARD
-        .encode("pc:13800138000:test|1|RCS|9999999999999|signature");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
-        .current_dir(temp.path())
-        .env("HOME", temp.path())
-        .env("XDG_CONFIG_HOME", temp.path())
-        .arg("--config")
-        .arg(&config)
-        .args([
-            "login",
+
+    for (args, flag) in [
+        (
+            &["login", "--token", "invalid", "--storage-type", "group"][..],
             "--storage-type",
-            "group",
+        ),
+        (
+            &["login", "--token", "invalid", "--cloud-id", "test"],
             "--cloud-id",
-            "different-group",
-            "--token",
-            &token,
-        ])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("未实现：当前仅支持个人云"));
-    assert_eq!(std::fs::read(&config).unwrap(), original);
+        ),
+        (
+            &["login", "--token", "invalid", "--root-folder-id", "test"],
+            "--root-folder-id",
+        ),
+        (&["mkdir", "--force", "/folder"], "--force"),
+        (&["mkdir", "-f", "/folder"], "-f"),
+        (&["rm", "--yes", "--permanent", "/file"], "--permanent"),
+        (&["rm", "--yes", "-p", "/file"], "-p"),
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
+            .current_dir(temp.path())
+            .arg("--config")
+            .arg(&config)
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(flag), "{stderr}");
+        assert_eq!(std::fs::read(&config).unwrap(), original);
+    }
 }
 
 #[tokio::test]
@@ -901,7 +911,7 @@ async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
     let server = Server::new();
     server.set("/", vec![file("one", "report.txt")]);
     server.state.lock().unwrap().fail_trash_item = true;
-    let error = services::delete(&server.config(), "/report.txt", false, false)
+    let error = services::delete(&server.config(), "/report.txt", false)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("删除失败"));
@@ -942,7 +952,7 @@ async fn root_mutations_are_rejected_for_personal_storage_without_network() {
         let config = Config::default();
         for root in ["/", "//./", "/a/..", ""] {
             assert!(
-                services::delete(&config, root, false, true)
+                services::delete(&config, root, true)
                     .await
                     .unwrap_err()
                     .to_string()
@@ -1658,21 +1668,14 @@ async fn directory_delete_needs_recursive_and_permanent_never_trashes() {
     let server = Server::new();
     server.set("/", vec![folder("d", "dir")]);
     assert!(
-        services::delete(&server.config(), "/dir", false, false)
+        services::delete(&server.config(), "/dir", false)
             .await
             .unwrap_err()
             .to_string()
             .contains("-r")
     );
-    assert!(
-        services::delete(&server.config(), "/dir", true, true)
-            .await
-            .unwrap_err()
-            .to_string()
-            .contains("永久删除")
-    );
     assert!(server.mutations().is_empty());
-    services::delete(&server.config(), "/dir", false, true)
+    services::delete(&server.config(), "/dir", true)
         .await
         .unwrap();
     assert_eq!(server.mutations()[0].0, "/recyclebin/batchTrash");
@@ -1777,7 +1780,7 @@ async fn server_root_id_alias_is_rejected_before_delete_or_rename() {
     let server = Server::new();
     server.set("/", vec![folder("/", "alias")]);
     assert!(
-        services::delete(&server.config(), "/alias", false, true)
+        services::delete(&server.config(), "/alias", true)
             .await
             .is_err()
     );
@@ -1790,28 +1793,17 @@ async fn server_root_id_alias_is_rejected_before_delete_or_rename() {
 }
 
 #[test]
-fn cli_delete_requires_yes_and_rejects_permanent_without_credentials() {
+fn cli_delete_requires_yes_without_credentials() {
     let tmp = tempfile::tempdir().unwrap();
-    for (args, expected) in [
-        (vec!["rm", "-r", "/dir"], "--yes"),
-        (vec!["rm", "--yes", "--permanent", "/file"], "永久删除"),
-    ] {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
-            .args(args)
-            .current_dir(tmp.path())
-            .env("HOME", tmp.path())
-            .env("XDG_CONFIG_HOME", tmp.path())
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(1));
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(text.contains(expected), "{text}");
-        assert!(!text.contains("已永久删除"));
-    }
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
+        .args(["rm", "-r", "/dir"])
+        .current_dir(tmp.path())
+        .env("HOME", tmp.path())
+        .env("XDG_CONFIG_HOME", tmp.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--yes"));
 }
 
 #[test]

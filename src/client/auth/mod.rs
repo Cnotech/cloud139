@@ -5,32 +5,17 @@ use crate::config::{Config, ConfigUpdate};
 use crate::{debug, warn};
 use std::path::PathBuf;
 
-pub async fn login(
-    token: &str,
-    storage_type: &str,
-    cloud_id: Option<&str>,
-) -> Result<Config, ClientError> {
-    Config::validate_storage_type(storage_type)?;
+pub fn parse_login_token(token: &str) -> Result<Config, ClientError> {
+    let token = token.strip_prefix("Basic ").unwrap_or(token);
     debug!("开始解析 Token");
-
-    let (account, token_info, expire_time) = parse_token(token)?;
-
-    let config = Config {
-        authorization: token.to_string(),
+    let (account, refresh_token, expire_time) = parse_token(token)?;
+    Ok(Config {
+        authorization: token.into(),
         account,
-        storage_type: storage_type.to_string(),
-        cloud_id: cloud_id.map(|s| s.to_string()),
-        custom_upload_part_size: 0,
-        report_real_size: true,
-        use_large_thumbnail: false,
-        personal_cloud_host: None,
-        refresh_token: Some(token_info),
+        refresh_token: Some(refresh_token),
         token_expire_time: Some(expire_time),
-        root_folder_id: None,
-        user_domain_id: None,
-    };
-
-    Ok(config)
+        ..Config::default()
+    })
 }
 
 fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
@@ -158,7 +143,3 @@ pub async fn refresh_and_save_token_if_due(
 
 #[cfg(test)]
 mod tests;
-
-pub fn get_account(config: &Config) -> &str {
-    &config.account
-}

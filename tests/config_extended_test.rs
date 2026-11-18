@@ -13,10 +13,8 @@ mod config_test_extended {
         let config = Config::default();
         assert!(config.authorization.is_empty());
         assert!(config.account.is_empty());
-        assert!(config.storage_type.is_empty());
-        assert!(config.cloud_id.is_none());
+        assert_eq!(config.storage_type, "personal_new");
         assert_eq!(config.custom_upload_part_size, 0);
-        assert!(config.report_real_size);
         assert!(!config.use_large_thumbnail);
         assert!(config.personal_cloud_host.is_none());
     }
@@ -27,15 +25,11 @@ mod config_test_extended {
             authorization: "Basic dGVzdA==".to_string(),
             account: "test@139.com".to_string(),
             storage_type: "personal_new".to_string(),
-            cloud_id: Some("cloud123".to_string()),
             custom_upload_part_size: 0,
-            report_real_size: true,
             use_large_thumbnail: false,
             personal_cloud_host: Some("https://test.com".to_string()),
             refresh_token: None,
             token_expire_time: None,
-            root_folder_id: None,
-            user_domain_id: None,
         };
 
         let toml_str = toml::to_string(&config).unwrap();
@@ -48,9 +42,7 @@ mod config_test_extended {
         let toml_str = r#"authorization = "Basic dGVzdA=="
 account = "test@139.com"
 storage_type = "personal_new"
-cloud_id = "cloud123"
 custom_upload_part_size = 0
-report_real_size = true
 use_large_thumbnail = false
 personal_cloud_host = "https://test.com"
 "#;
@@ -58,7 +50,6 @@ personal_cloud_host = "https://test.com"
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.account, "test@139.com");
         assert_eq!(config.storage_type, "personal_new");
-        assert_eq!(config.cloud_id, Some("cloud123".to_string()));
     }
 
     #[test]
@@ -66,23 +57,16 @@ personal_cloud_host = "https://test.com"
         let toml_str = r#"authorization = "Basic dGVzdA=="
 account = "test@139.com"
 storage_type = "family"
-cloud_id = "cloud123"
 custom_upload_part_size = 1048576
-report_real_size = false
 use_large_thumbnail = true
 personal_cloud_host = "https://test.com"
 refresh_token = "token123"
 token_expire_time = 1234567890
-root_folder_id = "root"
-user_domain_id = "domain123"
 "#;
 
         let config: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(config.refresh_token, Some("token123".to_string()));
         assert_eq!(config.token_expire_time, Some(1234567890));
-        assert_eq!(config.root_folder_id, Some("root".to_string()));
-        assert_eq!(config.user_domain_id, Some("domain123".to_string()));
-        assert!(!config.report_real_size);
         assert!(config.use_large_thumbnail);
     }
 

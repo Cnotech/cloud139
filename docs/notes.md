@@ -18,17 +18,16 @@
 
 ## API 相关
 
-- 139 云盘 API 区分三种存储类型: `PersonalNew`, `Family`, `Group`
-- 存储类型定义在 `domain/storage_type.rs`，不在 `client/` 下
-- 某些操作在不同存储类型下行为不同（如重命名、批量移动）
-- 登录 Token 需要从浏览器开发者工具获取
-- API 客户端同时使用了 `reqwest`（异步）和 `ureq`（同步）两种 HTTP 客户端
+- CLI 和 API 客户端使用个人云协议。
+- 加载操作配置时校验 `storage_type` 为 `personal_new`。
+- 登录 Token 从浏览器开发者工具获取。
+- HTTP 请求使用 `reqwest`。
 
 ## 上传实现
 
-- 上传逻辑按存储类型拆分到 `application/services/upload/` 下
-- `personal_parts.rs` 处理个人云分片上传
-- 上传服务调度器在 `upload_service.rs` 中根据 `StorageType` 分发
+- `services/upload_service.rs` 协调文件和目录上传。
+- `services/upload/` 处理个人云上传流程、分片读取和进度。
+- `client/api/upload.rs` 构造上传 API 请求并解析结果。
 
 ## 测试
 

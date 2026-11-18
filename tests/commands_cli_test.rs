@@ -33,19 +33,12 @@ fn test_delete_args_parse() {
     let args = DeleteArgs::try_parse_from(["delete", "/path/to/file"]).unwrap();
     assert_eq!(args.path, "/path/to/file");
     assert!(!args.yes);
-    assert!(!args.permanent);
 }
 
 #[test]
 fn test_delete_args_parse_with_yes() {
     let args = DeleteArgs::try_parse_from(["delete", "/path/to/file", "--yes"]).unwrap();
     assert!(args.yes);
-}
-
-#[test]
-fn test_delete_args_parse_with_permanent() {
-    let args = DeleteArgs::try_parse_from(["delete", "/path/to/file", "--permanent"]).unwrap();
-    assert!(args.permanent);
 }
 
 #[test]

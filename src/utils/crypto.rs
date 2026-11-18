@@ -207,5 +207,3 @@ fn hash_file<D: Digest>(path: &std::path::Path) -> Result<String, std::io::Error
 
     Ok(hex::encode(hasher.finalize()))
 }
-
-pub use crate::utils::rand::generate_rand_str as generate_random_string;

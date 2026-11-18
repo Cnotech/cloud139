@@ -8,8 +8,8 @@ description: 编写、维护或执行 cloud139 CLI 端到端回归，核对目�
 覆盖 login、ls、upload、download、cp、rename、mv、mkdir、rm 和个人盘 sync。按[目录实现说明](../../../docs/directory-operations.md)及当前源码核对预期。按用户请求选择维护文档、离线验证或真实测试。
 
 - **仅编写/维护用例**：只编辑技能及必要文档，静态核对命令、链接和夹具工具。不得索取、读取或使用真实 Token，不登录、不访问真实云盘、不创建或清理云端数据。
-- **离线验证**：使用虚构配置、隔离 HOME 和 loopback mock。根目录变更、永久删除拒绝、恶意服务端名称、符号链接、循环分页和部分失败注入只在离线 mock 中测试。
-- **真实 E2E**：用户要求在真实云盘执行测试或复测时，主代理按请求的后端和用例范围生成并登记本轮 UUID 子树，直接执行所需的登录校验、根目录查重、夹具操作和清理。根目录列表只用于检查本轮 UUID 名称。沿用用户指定的后端与限制，只有缺少执行所需的信息时才询问用户。
+- **离线验证**：使用虚构配置、隔离 HOME 和 loopback mock。根目录变更、已移除参数的解析拒绝、恶意服务端名称、符号链接、循环分页和部分失败注入只在离线 mock 中测试。
+- **真实 E2E**：用户要求在真实云盘执行测试或复测时，主代理按请求的个人云用例范围生成并登记本轮 UUID 子树，直接执行所需的登录校验、根目录查重、夹具操作和清理。根目录列表只用于检查本轮 UUID 名称。沿用用户指定的测试限制，只有缺少执行所需的信息时才询问用户。
 - 所有真实变更必须限制在本轮登记的子树内。不向真实根目录发出删除、移动、复制根等负向操作；不按文件名清理任何既有用户对象，不复用固定分页目录，不下载到仓库工作目录覆盖源码或文档。
 
 ## 执行模式
@@ -32,14 +32,13 @@ git status --short
 
 工作树有改动时，使用干净 checkout 测试。需要测试尚未提交的改动时，在独立 checkout 保存并核对待测快照，确认检出干净后构建。保留原工作树，避免自动 stash、reset 或清理未知文件。无法得到可验证的快照时报告阻塞。
 
-门禁通过后记录仓库绝对路径 `REPO`、提交 SHA 和构建二进制绝对路径 `BIN`。如需构建，在干净 checkout 使用 `cargo build --locked --release`，不要为运行本文修改业务代码。按本轮测试后端生成独立 UUID、本地临时目录和云端子树，并在发起真实命令前登记：
+门禁通过后记录仓库绝对路径 `REPO`、提交 SHA 和构建二进制绝对路径 `BIN`。如需构建，在干净 checkout 使用 `cargo build --locked --release`，不要为运行本文修改业务代码。为本轮生成独立 UUID、本地临时目录和云端子树，并在发起真实命令前登记：
 
 ```bash
 RUN_ID=$(python3 -c 'import uuid; print(uuid.uuid4().hex)')
 LOCAL=$(mktemp -d "${TMPDIR:-/tmp}/cloud139-e2e-${RUN_ID}.XXXXXX")
 LOCAL=$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).resolve(strict=True))' "$LOCAL")
-# STORAGE 只取本轮请求中的 personal_new、family 或 group；每个后端重新生成 RUN_ID/LOCAL。
-CLOUD="/cloud139-e2e-${RUN_ID}-${STORAGE}"
+CLOUD="/cloud139-e2e-${RUN_ID}-personal"
 CONFIG="$LOCAL/profile/cloud139rc.toml"
 FIX="$LOCAL/fixtures"
 TOOL="$REPO/.agents/skills/cloud139-e2e-test/scripts/fixture_tool.py"
@@ -53,7 +52,7 @@ cd "$LOCAL/work"
 c139() { "$BIN" --config "$CONFIG" "$@"; }
 ```
 
-`REPO`、`BIN`、`STORAGE` 由主代理在台账中明确赋值后才使用；`BIN` 必须指向本轮要验证的构建。Windows 使用 Git Bash 并设置 `MSYS_NO_PATHCONV=1`；路径参数使用 `/`，不把本文 shell 代码直接作为 PowerShell 代码执行。
+`REPO` 和 `BIN` 由主代理在台账中明确赋值后才使用；`BIN` 必须指向本轮要验证的构建。Windows 使用 Git Bash 并设置 `MSYS_NO_PATHCONV=1`；路径参数使用 `/`，不把本文 shell 代码直接作为 PowerShell 代码执行。
 
 台账至少包含：RUN_ID、测试请求、限制及精确 CLOUD、后端/账号脱敏标识、配置与临时 HOME 路径、提交/二进制、每阶段负责人、每条用例的前置状态/预期/实际退出码、日志/JSON/哈希清单、确认创建过的云端对象及其 ID（若接口可见）、部分完成或结果不明对象、清理状态。不得记录 Token 或完整配置内容。每个夹具在上传前登记，API 结果不明时记为“待核验”，不凭名称就加入可删除清单。
 
@@ -63,17 +62,16 @@ c139() { "$BIN" --config "$CONFIG" "$@"; }
 
 ## 2. 支持矩阵与判定规则
 
-| 能力 | personal_new | family | group |
-|------|--------------|--------|-------|
-| upload 目录/内容、download -r、mkdir -p、ls -R、rm -r | 支持 | 支持 | 支持，但必须已有可靠 root_folder_id |
-| cp 文件/非空目录 | 单源和多源 | 单源/多源均明确拒绝 | 单源/多源均明确拒绝 |
-| mv 文件/非空目录 | 单源和多源 | 单源/多源均明确拒绝 | 仅单源；多源拒绝 |
-| rename 文件 | 支持 | 支持 | 支持 |
-| rename 目录（包括同名 no-op） | 支持 | 明确拒绝 | 支持 |
-| 已存在文件加 --force | upload/cp/mv/rename 沿用已有个人盘策略，必须核实实际结果 | 不允许覆盖同名条目 | 不允许覆盖同名条目 |
-| 已存在目录/文件与目录类型冲突加 --force | 仍拒绝 | 仍拒绝 | 仍拒绝 |
-| sync | 支持 | 拒绝，退出码 2 | 拒绝，退出码 2 |
-| --permanent | 拒绝，仅离线验证 | 拒绝，仅离线验证 | 拒绝，仅离线验证 |
+| 能力 | personal_new |
+|------|--------------|
+| upload 目录/内容、download -r、mkdir -p、ls -R、rm -r | 支持 |
+| cp 文件/非空目录 | 单源和多源 |
+| mv 文件/非空目录 | 单源和多源 |
+| rename 文件 | 支持 |
+| rename 目录（包括同名 no-op） | 支持 |
+| 已存在文件加 --force | upload/cp/mv/rename 沿用已有个人盘策略，必须核实实际结果 |
+| 已存在目录/文件与目录类型冲突加 --force | 仍拒绝 |
+| sync | 支持 |
 
 业务失败通常为退出码 1；缺必需参数等 clap 解析错误为 2；sync 的配置/方向/扫描错误为 2，执行阶段失败为 1。不能把所有非零统一写成 1。不支持用例必须实际观察到对应拒绝且夹具不变，不能把一次网络错误当成“不支持”通过。
 
@@ -92,7 +90,7 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 
 ### 2.2 有界轮询与异步后端
 
-所有真实变更（尤其 family/group）必须验证最终状态。退出码 0 或“任务已接受”只说明提交成功。
+所有真实变更必须验证最终状态。退出码 0 或“任务已接受”只说明提交成功。
 
 - 主代理为每个步骤设单调时钟截止时间，默认 120 秒、每 2 秒只读复查，最多 60 次；大批量分页夹具可在运行前明确记录更长的有限上限，禁止无限轮询。
 - 用 `c139 ls -R "$STAGE" -o "$LOCAL/logs/步骤ID-尝试次数.json"` 检查所属阶段子树；目录被删除/移动/改名时查询仍存在的父目录，不能把任何网络错误都视为“不存在”。总清理查询根列表时只检查本轮 UUID 名称是否消失，不处理其他条目。
@@ -109,8 +107,8 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 步骤 | 命令/操作 | 验证点 |
 |------|-----------|--------|
 | 1.1 | 在 LOCAL 下的子进程创建独立 HOME/XDG_CONFIG_HOME；Windows 同时隔离 USERPROFILE，若无法证明平台默认配置目录位于 LOCAL，则配置回退用例改做离线单测 | 不读、不备份、不修改真实全局配置；不在父进程重写用户 HOME |
-| 1.2 | personal/family：`c139 login --token "$TOKEN" --storage-type "$STORAGE"`；family 另传已核实的 `--cloud-id "$CLOUD_ID"` | Token 使用用户安全提供并指定用于测试的凭证，禁用 shell xtrace、不记录参数值；只在新 CONFIG 上操作，观察内置只读 ls 校验 |
-| 1.3 | group：使用用户明确提供且含已核实 root_folder_id 的隔离配置，或在隔离配置下登录时传已核实的 `--cloud-id "$CLOUD_ID" --root-folder-id "$ROOT_FOLDER_ID"`，再 `c139 ls / -o "$LOCAL/logs/bootstrap-root.json"` | 缺可靠根配置记为前置阻塞。重新登录只能沿用同一账号和同一群组的已保存根路径 |
+| 1.2 | `c139 login --token "$TOKEN"` | Token 使用用户安全提供并指定用于测试的凭证，禁用 shell xtrace、不记录参数值；只在新 CONFIG 上操作，观察内置只读 ls 校验 |
+| 1.3 | `cargo test --locked --offline --test storage_support_test`（离线） | 使用虚构配置验证非个人云存储类型在网络访问前被拒绝 |
 | 1.4 | 配置优先级：在独立 LOCAL/work 子目录分别放置显式 CONFIG、当前目录配置和临时 HOME 下的 `.config/cloud139/cloud139rc.toml`，用可区分的虚构标记配置和 loopback mock 验证显式 > 当前目录 > 临时全局；验证 login 写回来源 | 这部分默认离线，含失败登录不落盘、刷新回写和配置并发；不使用真实账户反复失败登录，不篡改真实 Token 来试服务端 |
 | 1.5 | `c139 ls / -o "$LOCAL/logs/before-root.json"`，只检查新 UUID 名称不存在；`c139 mkdir "$CLOUD"` | CLOUD 已登记；若同名已存在立即停止，不复用、不改名、不删除它；成功创建并轮询确认后登记本轮根所有权 |
 | 1.6 | `c139 ls "$CLOUD" -o "$LOCAL/logs/empty-root.json"` | 空目录、total 0；只创建本轮根，不清理任何历史对象 |
@@ -145,13 +143,13 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 3.4 | `c139 upload "$FIX/tree" "$CLOUD/s03/missing/parents/dest"` | 0；自动创建缺失目标及所有父目录，落在 dest/tree，不能自动改名或丢空目录 |
 | 3.5 | 准备 `c139 mkdir -p "$CLOUD/s03/same"`；`c139 upload "$FIX/same-v1/same.bin" "$CLOUD/s03/same"` | 0；下载证明确为 AAAA；保存原始 SHA256 |
 | 3.6 | `c139 upload "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 1；同名默认拒绝，AAAA 及命名快照不变；不得因大小相同返回成功却什么也没做 |
-| 3.7 | `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 个人盘允许提交；返回 0 后必须下载证明 BBBB 的 SHA256 确实出现在原名或明确记录的服务端新名称下，登记实际重名策略，不能只看日志或同样的 4 字节大小。family/group 为 1 且快照不变 |
+| 3.7 | `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 个人盘允许提交；返回 0 后必须下载证明 BBBB 的 SHA256 确实出现在原名或明确记录的服务端新名称下，登记实际重名策略，不能只看日志或同样的 4 字节大小。 |
 | 3.8 | `c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s03/file-conflict"` 后 `c139 upload "$FIX/tree" "$CLOUD/s03/file-conflict"` | 前者 0；后者 1，文件 tree 不能变目录且其内容不变；即使 --force 也拒绝，快照无多余目录 |
 | 3.9 | `c139 mkdir -p "$CLOUD/s03/dir-conflict/same.bin"` 后 `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/dir-conflict"` | 后者 1；同名目录不能变文件，目录清单不变 |
 | 3.10 | `c139 upload "$FIX/not-created.bin" "$CLOUD/s03/keep"` | 1；本地源不存在；普通单文件上传到缺失远端目录也仍拒绝：`c139 upload "$FIX/files/a.txt" "$CLOUD/s03/not-created-dir"`，不能误套目录自动建父语义 |
 
 | 3.11 | `c139 upload "$FIX/same-v1/" "$CLOUD/s03/same-directory"`，随后 `c139 upload "$FIX/same-v2/" "$CLOUD/s03/same-directory"` | 第一条 0；第二条 1，完整快照仍为 AAAA；验证目录路径也不能按同大小静默 Skip |
-| 3.12 | `c139 upload --force "$FIX/same-v2/" "$CLOUD/s03/same-directory"` | personal：允许提交但必须以逐文件 SHA256 证明 BBBB 确实被处理，名称策略按 3.7 登记；family/group：1、完整快照不变 |
+| 3.12 | `c139 upload --force "$FIX/same-v2/" "$CLOUD/s03/same-directory"` | 允许提交但必须以逐文件 SHA256 证明 BBBB 确实被处理，名称策略按 3.7 登记 |
 
 ### 阶段 4：上传后的完整性基线
 
@@ -187,17 +185,17 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
 | 6.1 | `c139 mkdir -p "$CLOUD/s06/dest-single"` | 0；创建独立空目标，确认状态 |
-| 6.2 | `c139 cp "$CP_SRC" "$CLOUD/s06/dest-single"` | personal：0，目标 dest-single/tree 与基准完整一致、源不变；family/group：1，明确不支持，双方快照不变 |
+| 6.2 | `c139 cp "$CP_SRC" "$CLOUD/s06/dest-single"` | 0，目标 dest-single/tree 与基准完整一致、源不变 |
 | 6.3 | `c139 mkdir -p "$CLOUD/s06/dest-multi"` | 0；独立空目标，与 6.2 不共享 |
-| 6.4 | `c139 cp "$CLOUD/s06/files/a.txt" "$CLOUD/s06/files/b.txt" "$CLOUD/s06/dest-multi"` | personal：0，两个文件都复制且源仍在，SHA256 一致；family/group：1 且未产生部分复制 |
-| 6.5 | `c139 cp "$CP_SRC" "$CP_SRC"`；`c139 cp --force "$CP_SRC" "$CP_SRC/nested"` | 1；禁止目录复制到自身和子目录，source 整体清单不变（所有后端） |
+| 6.4 | `c139 cp "$CLOUD/s06/files/a.txt" "$CLOUD/s06/files/b.txt" "$CLOUD/s06/dest-multi"` | 0，两个文件都复制且源仍在，SHA256 一致 |
+| 6.5 | `c139 cp "$CP_SRC" "$CP_SRC"`；`c139 cp --force "$CP_SRC" "$CP_SRC/nested"` | 1；禁止目录复制到自身和子目录，source 整体清单不变 |
 | 6.6 | `c139 cp "$CP_SRC" "$CLOUD/s06/files/blocker.bin"`；另以阶段内未创建目标作 target | 1；目标文件/缺失目标被拒绝；不把目标参数当新文件名 |
 | 6.7 | 先 `c139 upload "$FIX/tree" "$CLOUD/s06/dest-conflict"` 准备非空 tree，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/dest-conflict"` | 1；目录同名不能合并、覆盖或自动改名，源/目标完整快照不变 |
 | 6.8 | 先 `c139 mkdir -p "$CLOUD/s06/file-conflict"`、`c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s06/file-conflict"`，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/file-conflict"` | 1；文件/目录同名类型冲突不变 |
-| 6.9 | personal：先 `c139 mkdir -p "$CLOUD/s06/file-repeat"`，复制 a.txt 到该目标，再不带 --force 重复复制 | 1；同名文件预检拒绝，快照不变 |
-| 6.10 | personal：在 6.9 同一目标加 --force | 允许提交；0 后轮询校验新增副本实际名称/哈希及源不变，登记服务端重名结果，不预先写死名称；legacy 仍拒绝 |
+| 6.9 | 先 `c139 mkdir -p "$CLOUD/s06/file-repeat"`，复制 a.txt 到该目标，再不带 --force 重复复制 | 1；同名文件预检拒绝，快照不变 |
+| 6.10 | 在 6.9 同一目标加 --force | 允许提交；0 后轮询校验新增副本实际名称/哈希及源不变，登记服务端重名结果，不预先写死名称 |
 | 6.11 | `c139 cp --force "$CLOUD/s06/dup/left/shared.txt" "$CLOUD/s06/dup/right/shared.txt" "$CLOUD/s06/dest-multi"` | 1；多个源 basename 相同，即使 --force 也拒绝，不能沿用旧“自动改名成功”预期 |
-| 6.12 | personal：先创建独立空 dest-preflight，再把 files/a.txt 与阶段内不存在源混合复制到该已有目录 | 1；全部预检后才变更，不允许已有源先被复制；双方完整快照不变 |
+| 6.12 | 先创建独立空 dest-preflight，再把 files/a.txt 与阶段内不存在源混合复制到该已有目录 | 1；全部预检后才变更，不允许已有源先被复制；双方完整快照不变 |
 
 ### 阶段 7：rename 非空目录与冲突
 
@@ -205,14 +203,14 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 7.1 | `c139 rename "$CLOUD/s07/files/a.txt" renamed-a.txt` | 三后端均支持；0 后新名文件 hash 不变，旧名消失 |
-| 7.2 | `c139 rename "$CLOUD/s07/source/tree" renamed-tree` | personal/group：0，完整非空目录与空子目录保留，新路径下 manifest 与基准一致，旧路径消失；family：1、不支持、快照不变 |
-| 7.3 | personal/group：`c139 rename "$CLOUD/s07/source/renamed-tree" renamed-tree` | 0；已有目录同名 no-op，清单不变；family 对目录连同名也明确拒绝，使用其仍存在的 source/tree 验证 |
+| 7.1 | `c139 rename "$CLOUD/s07/files/a.txt" renamed-a.txt` | 0，新名文件 hash 不变，旧名消失 |
+| 7.2 | `c139 rename "$CLOUD/s07/source/tree" renamed-tree` | 0，完整非空目录与空子目录保留，新路径下 manifest 与基准一致，旧路径消失 |
+| 7.3 | `c139 rename "$CLOUD/s07/source/renamed-tree" renamed-tree` | 0；已有目录同名 no-op，清单不变 |
 | 7.4 | `c139 rename "$CLOUD/s07/not-created" new-name` | 1；源不存在，不能把它当 no-op 成功 |
 | 7.5 | `c139 rename --force "$CLOUD/s07/conflict/tree" taken` | 1；非空目录同名冲突不变，不能强制合并 |
 | 7.6 | `c139 rename --force "$CLOUD/s07/conflict/tree" blocker.bin` | 1；目录不能覆盖同名文件，双方不变 |
 | 7.7 | `c139 mkdir -p "$CLOUD/s07/files/taken-dir"` 后 `c139 rename --force "$CLOUD/s07/files/b.txt" taken-dir` | rename 为 1；文件不能替换目录，双方快照不变；非法名称测试转离线 mock |
-| 7.8 | `c139 rename "$CLOUD/s07/files/renamed-a.txt" renamed-a.txt` | 三后端文件同名 no-op 均为 0，hash 和名称清单不变 |
+| 7.8 | `c139 rename "$CLOUD/s07/files/renamed-a.txt" renamed-a.txt` | 0，hash 和名称清单不变 |
 
 ### 阶段 8：mv 非空目录、多源与预检
 
@@ -220,15 +218,15 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 
 | 步骤 | 命令 | 验证点 |
 |------|------|--------|
-| 8.1 | `c139 mv "$CLOUD/s08/source/tree" "$CLOUD/s08/dest-dir"` | personal/group：0，轮询旧路径消失，dest-dir/tree 完整清单与基准一致；family：1，源目标不变 |
-| 8.2 | 在 dest-dir/tree（family 用原 source/tree）下载和遍历 | 验证多层文件哈希和全部空目录，没有遗漏内容 |
-| 8.3 | `c139 mv "$CLOUD/s08/files/a.txt" "$CLOUD/s08/files/b.txt" "$CLOUD/s08/dest-multi"` | personal：0，两源消失，目标两文件哈希一致；family/group：1，明确不支持批量且均不变 |
+| 8.1 | `c139 mv "$CLOUD/s08/source/tree" "$CLOUD/s08/dest-dir"` | 0，轮询旧路径消失，dest-dir/tree 完整清单与基准一致 |
+| 8.2 | 在 dest-dir/tree下载和遍历 | 验证多层文件哈希和全部空目录，没有遗漏内容 |
+| 8.3 | `c139 mv "$CLOUD/s08/files/a.txt" "$CLOUD/s08/files/b.txt" "$CLOUD/s08/dest-multi"` | 0，两源消失，目标两文件哈希一致 |
 | 8.4 | 对专门的 conflict-source/tree 执行 mv 到自身以及其 nested 子目录，包含 --force 变体 | 1；清单不变 |
 | 8.5 | 用阶段内文件 blocker.bin 或未创建路径作 mv target | 1；拒绝无效目标，源不动 |
 | 8.6 | `c139 mv "$CLOUD/s08/same-source/a.txt" "$CLOUD/s08/same-name"` | 1；当前预检要求拒绝，源和目标哈希均不变，不再期待普通 mv 自动改名 |
-| 8.7 | personal 在 8.6 后加 --force；group/family 同样尝试 | personal 允许提交，0 后源消失、目标原文件和实际新名副本按 API 策略核验并登记；group/family 1 且不变，不声称支持强制覆盖 |
+| 8.7 | 在 8.6 后加 --force | 允许提交，0 后源消失、目标原文件和实际新名副本按 API 策略核验并登记 |
 | 8.8 | 用 conflict-source/tree 为源，分别执行 mv --force 到 s08/conflict-dir 和 s08/conflict-file | 1；目录/目录及目录/文件冲突都不变 |
-| 8.9 | personal：两个有效但 basename 同名的源一起移动；另测有效源+不存在源 | 均为 1；--force 不能放开多源同名；不得移动部分有效源，快照不变 |
+| 8.9 | 两个有效但 basename 同名的源一起移动；另测有效源+不存在源 | 均为 1；--force 不能放开多源同名；不得移动部分有效源，快照不变 |
 | 8.10 | 将某文件移到它当前所在父目录 | 1；同目录冲突/无效操作，文件不应丢失或变名 |
 
 ### 阶段 9：mkdir -p、幂等与文件冲突
@@ -238,10 +236,10 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 9.1 | 先 `c139 mkdir -p "$CLOUD/s09"`，再 `c139 mkdir "$CLOUD/s09/single"` | 0；只创建预期目录 |
 | 9.2 | `c139 mkdir -p "$CLOUD/s09/missing/a/b/empty"` | 0；多层父目录和叶目录完整创建，最终为空目录 |
 | 9.3 | 重复 9.2，并以等价路径 `$CLOUD/s09/missing//a/./b/empty/` 再执行 -p | 0；幂等，目录清单不变、无改名兄弟目录；仅使用保持在 CLOUD 内的等价路径 |
-| 9.4 | `c139 mkdir --force "$CLOUD/s09/single"` | 1；--force 仅解析兼容，已存在目录仍拒绝，不能期待自动改名；不带 --force 重复 mkdir 也为 1 |
+| 9.4 | 重复 `c139 mkdir "$CLOUD/s09/single"` | 1，已有目录报错，目录清单无新增项 |
 | 9.5 | `c139 mkdir "$CLOUD/s09/not-created/child"` | 1；不带 -p 时父目录不存在必须报错，快照不变 |
 | 9.6 | 先上传 blocker.bin 到 s09，再 `c139 mkdir -p "$CLOUD/s09/blocker.bin/child"` | 1；父节点是文件，原文件 hash 不变，无 child |
-| 9.7 | `c139 mkdir -p "$CLOUD/s09/blocker.bin"`（另测 --force） | 1；叶节点是文件也拒绝，不删除文件或创建重命名目录 |
+| 9.7 | `c139 mkdir -p "$CLOUD/s09/blocker.bin"` | 1，叶节点是文件，原文件哈希与目录清单不变 |
 
 ### 阶段 10：rm 显式 -r、--yes 和只删除本轮对象
 
@@ -253,7 +251,7 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 10.2 | `c139 rm --yes "$CLOUD/s10/files/a.txt"` | 0；只移入回收站；轮询成功父列表确认 a.txt 消失，其他文件不变 |
 | 10.3 | `c139 rm --yes "$CLOUD/s10/not-created.bin"` | 1；明确不存在，不能误当成功 |
 | 10.4 | `c139 rm -r "$CLOUD/s10/tree"` | 1；有 -r 也仍须 --yes，完整目录不变 |
-| 10.5 | 永久删除安全负向 | 三后端都拒绝；仅执行阶段 13 的离线 mock，用虚构配置验证不发删除请求且不提示“已永久删除”，真实云端不执行 --permanent |
+| 10.5 | 已移除的旧参数 | 转阶段 13 进行 CLI 解析测试 |
 | 10.6 | 根目录别名删除/移动安全负向 | 仅离线 mock；不向真实根目录发出测试操作 |
 | 10.7 | `c139 ls -R "$CLOUD/s10/empty" -o "$LOCAL/logs/rm-empty-before.json"` | 0；确认该空目录是本轮创建且仍为空 |
 | 10.8 | `c139 rm --yes "$CLOUD/s10/empty"` | 1；缺 -r 必须拒绝，空目录仍在、快照不变 |
@@ -265,7 +263,7 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 
 ### 阶段 11：sync 回归（个人盘），与 upload 规则分开
 
-只在 personal_new 执行实际同步；family/group 用已存在的测试源/目标观察退出码 2 和明确不支持，快照不变。个人盘设置 `SYNCSRC="$LOCAL/sync-source"`（从 FIX/sync-source 复制）、`SYNCDST="$LOCAL/sync-download"`（新目标）、`SYNC_REMOTE="$CLOUD/s11/target"`（先 mkdir -p）。空目录也纳入 manifest，不按脆弱的日志 Skip 数量作为唯一 oracle。
+设置 `SYNCSRC="$LOCAL/sync-source"`（从 FIX/sync-source 复制）、`SYNCDST="$LOCAL/sync-download"`（新目标）、`SYNC_REMOTE="$CLOUD/s11/target"`（先 mkdir -p）。空目录也纳入 manifest，不按脆弱的日志 Skip 数量作为唯一 oracle。
 
 | 步骤 | 命令/操作 | 验证点 |
 |------|-----------|--------|
@@ -289,7 +287,7 @@ cleanup sub agent 先审核台账、登记的精确 CLOUD、创建成功证据�
 | 步骤 | 命令/操作 | 验证点 |
 |------|-----------|--------|
 | 12.1 | 对照台账和本轮根列表重新读取 CLOUD 的递归清单 | 所有实际副作用均已登记；无范围外对象；将脱敏报告和哈希证据保存到用户指定位置或当前任务可访问的安全位置 |
-| 12.2 | `c139 rm -r --yes "$CLOUD"` | 仅在确认本轮根归属且用户请求未限制总清理时执行；必须带 -r，不能用 --permanent，也不逐个删除任何根目录历史文件 |
+| 12.2 | `c139 rm -r --yes "$CLOUD"` | 仅在确认本轮根归属且用户请求未限制总清理时执行，使用 -r 清理本轮目录 |
 | 12.3 | 有界轮询成功根列表，检查本轮 UUID 名称已消失 | 只检查 CLOUD 的缺失；根列表的其他条目不读内容、不变更；超时如实记录残留，不盲目重复删除 |
 | 12.4 | 审核 LOCAL 确为本轮创建的规范化临时根，再清理其中配置、锁文件、下载、输出和夹具 | 只处理台账中的本地对象；不触碰真实全局配置，无需备份/恢复用户配置；凭证文件按安全要求移除，日志不得含 Token |
 | 12.5 | 在 REPO 再执行 `git status --short`、`git diff --name-status` | 与测试前干净基线一致；未知变更/删除保留并报告，不自动 reset 或 git clean，不把不明变化当正常下载覆盖 |
@@ -302,9 +300,9 @@ cleanup sub agent 先审核台账、登记的精确 CLOUD、创建成功证据�
 
 | 步骤 | 命令/用例 | 验证点 |
 |------|-----------|--------|
-| 13.1 | `cargo test --locked --offline --test directory_operations_test --test legacy_directory_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求；全部后端覆盖 |
-| 13.2 | directory_operations_test 的永久删除与 CLI 确认用例 | 三后端永久删除拒绝、无 batchTrash/永久删除请求，原始 mock 状态不变；不输出“已永久删除” |
-| 13.3 | 上述目录用例及 `cargo test --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环、legacy 重复页/提前结束均报错；不将不完整列表当成功 |
+| 13.1 | `cargo test --locked --offline --test directory_operations_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求 |
+| 13.2 | `cargo test --locked --offline --test directory_operations_test removed_options_fail_before_config_changes` | 已移除的参数在解析阶段返回退出码 2，原配置不变 |
+| 13.3 | 上述目录用例及 `cargo test --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环均报错；不将不完整列表当成功 |
 | 13.4 | 恶意服务端文件名、绝对路径、穿越、Windows 设备名、源/目标 symlink | 拒绝前不写出本轮本地临时根、不覆盖受保护文件；symlink 相关平台限制明确记录 |
 | 13.5 | 上传中途失败、批量条目 success=false、HTTP 错误/下载断流、无数据或失败列表 | 失败返回非零并准确报告已完成部分；不静默 Skip，不把错误当空目录，不自动重试不确定写请求 |
 | 13.6 | Config 优先级、失败登录、刷新/并发写回；CLI 缺参数 | 全用虚构凭证/loopback 和临时配置验证，缺参数为 clap 退出码 2；不通过修改真实 Token 测试失败 |

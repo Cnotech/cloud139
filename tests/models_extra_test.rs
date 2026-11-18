@@ -102,63 +102,6 @@ fn test_personal_upload_data_with_exist() {
 }
 
 #[test]
-fn test_cloud_content_deserialize() {
-    let json = r#"{
-        "contentID": "c123",
-        "contentName": "document.pdf",
-        "contentSize": 2048,
-        "createTime": "2024-01-01",
-        "lastUpdateTime": "2024-01-02"
-    }"#;
-    let content: CloudContent = serde_json::from_str(json).unwrap();
-    assert_eq!(content.content_id, "c123");
-    assert_eq!(content.content_name, "document.pdf");
-    assert_eq!(content.content_size, 2048);
-}
-
-#[test]
-fn test_cloud_catalog_deserialize() {
-    let json = r#"{
-        "catalogID": "cat123",
-        "catalogName": "folder",
-        "createTime": "2024-01-01",
-        "lastUpdateTime": "2024-01-02"
-    }"#;
-    let catalog: CloudCatalog = serde_json::from_str(json).unwrap();
-    assert_eq!(catalog.catalog_id, "cat123");
-    assert_eq!(catalog.catalog_name, "folder");
-}
-
-#[test]
-fn test_group_catalog_deserialize() {
-    let json = r#"{
-        "catalogID": "g123",
-        "catalogName": "group_folder",
-        "createTime": "2024-01-01",
-        "updateTime": "2024-01-02",
-        "path": "root:/folder"
-    }"#;
-    let catalog: GroupCatalog = serde_json::from_str(json).unwrap();
-    assert_eq!(catalog.catalog_id, "g123");
-    assert_eq!(catalog.path, "root:/folder");
-}
-
-#[test]
-fn test_group_content_deserialize() {
-    let json = r#"{
-        "contentID": "gc123",
-        "contentName": "group_file.txt",
-        "contentSize": 512,
-        "createTime": "2024-01-01",
-        "updateTime": "2024-01-02",
-        "digest": "abc123"
-    }"#;
-    let content: GroupContent = serde_json::from_str(json).unwrap();
-    assert_eq!(content.content_id, "gc123");
-    assert_eq!(content.digest, Some("abc123".to_string()));
-}
-
-#[test]
 fn test_create_folder_data_deserialize() {
     let json = r#"{"fileId": "f123", "fileName": "new_folder"}"#;
     let data: CreateFolderData = serde_json::from_str(json).unwrap();
@@ -173,20 +116,6 @@ fn test_query_file_data_deserialize() {
     assert_eq!(data.file_id, "q123");
     assert_eq!(data.name, "query_file.txt");
     assert_eq!(data.file_type, "file");
-}
-
-#[test]
-fn test_list_request_serialize() {
-    let request = ListRequest {
-        parent_file_id: "/".to_string(),
-        page_num: 1,
-        page_size: 100,
-        order_by: Some("name".to_string()),
-        descending: Some(true),
-    };
-    let json = serde_json::to_string(&request).unwrap();
-    assert!(json.contains("parentFileId"));
-    assert!(json.contains("pageNum"));
 }
 
 #[test]
@@ -205,26 +134,4 @@ fn test_upload_request_serialize() {
     let json = serde_json::to_string(&request).unwrap();
     assert!(json.contains("contentHash"));
     assert!(json.contains("test.txt"));
-}
-
-#[test]
-fn test_page_info_serialize() {
-    let info = PageInfo {
-        page_num: 1,
-        page_size: 50,
-    };
-    let json = serde_json::to_string(&info).unwrap();
-    assert!(json.contains("pageNum"));
-    assert!(json.contains("pageSize"));
-}
-
-#[test]
-fn test_family_create_folder_request_serialize() {
-    let request = FamilyCreateFolderRequest {
-        catalog_name: "new_folder".to_string(),
-        parent_catalog_id: "parent123".to_string(),
-    };
-    let json = serde_json::to_string(&request).unwrap();
-    assert!(json.contains("new_folder"));
-    assert!(json.contains("parent123"));
 }

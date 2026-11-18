@@ -237,7 +237,6 @@ fn late_cache_update_preserves_new_token_and_other_settings() {
     refreshed.refresh_token = Some("new-token".into());
     refreshed.token_expire_time = Some(chrono::Utc::now().timestamp_millis() + 30 * 86_400_000);
     refreshed.use_large_thumbnail = true;
-    refreshed.root_folder_id = Some("new-root".into());
     refreshed.save_to(&path).unwrap();
     // 模拟旧命令的网络请求在自动续期完成后才返回。
     old.update_cache(&path, |current| {
@@ -249,7 +248,6 @@ fn late_cache_update_preserves_new_token_and_other_settings() {
     assert_eq!(saved.refresh_token, refreshed.refresh_token);
     assert_eq!(saved.token_expire_time, refreshed.token_expire_time);
     assert!(saved.use_large_thumbnail);
-    assert_eq!(saved.root_folder_id, refreshed.root_folder_id);
     assert_eq!(
         saved.personal_cloud_host.as_deref(),
         Some("https://example.invalid")
@@ -265,7 +263,7 @@ fn late_cache_update_does_not_overwrite_another_account() {
     let original = fs::read(&path).unwrap();
     assert!(matches!(
         old.update_cache(&path, |current| {
-            current.root_folder_id = Some("wrong-account-root".into());
+            current.personal_cloud_host = Some("https://example.invalid/wrong-account".into());
         }),
         Err(crate::config::ConfigError::Changed)
     ));
@@ -329,8 +327,6 @@ async fn startup_persists_refreshed_credentials_and_skips_next_refresh() {
         let mut config = expiring_config("account-a");
         config.token_expire_time = expiry;
         config.storage_type = "personal_new".into();
-        config.cloud_id = Some("family-id".into());
-        config.root_folder_id = Some("root-id".into());
         config.use_large_thumbnail = true;
         config.save_to(&path).unwrap();
         let server = MockServer::start();

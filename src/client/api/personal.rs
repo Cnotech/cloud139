@@ -1,7 +1,6 @@
 use super::{DownloadLink, HttpClientWrapper};
 use crate::client::ClientError;
 use crate::config::Config;
-use crate::domain::StorageType;
 use crate::models::{PersonalFileItem, PersonalListData, PersonalListResp};
 use futures_util::{Stream, TryStreamExt};
 use std::{borrow::Cow, collections::HashSet, pin::pin, time::Duration};
@@ -86,12 +85,7 @@ impl<'a> PersonalClient<'a> {
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
         self.http_client
-            .personal_api_request(
-                self.config,
-                &format!("{}{endpoint}", self.host),
-                body,
-                StorageType::PersonalNew,
-            )
+            .personal_api_request(self.config, &format!("{}{endpoint}", self.host), body)
             .await
     }
 
@@ -377,7 +371,7 @@ fn require_success(
 }
 
 /// Some batch responses carry per-item success flags under data.
-pub fn mutation_succeeded(response: &serde_json::Value) -> bool {
+pub(super) fn mutation_succeeded(response: &serde_json::Value) -> bool {
     fn no_failure(value: &serde_json::Value) -> bool {
         match value {
             serde_json::Value::Object(map) => {

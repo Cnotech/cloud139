@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::debug;
 use crate::models::QueryRoutePolicyResp;
 
-pub mod endpoints;
+mod endpoints;
 pub mod headers;
 mod personal;
 pub(super) mod refresh;
@@ -13,7 +13,6 @@ mod request;
 mod transfer;
 pub mod upload;
 
-pub use personal::mutation_succeeded;
 pub(crate) use personal::{ListPageOptions, ListingRetry, PersonalClient};
 pub use request::HttpClientWrapper;
 pub(crate) use transfer::DownloadLink;
@@ -83,12 +82,8 @@ impl HttpClientWrapper {
         config: &Config,
         url: &str,
         body: &serde_json::Value,
-        storage_type: crate::domain::StorageType,
     ) -> Result<T, ClientError> {
         config.require_personal()?;
-        if storage_type != crate::domain::StorageType::PersonalNew {
-            return Err(ClientError::UnsupportedStorage);
-        }
         signed_post(
             &config.authorization,
             url,
@@ -146,21 +141,6 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         .await?
         .and_then(|item| item.file_id)
         .ok_or(ClientError::InvalidFilePath)
-}
-
-pub fn parse_path_segments(path: &str) -> Vec<&str> {
-    path.trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-pub fn get_parent_id(current_parent_id: &str) -> String {
-    if current_parent_id.is_empty() {
-        "/".to_string()
-    } else {
-        current_parent_id.to_string()
-    }
 }
 
 pub async fn get_personal_file_detail(

@@ -6,10 +6,6 @@ pub const MCLOUD_CLIENT: &str = "10701";
 pub const MCLOUD_CHANNEL: &str = "1000101";
 pub const MCLOUD_CHANNEL_SRC: &str = "10000034";
 pub const DEVICE_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||";
-pub const CLIENT_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
-
-// Personal-cloud file APIs use the desktop client identity; authentication and
-// legacy family/group protocols retain their existing fingerprints.
 pub const PC_CLIENT_INFO: &str =
     "||13|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
 
@@ -87,7 +83,12 @@ pub fn build_route_headers(
     Ok(headers)
 }
 
-pub fn build_common_headers() -> HeaderMap {
+pub fn build_personal_headers(
+    authorization: &str,
+    ts: &str,
+    rand_str: &str,
+    sign: &str,
+) -> Result<HeaderMap, ClientError> {
     let mut headers = build_web_headers();
     headers.insert("Caller", HeaderValue::from_static("web"));
     headers.insert("CMS-DEVICE", HeaderValue::from_static("default"));
@@ -101,59 +102,15 @@ pub fn build_common_headers() -> HeaderMap {
         "x-yun-channel-source",
         HeaderValue::from_static(MCLOUD_CHANNEL_SRC),
     );
-    headers.insert("x-yun-client-info", HeaderValue::from_static(CLIENT_INFO));
+    headers.insert(
+        "x-yun-client-info",
+        HeaderValue::from_static(PC_CLIENT_INFO),
+    );
     headers.insert("x-yun-module-type", HeaderValue::from_static("100"));
 
-    headers
-}
-
-pub fn build_signed_headers(
-    authorization: &str,
-    ts: &str,
-    rand_str: &str,
-    sign: &str,
-    svc_type: &str,
-) -> Result<HeaderMap, ClientError> {
-    let mut headers = build_common_headers();
-    if svc_type == "1" {
-        headers.insert(
-            "x-yun-client-info",
-            HeaderValue::from_static(PC_CLIENT_INFO),
-        );
-    }
-
-    headers.insert(
-        "x-yun-svc-type",
-        HeaderValue::from_str(svc_type)
-            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
-    );
-
+    headers.insert("x-yun-svc-type", HeaderValue::from_static("1"));
+    headers.insert("x-SvcType", HeaderValue::from_static("1"));
     insert_signature(&mut headers, authorization, ts, rand_str, sign)?;
-    headers.insert(
-        "x-SvcType",
-        HeaderValue::from_str(svc_type)
-            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
-    );
-
-    Ok(headers)
-}
-
-pub fn build_group_signed_headers(
-    authorization: &str,
-    ts: &str,
-    rand_str: &str,
-    sign: &str,
-    svc_type: &str,
-) -> Result<HeaderMap, ClientError> {
-    let mut headers = build_base_headers();
-
-    headers.insert(
-        "x-SvcType",
-        HeaderValue::from_str(svc_type)
-            .map_err(|e| ClientError::InvalidHeader(format!("{}", e)))?,
-    );
-    insert_signature(&mut headers, authorization, ts, rand_str, sign)?;
-
     Ok(headers)
 }
 

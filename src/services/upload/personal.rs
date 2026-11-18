@@ -49,7 +49,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
     super::super::directory_service::validate_name(file_name)?;
     let temporary_name = format!(
         "{SYNC_UPLOAD_PREFIX}{}",
-        crate::utils::crypto::generate_random_string(24)
+        crate::utils::rand::generate_rand_str(24)
     );
     let client = api::HttpClientWrapper::new();
     let personal = api::PersonalClient::with_host(config, host, &client, api::ListingRetry::None);
@@ -388,7 +388,7 @@ async fn install_uploaded_file(
         }
         let backup_name = format!(
             "{UPLOAD_BACKUP_PREFIX}{}",
-            crate::utils::crypto::generate_random_string(20)
+            crate::utils::rand::generate_rand_str(20)
         );
         personal
             .rename(old_id, &backup_name)

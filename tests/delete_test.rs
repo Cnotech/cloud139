@@ -8,11 +8,9 @@ fn test_delete_args_validation() {
         recursive: false,
         path: "/test.txt".to_string(),
         yes: false,
-        permanent: false,
     };
     assert_eq!(args.path, "/test.txt");
     assert!(!args.yes);
-    assert!(!args.permanent);
 }
 
 #[test]
@@ -21,22 +19,8 @@ fn test_delete_args_with_yes() {
         recursive: false,
         path: "/test.txt".to_string(),
         yes: true,
-        permanent: false,
     };
     assert!(args.yes);
-    assert!(!args.permanent);
-}
-
-#[test]
-fn test_delete_args_permanent() {
-    let args = delete::DeleteArgs {
-        recursive: false,
-        path: "/test.txt".to_string(),
-        yes: true,
-        permanent: true,
-    };
-    assert!(args.yes);
-    assert!(args.permanent);
 }
 
 #[test]
@@ -45,7 +29,6 @@ fn test_delete_args_root_path() {
         recursive: false,
         path: "/".to_string(),
         yes: true,
-        permanent: false,
     };
     assert_eq!(args.path, "/");
 }

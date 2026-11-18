@@ -47,11 +47,18 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - 切换到`应用（Application）`标签页，点击`存储（Storage）`-`Cookie`-`https://yun.139.com`
 - 找到 `authorization` 项，复制其值即可
 
-个人盘文件操作统一使用 PC 客户端标识；已有配置和从浏览器获取的 Token 继续沿用，登录命令与自动续期流程不变，无需安装官方 PC 客户端。
+个人盘文件操作统一使用 PC 客户端标识。登录和自动续期使用从浏览器获取的 Token。
 
 > 如果粘贴 Token 后提示 `Invalid token`，可尝试去除 `Basic ` 前缀，或在 Token 前后增加单引号（`'`）
 >
 > 更多详情可参考：[AList 文档](https://alistgo.com/zh/guide/drivers/139.html#%E6%96%B0%E4%B8%AA%E4%BA%BA%E4%BA%91)
+
+### 从 2.x 升级到 3.0
+
+- 创建目录时去掉 `mkdir -f` 或 `mkdir --force`。需要同时创建父目录时使用 `mkdir -p`。
+- 登录使用 `cloud139 login -t <TOKEN>`。旧脚本可移除 `--storage-type`、`--cloud-id` 和 `--root-folder-id`。
+- `rm --yes` 将文件移到回收站，目录另加 `-r`。`--permanent` 已移除。
+- 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
 
 ### 基本使用
 
@@ -131,7 +138,7 @@ cloud139 rm -r --yes /a
 
 目录创建不自动改名。复制、移动、重命名的目录重名冲突即使加 `--force` 也会拒绝；文件同名可使用 `--force`。禁止根目录变更，路径先规范化，复制/移动禁止自身与子目录目标。非法跨平台名称、服务端路径穿越名称和本地符号链接会被拒绝。
 
-个人盘支持目录上传、下载、`mkdir -p`、`ls -R`、`rm -r`、多源复制和移动，以及文件和目录重命名。`--permanent` 会返回错误。递归任务失败会返回非零退出码，此前成功的条目会保留。详见 [目录操作与测试说明](docs/directory-operations.md)。
+个人盘支持目录上传、下载、`mkdir -p`、`ls -R`、`rm -r`、多源复制和移动，以及文件和目录重命名。递归任务失败会返回非零退出码，此前成功的条目会保留。详见 [目录操作与测试说明](docs/directory-operations.md)。
 
 ## 全局选项
 
@@ -258,7 +265,7 @@ cloud139 download /folder/photo.jpg ./downloads/
 
 ### rm
 
-删除云盘文件或目录。
+将云盘文件或目录移到回收站。
 
 ```bash
 cloud139 rm [-r] --yes <路径>
@@ -271,7 +278,6 @@ cloud139 rm [-r] --yes <路径>
 | 路径 | - | 是 | 要删除的文件或目录路径 |
 | --yes | -y | 是 | 确认删除 |
 | --recursive | -r | 目录必需 | 确认递归删除目录 |
-| --permanent | -p | 否 | 当前明确拒绝：没有可靠的永久删除协议 |
 
 **示例：**
 
@@ -297,7 +303,6 @@ cloud139 mkdir [-p] <路径>
 |------|------|------|------|
 | 路径 | - | 是 | 新目录路径，格式：/父目录/新目录名 |
 | --parents | -p | 否 | 递归创建父目录；已有目录成功，同名文件报错 |
-| --force | -f | 否 | 为旧脚本保留。传入后与省略时行为相同 |
 
 **示例：**
 
@@ -452,7 +457,7 @@ cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
 
 ## 配置文件
 
-登录成功后，配置信息默认保存到 `~/.config/cloud139/cloud139rc.toml`。
+登录成功后，配置信息默认保存到当前工作目录的 `cloud139rc.toml`。
 
 读取时按以下优先级查找：
 
@@ -460,7 +465,7 @@ cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
 2. 当前工作目录下的 `cloud139rc.toml`
 3. 全局路径 `~/.config/cloud139/cloud139rc.toml`
 
-`login` 时如果指定了 `--config <PATH>`，则将配置文件写入该路径；否则写入全局路径（若当前工作目录已存在 `cloud139rc.toml`，则沿用该文件）。
+`login` 时如果指定了 `--config <PATH>`，则将配置文件写入该路径。
 
 ### 配置文件结构
 
@@ -468,15 +473,11 @@ cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
 authorization = "..."
 account = "13800138000"
 storage_type = "personal_new"
-cloud_id = null
 custom_upload_part_size = 0
-report_real_size = true
 use_large_thumbnail = false
 personal_cloud_host = "https://personal-kd-njs.yun.139.com/hcy"
 refresh_token = "..."
 token_expire_time = 1775454807088
-root_folder_id = null
-user_domain_id = null
 ```
 
 ### 字段说明
@@ -485,16 +486,12 @@ user_domain_id = null
 |------|------|------|
 | `authorization` | String | 授权Token，用于API请求认证 |
 | `account` | String | 登录账号（手机号） |
-| `storage_type` | String | 仅支持个人云 `personal_new`，兼容 `personal` 和空值 |
-| `cloud_id` | String/null | 兼容旧配置字段 |
+| `storage_type` | String | 必填，个人云使用 `personal_new` |
 | `custom_upload_part_size` | Number | 自定义分片大小（字节），0表示使用默认值 |
-| `report_real_size` | Boolean | 上传时是否报告真实文件大小 |
 | `use_large_thumbnail` | Boolean | 是否使用大缩略图 |
 | `personal_cloud_host` | String | 个人云API服务器地址 |
 | `refresh_token` | String | 刷新Token，用于自动续期 |
 | `token_expire_time` | Number | Token过期时间（毫秒时间戳） |
-| `root_folder_id` | String/null | 兼容旧配置字段 |
-| `user_domain_id` | String/null | 用户域ID |
 
 ## 项目结构
 

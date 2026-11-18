@@ -8,20 +8,8 @@ fn test_mkdir_args_defaults() {
     let args = mkdir::MkdirArgs {
         parents: false,
         path: "/test".to_string(),
-        force: false,
     };
     assert_eq!(args.path, "/test");
-    assert!(!args.force);
-}
-
-#[test]
-fn test_mkdir_args_with_force() {
-    let args = mkdir::MkdirArgs {
-        parents: false,
-        path: "/test".to_string(),
-        force: true,
-    };
-    assert!(args.force);
 }
 
 #[test]

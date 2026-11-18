@@ -15,7 +15,7 @@ use tokio::fs;
 
 // 项目内部导入（使用 crate:: 前缀）
 use crate::client::{ClientError, api::HttpClientWrapper};
-use crate::domain::StorageType;
+use crate::domain::EntryKind;
 use crate::commands::list;
 use crate::models::FileInfo;
 use crate::{error, info, success, warn};
@@ -26,7 +26,7 @@ use crate::{error, info, success, warn};
 | 类型 | 命名规范 | 示例 |
 |------|----------|------|
 | 模块/文件名 | snake_case | `client_api.rs` |
-| Struct/Enum | PascalCase | `ClientError`, `StorageType` |
+| Struct/Enum | PascalCase | `ClientError`, `EntryKind` |
 | 函数/方法 | snake_case | `parse_path`, `execute` |
 | 变量 | snake_case | `storage_type`, `file_info` |
 | 常量 | SCREAMING_SNAKE_CASE | `KEY_HEX_1` |
@@ -37,6 +37,10 @@ use crate::{error, info, success, warn};
 - 条件操作先写动作和对象，再用 `_if_<具体条件>` 标明执行条件。避免用 `maybe_` 或 `_if_needed` 代替具体条件。
 - 将调用方需要知道的副作用写进名称。`refresh_token_if_due` 返回更新后的配置，`refresh_and_save_token_if_due` 还会把结果写回配置文件。
 - 只返回布尔值的判断用 `is_` 或 `has_` 等谓词，如 `is_token_refresh_due`。在文档中说明具体触发条件。
+
+### 破坏性变更
+
+删除废弃的 API 和命令行参数时，提升 SemVer 主版本，并在升级说明中列出受影响的用法和迁移方式。
 
 ## 错误处理
 

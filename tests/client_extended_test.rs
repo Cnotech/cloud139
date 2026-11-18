@@ -2,8 +2,7 @@
 
 mod client_test_extended {
     use cloud139::client::ClientError;
-    use cloud139::config::Config;
-    use cloud139::domain::StorageType;
+
     use cloud139::utils::{generate_rand_str, sort_json_value_to_string};
     use serde_json::json;
 
@@ -125,33 +124,6 @@ mod client_test_extended {
     }
 
     #[test]
-    fn test_storage_type_default() {
-        let st: StorageType = StorageType::default();
-        assert_eq!(st, StorageType::PersonalNew);
-    }
-
-    #[test]
-    fn test_storage_type_eq() {
-        assert_eq!(StorageType::PersonalNew, StorageType::PersonalNew);
-        assert_eq!(StorageType::Family, StorageType::Family);
-        assert_eq!(StorageType::Group, StorageType::Group);
-    }
-
-    #[test]
-    fn test_storage_type_clone() {
-        let st = StorageType::Family;
-        let cloned = st.clone();
-        assert_eq!(st, cloned);
-    }
-
-    #[test]
-    fn test_storage_type_serialize() {
-        let st = StorageType::PersonalNew;
-        let json = serde_json::to_string(&st).unwrap();
-        assert!(json.contains("personalnew"));
-    }
-
-    #[test]
     fn test_client_error_display() {
         let err = ClientError::NotLoggedIn;
         assert_eq!(err.to_string(), "未登录");
@@ -179,50 +151,5 @@ mod client_test_extended {
         let err = ClientError::NotLoggedIn;
         let debug_str = format!("{:?}", err);
         assert!(!debug_str.is_empty());
-    }
-
-    #[test]
-    fn test_config_storage_type_personal() {
-        let config = Config {
-            storage_type: "personal_new".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(config.storage_type(), StorageType::PersonalNew);
-    }
-
-    #[test]
-    fn test_config_storage_type_family() {
-        let config = Config {
-            storage_type: "family".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(config.storage_type(), StorageType::Family);
-    }
-
-    #[test]
-    fn test_config_storage_type_group() {
-        let config = Config {
-            storage_type: "group".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(config.storage_type(), StorageType::Group);
-    }
-
-    #[test]
-    fn test_config_storage_type_unknown() {
-        let config = Config {
-            storage_type: "unknown".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(config.storage_type(), StorageType::PersonalNew);
-    }
-
-    #[test]
-    fn test_config_storage_type_empty() {
-        let config = Config {
-            storage_type: "".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(config.storage_type(), StorageType::PersonalNew);
     }
 }

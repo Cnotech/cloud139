@@ -8,9 +8,6 @@ pub struct MkdirArgs {
 
     #[arg(help = "新目录路径，格式: /父目录/新目录名")]
     pub path: String,
-
-    #[arg(short, long, help = "为旧脚本保留。传入后与省略时行为相同")]
-    pub force: bool,
 }
 
 pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {

@@ -12,19 +12,10 @@ pub struct DeleteArgs {
 
     #[arg(short, long, help = "确认删除")]
     pub yes: bool,
-
-    #[arg(short, long, help = "永久删除（协议未核实，当前明确拒绝）")]
-    pub permanent: bool,
 }
 
 pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
     crate::services::directory_service::non_root(&args.path)?;
-    if args.permanent {
-        return Err(crate::services::directory_service::invalid(
-            "尚无可靠的永久删除协议，已拒绝操作；未移动到回收站",
-        )
-        .into());
-    }
     if !args.yes {
         warn!("此操作会将文件或目录移动到回收站");
         info!("使用 --yes 参数确认删除；目录还需要 -r");
@@ -33,11 +24,8 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
 
     let config = crate::config::Config::load_personal()?;
 
-    debug!(
-        "准备删除云端条目 path={} permanent={}",
-        args.path, args.permanent
-    );
-    crate::services::delete(&config, &args.path, args.permanent, args.recursive).await?;
+    debug!("准备删除云端条目 path={}", args.path);
+    crate::services::delete(&config, &args.path, args.recursive).await?;
 
     success!("文件或目录已移动到回收站");
 

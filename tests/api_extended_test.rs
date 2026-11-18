@@ -1,64 +1,10 @@
 #![allow(dead_code)]
 
 mod api_extended_test {
-    use cloud139::client::api::{HttpClientWrapper, get_parent_id, parse_path_segments};
+    use cloud139::client::api::HttpClientWrapper;
     use cloud139::config::Config;
-    use cloud139::domain::StorageType;
+
     use cloud139::models::*;
-
-    #[test]
-    fn test_parse_path_segments_empty() {
-        let result = parse_path_segments("");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_path_segments_root() {
-        let result = parse_path_segments("/");
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_parse_path_segments_single() {
-        let result = parse_path_segments("test");
-        assert_eq!(result, vec!["test"]);
-    }
-
-    #[test]
-    fn test_parse_path_segments_multiple() {
-        let result = parse_path_segments("/folder1/folder2/file.txt");
-        assert_eq!(result, vec!["folder1", "folder2", "file.txt"]);
-    }
-
-    #[test]
-    fn test_parse_path_segments_with_leading_slash() {
-        let result = parse_path_segments("/folder1/folder2");
-        assert_eq!(result, vec!["folder1", "folder2"]);
-    }
-
-    #[test]
-    fn test_parse_path_segments_multiple_slashes() {
-        let result = parse_path_segments("///folder///file///");
-        assert_eq!(result, vec!["folder", "file"]);
-    }
-
-    #[test]
-    fn test_get_parent_id_empty() {
-        let result = get_parent_id("");
-        assert_eq!(result, "/");
-    }
-
-    #[test]
-    fn test_get_parent_id_root() {
-        let result = get_parent_id("/");
-        assert_eq!(result, "/");
-    }
-
-    #[test]
-    fn test_get_parent_id_with_value() {
-        let result = get_parent_id("12345");
-        assert_eq!(result, "12345");
-    }
 
     #[test]
     fn test_http_client_wrapper_default() {
@@ -70,34 +16,6 @@ mod api_extended_test {
     fn test_http_client_wrapper_new() {
         let wrapper = HttpClientWrapper::new();
         assert!(std::mem::size_of_val(&wrapper.client) > 0);
-    }
-
-    #[test]
-    fn test_storage_type_svc_type() {
-        assert_eq!(StorageType::PersonalNew.svc_type(), "1");
-        assert_eq!(StorageType::Family.svc_type(), "2");
-        assert_eq!(StorageType::Group.svc_type(), "3");
-    }
-
-    #[test]
-    fn test_storage_type_as_str() {
-        assert_eq!(StorageType::PersonalNew.as_str(), "personal_new");
-        assert_eq!(StorageType::Family.as_str(), "family");
-        assert_eq!(StorageType::Group.as_str(), "group");
-    }
-
-    #[test]
-    fn test_storage_type_from_str() {
-        assert_eq!(StorageType::from_str_raw("family"), StorageType::Family);
-        assert_eq!(StorageType::from_str_raw("group"), StorageType::Group);
-        assert_eq!(
-            StorageType::from_str_raw("personal_new"),
-            StorageType::PersonalNew
-        );
-        assert_eq!(
-            StorageType::from_str_raw("unknown"),
-            StorageType::PersonalNew
-        );
     }
 
     #[tokio::test]

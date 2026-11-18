@@ -1,3 +1,4 @@
+use cloud139::utils::rand::generate_rand_str;
 use cloud139::utils::*;
 
 #[test]
@@ -156,9 +157,9 @@ fn signature_matches_upstream_go_vectors_with_movie_names() {
 
 #[test]
 fn test_generate_random_string_length() {
-    let s5 = generate_random_string(5);
-    let s10 = generate_random_string(10);
-    let s100 = generate_random_string(100);
+    let s5 = generate_rand_str(5);
+    let s10 = generate_rand_str(10);
+    let s100 = generate_rand_str(100);
 
     assert_eq!(s5.len(), 5);
     assert_eq!(s10.len(), 10);
@@ -167,7 +168,7 @@ fn test_generate_random_string_length() {
 
 #[test]
 fn test_generate_random_string_charset() {
-    let s = generate_random_string(1000);
+    let s = generate_rand_str(1000);
     for c in s.chars() {
         assert!(c.is_ascii_alphanumeric() || c == '-' || c == '_');
     }
