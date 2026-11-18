@@ -13,7 +13,7 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
                 .personal_api_request::<serde_json::Value>(
                     &config,
                     "invalid",
-                    serde_json::json!({}),
+                    &serde_json::json!({}),
                     storage,
                 )
                 .await,

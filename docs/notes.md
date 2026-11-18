@@ -34,7 +34,7 @@
 
 - 单元测试写在对应源文件内的 `#[cfg(test)]` 模块
 - 集成测试放在 `tests/` 目录（如有）
-- 测试可能需要真实 API 调用或 mock（使用 `httpmock`、`mockall`）
+- 测试可能需要真实 API 调用或 mock（使用 `httpmock`）
 
 ## 日志与输出
 

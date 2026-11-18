@@ -17,7 +17,6 @@
 | anyhow | 1 | 通用错误处理 |
 | chrono | 0.4 | 时间处理 |
 | indicatif | 0.17 | 进度条 |
-| async-trait | 0.1 | 异步 trait |
 | directories | 5 | 目录路径处理 |
 | base64 | 0.22 | Base64 编解码 |
 | hex | 0.4 | 十六进制编解码 |
@@ -45,6 +44,5 @@
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | tempfile | 3 | 临时文件/目录（测试） |
-| mockall | 0.14 | Mock 框架（测试） |
 | httpmock | 0.8 | HTTP Mock 服务器（测试） |
 | serde_json | 1 | JSON 处理（测试） |

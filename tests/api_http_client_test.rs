@@ -28,11 +28,8 @@ async fn test_get_personal_cloud_host_with_empty_account() {
 }
 
 #[tokio::test]
-async fn cli_and_library_post_entry_points_send_the_same_personal_headers() {
-    use cloud139::{
-        client::{Client, PC_CLIENT_INFO},
-        domain::StorageType,
-    };
+async fn personal_post_sends_expected_signed_headers() {
+    use cloud139::{client::api::headers::PC_CLIENT_INFO, domain::StorageType};
     use httpmock::prelude::*;
     use serde_json::{Value, json};
 
@@ -52,14 +49,10 @@ async fn cli_and_library_post_entry_points_send_the_same_personal_headers() {
     };
     let body = json!({"key":"中文"});
     let url = server.url("/post");
-    let direct: Value = HttpClientWrapper::new()
-        .personal_api_request(&config, &url, body.clone(), StorageType::PersonalNew)
+    let response: Value = HttpClientWrapper::new()
+        .personal_api_request(&config, &url, &body, StorageType::PersonalNew)
         .await
         .unwrap();
-    let via_client: Value = Client::new(config)
-        .api_request_post(&url, body)
-        .await
-        .unwrap();
-    assert_eq!(direct, via_client);
-    request.assert_calls(2);
+    assert_eq!(response, json!({"success": true}));
+    request.assert_calls(1);
 }

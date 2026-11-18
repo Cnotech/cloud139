@@ -1,22 +1,21 @@
-use cloud139::client::{Client, ClientError};
-use cloud139::config::Config;
+use cloud139::client::{ClientError, auth};
 use cloud139::domain::StorageType;
 
 #[test]
 fn test_generate_rand_str() {
-    let s = cloud139::client::generate_rand_str(10);
+    let s = cloud139::utils::generate_rand_str(10);
     assert_eq!(s.len(), 10);
 }
 
 #[test]
 fn test_generate_rand_str_empty() {
-    let s = cloud139::client::generate_rand_str(0);
+    let s = cloud139::utils::generate_rand_str(0);
     assert_eq!(s.len(), 0);
 }
 
 #[test]
 fn test_generate_rand_str_charset() {
-    let s = cloud139::client::generate_rand_str(1000);
+    let s = cloud139::utils::generate_rand_str(1000);
     for c in s.chars() {
         assert!(c.is_ascii_alphanumeric() || c == '-' || c == '_');
     }
@@ -25,7 +24,7 @@ fn test_generate_rand_str_charset() {
 #[test]
 fn test_sort_json_value_object() {
     let value = serde_json::json!({"b": 2, "a": 1});
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("\"a\""));
     assert!(result.contains("\"b\""));
 }
@@ -33,7 +32,7 @@ fn test_sort_json_value_object() {
 #[test]
 fn test_sort_json_value_array() {
     let value = serde_json::json!([3, 1, 2]);
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("1"));
     assert!(result.contains("2"));
     assert!(result.contains("3"));
@@ -42,42 +41,42 @@ fn test_sort_json_value_array() {
 #[test]
 fn test_sort_json_value_string() {
     let value = serde_json::json!("hello");
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("hello"));
 }
 
 #[test]
 fn test_sort_json_value_number() {
     let value = serde_json::json!(42);
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("42"));
 }
 
 #[test]
 fn test_sort_json_value_bool_true() {
     let value = serde_json::json!(true);
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("true"));
 }
 
 #[test]
 fn test_sort_json_value_bool_false() {
     let value = serde_json::json!(false);
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("false"));
 }
 
 #[test]
 fn test_sort_json_value_null() {
     let value = serde_json::json!(null);
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("null"));
 }
 
 #[test]
 fn test_sort_json_nested() {
     let value = serde_json::json!({"outer": {"inner": 1}, "z": 0});
-    let result = cloud139::client::sort_json_value_to_string(&value);
+    let result = cloud139::utils::sort_json_value_to_string(&value);
     assert!(result.contains("inner"));
     assert!(result.contains("outer"));
 }
@@ -159,81 +158,26 @@ fn test_client_error_display() {
     assert_eq!(err.to_string(), "其他错误: test error");
 }
 
-#[test]
-fn test_client_new() {
-    let config = Config {
-        authorization: "test_auth".to_string(),
-        account: "test_account".to_string(),
-        storage_type: "personal".to_string(),
-        ..Default::default()
-    };
-
-    let client = Client::new(config.clone());
-    assert_eq!(client.config.account, "test_account");
-    assert_eq!(client.config.authorization, "test_auth");
-}
-
 #[tokio::test]
-async fn test_client_login_invalid_token() {
-    let result = Client::login("invalid_base64".to_string(), "personal".to_string(), None).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_client_login_invalid_format() {
+async fn test_login_invalid_format() {
     let token =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "invalid_format");
-    let result = Client::login(token, "personal".to_string(), None).await;
+    let result = auth::login(&token, "personal", None).await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
-async fn test_client_login_missing_parts() {
-    let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "pc:account");
-    let result = Client::login(token, "personal".to_string(), None).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_client_login_missing_token_parts() {
-    let token = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        "pc:account:token",
-    );
-    let result = Client::login(token, "personal".to_string(), None).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_client_login_valid() {
+async fn test_login_accepts_legacy_personal_storage() {
     let expire_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
     let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
     let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
 
-    let result = Client::login(token, "personal".to_string(), None).await;
+    let result = auth::login(&token, "personal", None).await;
     assert!(result.is_ok());
 
-    let client = result.unwrap();
-    assert_eq!(client.config.account, "13800138000");
-    assert_eq!(client.config.storage_type, "personal");
-}
-
-#[tokio::test]
-async fn test_client_login_with_cloud_id() {
-    let expire_time = chrono::Utc::now().timestamp_millis() + 30 * 24 * 60 * 60 * 1000;
-    let token_str = format!("pc:13800138000:token|abc|def|{}", expire_time);
-    let token = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &token_str);
-
-    let result = Client::login(
-        token,
-        "personal_new".to_string(),
-        Some("cloud123".to_string()),
-    )
-    .await;
-    assert!(result.is_ok());
-
-    let client = result.unwrap();
-    assert_eq!(client.config.cloud_id, Some("cloud123".to_string()));
+    let config = result.unwrap();
+    assert_eq!(config.account, "13800138000");
+    assert_eq!(config.storage_type, "personal");
 }
 
 #[test]

@@ -1,8 +1,12 @@
 use cloud139::{
-    client::{CLIENT_INFO, DEVICE_INFO, PC_CLIENT_INFO, api, auth, headers},
+    client::{
+        api::{self, headers},
+        auth,
+    },
     config::Config,
     domain::StorageType,
 };
+use headers::{CLIENT_INFO, DEVICE_INFO, PC_CLIENT_INFO};
 use httpmock::prelude::*;
 use serde_json::json;
 
@@ -100,7 +104,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
             .personal_api_request(
                 &refreshed,
                 &server.url(endpoint),
-                json!({}),
+                &json!({}),
                 StorageType::PersonalNew,
             )
             .await

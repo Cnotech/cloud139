@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
 mod client_test_extended {
-    use cloud139::client::{Client, ClientError, generate_rand_str, sort_json_value_to_string};
+    use cloud139::client::ClientError;
     use cloud139::config::Config;
     use cloud139::domain::StorageType;
+    use cloud139::utils::{generate_rand_str, sort_json_value_to_string};
     use serde_json::json;
 
     #[test]
@@ -121,14 +122,6 @@ mod client_test_extended {
         assert!(result.contains("\"items\""));
         assert!(result.contains("\"name\""));
         assert!(result.contains("\"nested\""));
-    }
-
-    #[test]
-    fn test_client_new() {
-        let config = Config::default();
-        let client = Client::new(config);
-        // Client should be created successfully
-        assert!(std::mem::size_of_val(&client.http_client) > 0);
     }
 
     #[test]

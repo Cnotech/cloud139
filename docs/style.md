@@ -14,7 +14,8 @@ use thiserror::Error;
 use tokio::fs;
 
 // 项目内部导入（使用 crate:: 前缀）
-use crate::client::{Client, ClientError, StorageType};
+use crate::client::{ClientError, api::HttpClientWrapper};
+use crate::domain::StorageType;
 use crate::commands::list;
 use crate::models::FileInfo;
 use crate::{error, info, success, warn};

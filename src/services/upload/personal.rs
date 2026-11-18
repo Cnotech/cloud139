@@ -495,7 +495,7 @@ mod tests {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
                 when.method(POST).path("/file/create")
-                    .header("x-yun-client-info", crate::client::PC_CLIENT_INFO)
+                    .header("x-yun-client-info", api::headers::PC_CLIENT_INFO)
                     .json_body_includes(format!("{{\"size\":{size}}}"));
                 then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
             });
@@ -517,7 +517,7 @@ mod tests {
             when.method(POST)
                 .path("/file/create")
                 .json_body_includes(r#"{"size":1}"#)
-                .header("x-yun-client-info", crate::client::PC_CLIENT_INFO);
+                .header("x-yun-client-info", api::headers::PC_CLIENT_INFO);
             then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
         });
         let error = personal
@@ -569,7 +569,7 @@ mod tests {
                 let mut request = server.mock(|when, then| {
                     when.method(POST).path("/file/create")
                         .header("Authorization", format!("Basic fictional-{plan}-token"))
-                        .header("x-yun-client-info", crate::client::PC_CLIENT_INFO)
+                        .header("x-yun-client-info", api::headers::PC_CLIENT_INFO)
                         .json_body(json!({
                             "contentHash": "fictional-hash", "contentHashAlgorithm": "SHA256",
                             "contentType": "application/octet-stream", "parallelUpload": false,

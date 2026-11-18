@@ -5,7 +5,6 @@ use crate::utils::generate_rand_str;
 use reqwest::{Client, ClientBuilder, RequestBuilder};
 use std::time::Duration;
 
-const DESKTOP_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const REFRESH_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 pub struct HttpClientWrapper {
@@ -36,13 +35,6 @@ fn http_client_builder() -> ClientBuilder {
     Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
-}
-
-pub(in crate::client) fn desktop_http_client() -> Client {
-    http_client_builder()
-        .user_agent(DESKTOP_USER_AGENT)
-        .build()
-        .expect("HTTP 客户端初始化失败")
 }
 
 pub(super) fn refresh_http_client(timeout: Duration) -> Result<Client, ClientError> {

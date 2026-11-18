@@ -5,7 +5,6 @@ use crate::config::Config;
 use crate::debug;
 use crate::models::QueryRoutePolicyResp;
 
-pub mod api_trait;
 pub mod endpoints;
 pub mod headers;
 mod personal;
@@ -17,7 +16,6 @@ pub mod upload;
 pub use personal::mutation_succeeded;
 pub(crate) use personal::{ListPageOptions, ListingRetry, PersonalClient};
 pub use request::HttpClientWrapper;
-pub(super) use request::desktop_http_client;
 pub(crate) use transfer::DownloadLink;
 
 impl HttpClientWrapper {
@@ -84,10 +82,21 @@ impl HttpClientWrapper {
         &self,
         config: &Config,
         url: &str,
-        body: serde_json::Value,
+        body: &serde_json::Value,
         storage_type: crate::domain::StorageType,
     ) -> Result<T, ClientError> {
-        personal_post(config, url, &body, storage_type, &self.client).await
+        config.require_personal()?;
+        if storage_type != crate::domain::StorageType::PersonalNew {
+            return Err(ClientError::UnsupportedStorage);
+        }
+        signed_post(
+            &config.authorization,
+            url,
+            body,
+            &self.client,
+            SignedEndpoint::Personal,
+        )
+        .await
     }
 
     pub async fn check_file_exists(
@@ -152,51 +161,6 @@ pub fn get_parent_id(current_parent_id: &str) -> String {
     } else {
         current_parent_id.to_string()
     }
-}
-
-pub(super) async fn personal_post<T: for<'de> serde::Deserialize<'de>>(
-    config: &Config,
-    url: &str,
-    body: &serde_json::Value,
-    storage_type: crate::domain::StorageType,
-    client: &reqwest::Client,
-) -> Result<T, ClientError> {
-    config.require_personal()?;
-    if storage_type != crate::domain::StorageType::PersonalNew {
-        return Err(ClientError::UnsupportedStorage);
-    }
-    signed_post(
-        &config.authorization,
-        url,
-        body,
-        client,
-        SignedEndpoint::Personal,
-    )
-    .await
-}
-
-pub async fn get_family_download_link(
-    _config: &Config,
-    _content_id: &str,
-    _path: &str,
-) -> Result<String, ClientError> {
-    Err(ClientError::UnsupportedStorage)
-}
-
-pub async fn get_group_download_link(
-    _config: &Config,
-    _content_id: &str,
-    _path: &str,
-) -> Result<String, ClientError> {
-    Err(ClientError::UnsupportedStorage)
-}
-
-pub async fn get_family_root_path(_config: &Config) -> Result<String, ClientError> {
-    Err(ClientError::UnsupportedStorage)
-}
-
-pub async fn get_group_root_by_cloud_id(_config: &Config) -> Result<String, ClientError> {
-    Err(ClientError::UnsupportedStorage)
 }
 
 pub async fn get_personal_file_detail(

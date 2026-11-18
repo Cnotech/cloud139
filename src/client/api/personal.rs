@@ -1,4 +1,4 @@
-use super::{DownloadLink, HttpClientWrapper, personal_post};
+use super::{DownloadLink, HttpClientWrapper};
 use crate::client::ClientError;
 use crate::config::Config;
 use crate::domain::StorageType;
@@ -85,14 +85,14 @@ impl<'a> PersonalClient<'a> {
         endpoint: &str,
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
-        personal_post(
-            self.config,
-            &format!("{}{endpoint}", self.host),
-            body,
-            StorageType::PersonalNew,
-            &self.http_client.client,
-        )
-        .await
+        self.http_client
+            .personal_api_request(
+                self.config,
+                &format!("{}{endpoint}", self.host),
+                body,
+                StorageType::PersonalNew,
+            )
+            .await
     }
 
     pub(crate) async fn download_link(
