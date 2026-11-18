@@ -72,7 +72,7 @@ pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
     refresh_token_at(config, AUTH_TOKEN_REFRESH_URL).await
 }
 
-/// 与 refresh_token 相同，但可以指定接口地址（测试用）。
+/// 向指定的接口地址发起 Token 续期，使用默认请求超时。
 pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
     refresh_token_with_timeout(config, url, REFRESH_REQUEST_TIMEOUT).await
 }
