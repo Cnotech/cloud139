@@ -22,6 +22,12 @@ struct State {
     children: HashMap<String, Vec<Value>>,
     requests: Vec<(String, Value)>,
     fail_name: Option<String>,
+    fail_upload: bool,
+    fail_rename_to: Option<String>,
+    sync_mutations: bool,
+    staged_id_mismatch: bool,
+    omit_staged_id: bool,
+    staged_visibility_delay: usize,
     fail_batch: bool,
     fail_trash_item: bool,
     page_size: usize,
@@ -72,7 +78,22 @@ impl Server {
                                     .unwrap_or("")
                                     .parse::<usize>()
                                     .unwrap_or(0);
-                                let items = state.children.get(parent).cloned().unwrap_or_default();
+                                let mut items =
+                                    state.children.get(parent).cloned().unwrap_or_default();
+                                if state.staged_visibility_delay > 0
+                                    && items.iter().any(|item| {
+                                        item["name"].as_str().is_some_and(|name| {
+                                            name.starts_with(".cloud139-upload-")
+                                        })
+                                    })
+                                {
+                                    state.staged_visibility_delay -= 1;
+                                    items.retain(|item| {
+                                        !item["name"].as_str().is_some_and(|name| {
+                                            name.starts_with(".cloud139-upload-")
+                                        })
+                                    });
+                                }
                                 let end = (offset + state.page_size).min(items.len());
                                 let next = if state.cycle {
                                     "1".into()
@@ -84,19 +105,30 @@ impl Server {
                                 json!({"success":true,"data":{"items":items.get(offset..end).unwrap_or_default(),"nextPageCursor":next}})
                             }
                             "/file/create" => {
-                                if state
-                                    .fail_name
-                                    .as_deref()
-                                    .is_some_and(|name| body["name"] == name)
+                                if (state.fail_upload && body["type"] == "file")
+                                    || state
+                                        .fail_name
+                                        .as_deref()
+                                        .is_some_and(|name| body["name"] == name)
                                 {
-                                    json!({"success":false,"message":"injected failure"})
+                                    json!({"success":false,"code":"04010319","message":"injected failure"})
                                 } else {
                                     let id = format!("id-{}", state.requests.len());
+                                    let staged_id = if state.staged_id_mismatch {
+                                        "different-id"
+                                    } else {
+                                        &id
+                                    };
                                     let parent = body["parentFileId"].as_str().unwrap().to_owned();
-                                    let item = json!({"fileId":id,"name":body["name"],"type":body["type"],"size":body["size"]});
+                                    let item = json!({"fileId":staged_id,"name":body["name"],"type":body["type"],"size":body["size"]});
                                     state.children.entry(parent).or_default().push(item);
                                     // Fast-upload mock acknowledges by hash without a data transfer.
-                                    json!({"success":true})
+                                    if state.sync_mutations {
+                                        let file_id = (!state.omit_staged_id).then_some(&id);
+                                        json!({"success":true,"data":{"fileId":file_id,"fileName":body["name"],"exist":true,"partInfos":[]}})
+                                    } else {
+                                        json!({"success":true})
+                                    }
                                 }
                             }
                             "/file/getDownloadUrl" => {
@@ -117,8 +149,29 @@ impl Server {
                             "/file/batchCopy" | "/file/batchMove" => {
                                 json!({"success":!state.fail_batch,"message":"injected batch failure"})
                             }
-                            "/file/update" => json!({"success":true}),
+                            "/file/update" => {
+                                if state.fail_rename_to.as_deref() == body["name"].as_str() {
+                                    json!({"success":false,"message":"injected rename failure"})
+                                } else {
+                                    if state.sync_mutations {
+                                        for items in state.children.values_mut() {
+                                            for item in items.iter_mut() {
+                                                if item["fileId"] == body["fileId"] {
+                                                    item["name"] = body["name"].clone();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    json!({"success":true})
+                                }
+                            }
                             "/recyclebin/batchTrash" => {
+                                if state.sync_mutations && !state.fail_trash_item {
+                                    let ids = body["fileIds"].as_array().unwrap();
+                                    for items in state.children.values_mut() {
+                                        items.retain(|item| !ids.contains(&item["fileId"]));
+                                    }
+                                }
                                 json!({"success":true,"data":{"results":[{"success":!state.fail_trash_item}]}})
                             }
                             _ => json!({"success":false,"message":"unknown mock endpoint"}),
@@ -175,6 +228,28 @@ impl Server {
             })
             .cloned()
             .collect()
+    }
+
+    fn sync_command(&self, root: &std::path::Path) -> std::process::Command {
+        let source = root.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("movie.bin"), b"new content").unwrap();
+        let config = root.join("profile.toml");
+        let mut profile = self.config();
+        profile.token_expire_time = Some(i64::MAX);
+        profile.save_to(&config).unwrap();
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+        command
+            .arg("--config")
+            .arg(&config)
+            .arg("sync")
+            .arg(&source)
+            .arg("cloud:/")
+            .current_dir(root)
+            .env("HOME", root)
+            .env("XDG_CONFIG_HOME", root)
+            .env("USERPROFILE", root);
+        command
     }
 }
 impl Drop for Server {
@@ -561,79 +636,221 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn oversized_uploads_continue_and_sync_delete_preserves_cloud_directory() {
+async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload() {
     let server = Server::new();
     let tmp = tempfile::tempdir().unwrap();
-    let source = tmp.path().join("source");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::File::create(source.join("a-large.bin"))
-        .unwrap()
-        .set_len(cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES + 1)
-        .unwrap();
-    std::fs::write(source.join("z-small.bin"), b"small").unwrap();
-    let error =
-        services::upload_service::upload_directory(&server.config(), &source, "/", true, false)
-            .await
-            .unwrap_err();
-    let message = error.to_string();
-    assert!(message.contains("成功 1 个，超限未传 1 个"), "{message}");
-    assert!(
-        !server
-            .mutations()
-            .iter()
-            .any(|(_, b)| b["name"] == "a-large.bin")
-    );
-    assert!(
-        server
-            .mutations()
-            .iter()
-            .any(|(_, b)| b["name"] == "z-small.bin")
-    );
-
-    // --delete must preserve the cloud directory corresponding to a blocked file.
-    server.set("/", vec![folder("old", "a-large.bin")]);
+    server.set("/", vec![folder("old", "movie.bin")]);
     server.set("old", vec![file("keep", "keep.txt")]);
-    server.state.lock().unwrap().requests.clear();
-    let config = tmp.path().join("profile.toml");
-    let mut profile = server.config();
-    profile.token_expire_time = Some(i64::MAX);
-    profile.save_to(&config).unwrap();
-    for dry_run in [true, false] {
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
-        command
-            .arg("--config")
-            .arg(&config)
-            .arg("sync")
-            .arg(&source)
-            .args(["cloud:/", "-r", "--delete"])
-            .current_dir(tmp.path())
-            .env("HOME", tmp.path())
-            .env("XDG_CONFIG_HOME", tmp.path());
+    {
+        let mut state = server.state.lock().unwrap();
+        state.fail_upload = true;
+        state.sync_mutations = true;
+    }
+    for (dry_run, fail_upload) in [(true, true), (false, true), (false, false)] {
+        {
+            let mut state = server.state.lock().unwrap();
+            state.requests.clear();
+            state.fail_upload = fail_upload;
+            state.staged_visibility_delay = if !dry_run && !fail_upload { 2 } else { 0 };
+        }
+        let mut command = server.sync_command(tmp.path());
+        command.args(["-r", "--delete"]);
         if dry_run {
             command.arg("-n");
         }
         let output = command.output().unwrap();
-        assert_eq!(output.status.code(), Some(if dry_run { 0 } else { 1 }));
         let text = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(
-            text.contains("a-large.bin") && text.contains("5 GiB"),
+        assert_eq!(
+            output.status.code(),
+            Some(if dry_run || !fail_upload { 0 } else { 1 }),
             "{text}"
         );
-        let mutations = server.mutations();
-        assert!(!mutations.iter().any(|(p, _)| p == "/recyclebin/batchTrash"));
-        if dry_run {
-            assert!(mutations.is_empty());
-            assert!(text.contains("同步计划"), "{text}");
+        let state = server.state.lock().unwrap();
+        let old_present = state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "old" && item["name"] == "movie.bin");
+        if dry_run || fail_upload {
+            assert!(old_present);
+            assert!(
+                !state
+                    .requests
+                    .iter()
+                    .any(|(p, _)| p == "/file/update" || p == "/recyclebin/batchTrash")
+            );
+            if dry_run {
+                assert!(text.contains("同步计划"));
+            } else {
+                assert!(text.contains("04010319"), "{text}");
+            }
         } else {
-            assert!(mutations.iter().any(|(_, b)| b["name"] == "z-small.bin"));
-            assert!(text.contains("1 个超限未传"), "{text}");
+            assert!(!old_present);
+            assert_eq!(state.staged_visibility_delay, 0);
+            assert!(
+                state.children["/"]
+                    .iter()
+                    .any(|item| item["name"] == "movie.bin" && item["type"] == "file")
+            );
+            let writes: Vec<_> = state
+                .requests
+                .iter()
+                .filter(|(p, _)| p != "/file/list")
+                .collect();
+            assert_eq!(writes.len(), 4);
+            assert_eq!(writes[0].0, "/file/create");
+            assert_eq!(writes[1].0, "/file/update");
+            assert_eq!(writes[1].1["fileId"], "old");
+            assert_eq!(writes[2].0, "/file/update");
+            assert_eq!(writes[2].1["name"], "movie.bin");
+            assert_eq!(writes[3].0, "/recyclebin/batchTrash");
+            assert!(!text.contains(".cloud139-upload-"), "{text}");
         }
+    }
+}
+
+#[test]
+fn pc_sync_delete_retry_preserves_recovery_copies_and_their_ancestors() {
+    let server = Server::new();
+    let tmp = tempfile::tempdir().unwrap();
+    server.set("/", vec![folder("old", "movie.bin")]);
+    server.set("old", vec![file("keep", "keep.txt")]);
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.fail_rename_to = Some("movie.bin".into());
+    }
+    let run_sync = || {
+        server
+            .sync_command(tmp.path())
+            .args(["-r", "--delete", "-j", "1"])
+            .output()
+            .unwrap()
+    };
+    let first = run_sync();
+    assert_eq!(first.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&first.stderr).contains("injected rename failure"));
+    let recovery_items = {
+        let mut state = server.state.lock().unwrap();
+        let root = &state.children["/"];
+        assert_eq!(root.len(), 2);
+        assert!(root.iter().any(|item| {
+            item["fileId"] == "old"
+                && item["name"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(".cloud139-backup-")
+        }));
+        assert!(root.iter().any(|item| {
+            item["name"]
+                .as_str()
+                .unwrap()
+                .starts_with(".cloud139-upload-")
+        }));
+        let recovery_items = root.clone();
+        state.requests.clear();
+        state.fail_upload = true;
+        recovery_items
+    };
+    let mut root = recovery_items.clone();
+    root.extend([folder("parent", "orphan"), file("extra", "extra.txt")]);
+    server.set("/", root);
+    server.set(
+        "parent",
+        vec![folder("nested-backup", ".cloud139-backup-example")],
+    );
+    server.set("nested-backup", vec![file("nested-child", "keep.txt")]);
+
+    let retry = run_sync();
+    assert_eq!(retry.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&retry.stderr).contains("04010319"));
+    let state = server.state.lock().unwrap();
+    let mut expected = recovery_items;
+    expected.push(folder("parent", "orphan"));
+    assert_eq!(state.children["/"], expected);
+    assert_eq!(state.children["old"], vec![file("keep", "keep.txt")]);
+    assert_eq!(
+        state.children["nested-backup"],
+        vec![file("nested-child", "keep.txt")]
+    );
+    let trash: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/recyclebin/batchTrash")
+        .map(|(_, body)| &body["fileIds"])
+        .collect();
+    assert_eq!(trash, vec![&json!(["extra"])]);
+}
+
+#[test]
+fn pc_sync_refuses_to_replace_cloud_directories_outside_the_scope() {
+    let server = Server::new();
+    let tmp = tempfile::tempdir().unwrap();
+    server.set("/", vec![folder("old", "movie.bin")]);
+    server.set(
+        "old",
+        vec![folder("nested", "nested"), file("other", "other.txt")],
+    );
+    server.set("nested", vec![file("keep", "keep.txt")]);
+    server.state.lock().unwrap().sync_mutations = true;
+
+    for scope in [&[][..], &["-r", "--exclude", "movie.bin/**/keep.txt"][..]] {
+        for dry_run in [true, false] {
+            let mut command = server.sync_command(tmp.path());
+            command.args(scope).arg("--delete");
+            if dry_run {
+                command.arg("-n");
+            }
+            let output = command.output().unwrap();
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(output.status.code(), Some(i32::from(!dry_run)), "{text}");
+            assert!(text.contains("云端同名目录未完整纳入同步范围"), "{text}");
+            assert!(server.mutations().is_empty(), "{text}");
+        }
+    }
+    let state = server.state.lock().unwrap();
+    assert_eq!(state.children["/"], vec![folder("old", "movie.bin")]);
+    assert_eq!(state.children["old"].len(), 2);
+    assert_eq!(state.children["nested"], vec![file("keep", "keep.txt")]);
+}
+
+#[test]
+fn pc_sync_refuses_staged_files_without_a_matching_creation_id() {
+    for missing in [true, false] {
+        let server = Server::new();
+        let tmp = tempfile::tempdir().unwrap();
+        server.set("/", vec![file("old", "movie.bin")]);
+        {
+            let mut state = server.state.lock().unwrap();
+            state.sync_mutations = true;
+            state.omit_staged_id = missing;
+            state.staged_id_mismatch = !missing;
+        }
+        let output = server.sync_command(tmp.path()).output().unwrap();
+        let text = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(
+            text.contains(if missing {
+                "未返回临时文件 ID"
+            } else {
+                "身份"
+            }),
+            "{text}"
+        );
+        let writes = server.mutations();
+        assert_eq!(writes.len(), 1, "{writes:?}");
+        assert_eq!(writes[0].0, "/file/create");
+        assert_eq!(
+            server.state.lock().unwrap().children["/"][0],
+            file("old", "movie.bin")
+        );
     }
 }
 

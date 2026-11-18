@@ -23,9 +23,6 @@ pub fn print_summary_with_mode(summary: &SyncSummary, dry_run: bool) {
     if summary.failed > 0 {
         parts.push(format!("{} 个失败", summary.failed));
     }
-    if summary.oversized > 0 {
-        parts.push(format!("{} 个超限未传", summary.oversized));
-    }
     if dry_run {
         crate::info!(
             "同步计划: {}",
@@ -37,7 +34,7 @@ pub fn print_summary_with_mode(summary: &SyncSummary, dry_run: bool) {
         );
     } else if parts.is_empty() {
         success!("同步完成: 无变化");
-    } else if summary.failed > 0 || summary.oversized > 0 {
+    } else if summary.failed > 0 {
         warn!("同步未完成: {}", parts.join(", "));
     } else {
         success!("同步完成: {}", parts.join(", "));

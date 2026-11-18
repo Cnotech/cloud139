@@ -22,6 +22,11 @@ pub const MCLOUD_CHANNEL_SRC: &str = "10000034";
 pub const DEVICE_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||";
 pub const CLIENT_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
 
+// Personal-cloud file APIs use the desktop client identity; authentication and
+// legacy family/group protocols retain their existing fingerprints.
+pub const PC_CLIENT_INFO: &str =
+    "||13|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
+
 pub struct Client {
     pub config: crate::config::Config,
     pub http_client: reqwest::Client,

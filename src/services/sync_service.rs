@@ -69,6 +69,15 @@ pub fn compute_diff(
     target: &[FileEntry],
     options: SyncDiffOptions,
 ) -> Vec<SyncAction> {
+    compute_diff_inner(source, target, options, None)
+}
+
+fn compute_diff_inner(
+    source: &[FileEntry],
+    target: &[FileEntry],
+    options: SyncDiffOptions,
+    cloud_target: Option<&CloudSyncScan>,
+) -> Vec<SyncAction> {
     debug!(
         "compute_diff: source={} entries, target={} entries, direction={:?}",
         source.len(),
@@ -84,6 +93,16 @@ pub fn compute_diff(
         .map(|item| (item.rel_path.as_str(), item))
         .collect();
 
+    let recovery_paths: BTreeSet<_> = if options.direction == SyncDirection::LocalToCloud {
+        target_by_path
+            .keys()
+            .copied()
+            .filter(|path| is_recovery_path(path))
+            .flat_map(path_and_ancestors)
+            .collect()
+    } else {
+        BTreeSet::new()
+    };
     let mut paths = BTreeSet::new();
     paths.extend(source_by_path.keys().copied());
     paths.extend(target_by_path.keys().copied());
@@ -91,6 +110,28 @@ pub fn compute_diff(
     let mut actions = Vec::new();
 
     for path in paths {
+        let protected = recovery_paths.contains(path)
+            || cloud_target.is_some_and(|scan| scan.protected.contains(path));
+        if options.direction == SyncDirection::LocalToCloud && is_recovery_path(path) {
+            if source_by_path.contains_key(path) {
+                actions.push(SyncAction::Conflict {
+                    rel_path: path.to_owned(),
+                    reason: "名称保留给同步临时副本和备份",
+                });
+            }
+            continue;
+        }
+        if protected
+            && source_by_path
+                .get(path)
+                .is_some_and(|entry| entry.kind == SyncEntryKind::File)
+        {
+            actions.push(SyncAction::Conflict {
+                rel_path: path.to_owned(),
+                reason: "云端同名目录未完整纳入同步范围，无法替换",
+            });
+            continue;
+        }
         match (source_by_path.get(path), target_by_path.get(path)) {
             (Some(src), Some(dst)) if src.kind != dst.kind => {
                 // Type conflict: file vs directory - always treat as change
@@ -100,14 +141,21 @@ pub fn compute_diff(
                         actions.push(create_dir_action(src, &options));
                     }
                     SyncEntryKind::File => {
-                        // Source is file, target is directory -> upload file
-                        actions.push(transfer_action(src, &options, ChangeKind::New));
+                        let replace_directory_id = cloud_target
+                            .and_then(|scan| scan.directories.get(path))
+                            .cloned();
+                        actions.push(transfer_action(
+                            src,
+                            &options,
+                            ChangeKind::New,
+                            replace_directory_id,
+                        ));
                     }
                 }
             }
             (Some(src), Some(dst)) => {
                 if let Some(change) = change_kind(src, dst, options.direction) {
-                    actions.push(transfer_action(src, &options, change));
+                    actions.push(transfer_action(src, &options, change, None));
                 } else {
                     actions.push(SyncAction::Skip {
                         rel_path: (*path).to_string(),
@@ -117,11 +165,12 @@ pub fn compute_diff(
             (Some(src), None) if src.kind == SyncEntryKind::Directory => {
                 actions.push(create_dir_action(src, &options));
             }
-            (Some(src), None) => actions.push(transfer_action(src, &options, ChangeKind::New)),
-            (None, Some(dst)) if options.delete && dst.kind == SyncEntryKind::Directory => {
+            (Some(src), None) => {
+                actions.push(transfer_action(src, &options, ChangeKind::New, None))
+            }
+            (None, Some(dst)) if options.delete && !protected => {
                 actions.push(delete_action(dst, &options));
             }
-            (None, Some(dst)) if options.delete => actions.push(delete_action(dst, &options)),
             (None, Some(_dst)) => actions.push(SyncAction::Skip {
                 rel_path: (*path).to_string(),
             }),
@@ -129,19 +178,20 @@ pub fn compute_diff(
         }
     }
 
-    // Keep the complete source inventory for --delete. A blocked file may replace
-    // a cloud directory: protect that directory's descendants as well.
-    let blocked_paths: std::collections::HashSet<_> = actions
+    // An upload may replace a cloud directory. Keep its descendants until the
+    // replacement succeeds; recycling the old directory also removes its children.
+    let replacement_paths: std::collections::HashSet<_> = actions
         .iter()
         .filter_map(|action| match action {
-            SyncAction::UploadBlocked { rel_path, .. } => Some(rel_path.clone()),
+            SyncAction::Upload { rel_path, .. } | SyncAction::Conflict { rel_path, .. } => {
+                Some(rel_path.clone())
+            }
             _ => None,
         })
         .collect();
     actions.retain(|action| {
         !matches!(action, SyncAction::Delete { rel_path, .. }
-        if std::iter::successors(Some(rel_path.as_str()), |path| path.rsplit_once('/').map(|(parent, _)| parent))
-            .any(|path| blocked_paths.contains(path)))
+        if path_and_ancestors(rel_path).any(|path| replacement_paths.contains(path)))
     });
 
     actions.sort_by_key(|action| match action {
@@ -150,7 +200,7 @@ pub fn compute_diff(
         }
         SyncAction::Upload { rel_path, .. }
         | SyncAction::Download { rel_path, .. }
-        | SyncAction::UploadBlocked { rel_path, .. } => {
+        | SyncAction::Conflict { rel_path, .. } => {
             (1, rel_path.matches('/').count(), rel_path.clone())
         }
         SyncAction::Skip { rel_path } => (2, rel_path.matches('/').count(), rel_path.clone()),
@@ -193,20 +243,20 @@ fn change_kind(
     }
 }
 
-fn transfer_action(entry: &FileEntry, options: &SyncDiffOptions, change: ChangeKind) -> SyncAction {
+fn transfer_action(
+    entry: &FileEntry,
+    options: &SyncDiffOptions,
+    change: ChangeKind,
+    replace_directory_id: Option<String>,
+) -> SyncAction {
     match options.direction {
-        SyncDirection::LocalToCloud if entry.size > crate::domain::PERSONAL_UPLOAD_MAX_BYTES => {
-            SyncAction::UploadBlocked {
-                rel_path: entry.rel_path.clone(),
-                size: entry.size,
-            }
-        }
         SyncDirection::LocalToCloud => SyncAction::Upload {
             rel_path: entry.rel_path.clone(),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
             remote_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
             size: entry.size,
             change,
+            replace_directory_id,
         },
         SyncDirection::CloudToLocal => SyncAction::Download {
             rel_path: entry.rel_path.clone(),
@@ -267,10 +317,9 @@ pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
         SyncAction::CreateDir { rel_path, .. } => format!("{}cd+++++++++ {}", prefix, rel_path),
         SyncAction::Delete { rel_path, .. } => format!("{}*deleting   {}", prefix, rel_path),
         SyncAction::Skip { rel_path } => format!("{}skipping    {}", prefix, rel_path),
-        SyncAction::UploadBlocked { rel_path, size } => format!(
-            "{}超限未传    {}（{} 字节，个人盘上传限制 5 GiB；保留云端同名条目）",
-            prefix, rel_path, size
-        ),
+        SyncAction::Conflict { rel_path, reason } => {
+            format!("{prefix}*conflict    {rel_path}：{reason}")
+        }
     }
 }
 
@@ -489,11 +538,71 @@ fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
 pub(crate) const SYNC_RETRIES: u32 = 4;
 pub(crate) const SYNC_BACKOFF_SECS: u64 = 2;
 
+pub(crate) const SYNC_UPLOAD_PREFIX: &str = ".cloud139-upload-";
+pub(crate) const UPLOAD_BACKUP_PREFIX: &str = ".cloud139-backup-";
+
+fn is_recovery_name(name: &str) -> bool {
+    name.starts_with(SYNC_UPLOAD_PREFIX) || name.starts_with(UPLOAD_BACKUP_PREFIX)
+}
+
+fn is_recovery_path(path: &str) -> bool {
+    path.split('/').any(is_recovery_name)
+}
+
+fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(path), |path| {
+        path.rsplit_once('/').map(|(parent, _)| parent)
+    })
+}
+
+#[derive(Default)]
+pub(crate) struct CloudSyncScan {
+    items: Vec<FileEntry>,
+    directories: BTreeMap<String, String>,
+    protected: BTreeSet<String>,
+}
+
+impl CloudSyncScan {
+    pub(crate) fn compute_upload_diff(
+        &self,
+        source: &[FileEntry],
+        options: SyncDiffOptions,
+    ) -> Vec<SyncAction> {
+        compute_diff_inner(source, &self.items, options, Some(self))
+    }
+
+    fn protect(&mut self, rel_path: &str) {
+        self.protected
+            .extend(path_and_ancestors(rel_path).map(str::to_owned));
+    }
+}
+
 pub async fn scan_cloud_personal(
     config: &crate::config::Config,
     cloud_root: &str,
     options: SyncScanOptions,
 ) -> Result<Vec<FileEntry>> {
+    Ok(
+        scan_cloud_personal_inner(config, cloud_root, options, false)
+            .await?
+            .items,
+    )
+}
+
+pub(crate) async fn scan_cloud_upload_target(
+    config: &crate::config::Config,
+    cloud_root: &str,
+    options: SyncScanOptions,
+) -> Result<CloudSyncScan> {
+    scan_cloud_personal_inner(config, cloud_root, options, true).await
+}
+
+async fn scan_cloud_personal_inner(
+    config: &crate::config::Config,
+    cloud_root: &str,
+    options: SyncScanOptions,
+    upload_target: bool,
+) -> Result<CloudSyncScan> {
     let mut config = config.clone();
     let host = match &config.personal_cloud_host {
         Some(host) => host.clone(),
@@ -512,49 +621,33 @@ pub async fn scan_cloud_personal(
     };
 
     let patterns = compile_exclude_patterns(&options.exclude)?;
-    let mut items = Vec::new();
+    let mut scan = CloudSyncScan::default();
     scan_cloud_personal_dir(
-        &config, &host, cloud_root, "", &root_id, &options, &patterns, &mut items,
+        &config,
+        &host,
+        "",
+        &root_id,
+        &options,
+        &patterns,
+        upload_target,
+        &mut scan,
     )
     .await?;
-    items.sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
-    Ok(items)
+    scan.items
+        .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
+    Ok(scan)
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn scan_cloud_personal_dir(
-    config: &crate::config::Config,
-    host: &str,
-    abs_parent: &str,
-    rel_parent: &str,
-    parent_file_id: &str,
-    options: &SyncScanOptions,
-    patterns: &[Pattern],
-    items: &mut Vec<FileEntry>,
-) -> Result<()> {
-    scan_cloud_personal_dir_inner(
-        config,
-        host,
-        abs_parent,
-        rel_parent,
-        parent_file_id,
-        options,
-        patterns,
-        items,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-fn scan_cloud_personal_dir_inner<'a>(
+fn scan_cloud_personal_dir<'a>(
     config: &'a crate::config::Config,
     host: &'a str,
-    abs_parent: &'a str,
     rel_parent: &'a str,
     parent_file_id: &'a str,
     options: &'a SyncScanOptions,
     patterns: &'a [Pattern],
-    items: &'a mut Vec<FileEntry>,
+    upload_target: bool,
+    scan: &'a mut CloudSyncScan,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let url = format!("{}/file/list", host);
@@ -617,37 +710,49 @@ fn scan_cloud_personal_dir_inner<'a>(
                 } else {
                     format!("{}/{}", rel_parent, name)
                 };
-                if is_excluded(&rel_path, patterns) {
+                if is_excluded(&rel_path, patterns) || (upload_target && is_recovery_name(&name)) {
+                    if upload_target {
+                        scan.protect(&rel_path);
+                    }
                     continue;
                 }
 
                 if should_treat_personal_item_as_folder(&item) {
-                    if options.recursive {
-                        let child_id = item.file_id.clone().unwrap_or_default();
-                        if !child_id.is_empty() {
-                            items.push(FileEntry {
-                                rel_path: rel_path.clone(),
-                                size: 0,
-                                mtime: parse_cloud_mtime(&item),
-
-                                kind: SyncEntryKind::Directory,
-                            });
-                            scan_cloud_personal_dir(
-                                config,
-                                host,
-                                &cloud_child_path(abs_parent, &name),
-                                &rel_path,
-                                &child_id,
-                                options,
-                                patterns,
-                                items,
-                            )
-                            .await?;
+                    let child_id = item
+                        .file_id
+                        .as_deref()
+                        .filter(|id| !id.is_empty() && *id != "/");
+                    let Some(child_id) = child_id.filter(|_| options.recursive) else {
+                        if upload_target {
+                            // Ordinary non-recursive scans encounter only top-level folders.
+                            scan.protect(&rel_path);
                         }
+                        continue;
+                    };
+                    if upload_target {
+                        scan.directories
+                            .insert(rel_path.clone(), child_id.to_owned());
                     }
+                    scan.items.push(FileEntry {
+                        rel_path: rel_path.clone(),
+                        size: 0,
+                        mtime: parse_cloud_mtime(&item),
+                        kind: SyncEntryKind::Directory,
+                    });
+                    scan_cloud_personal_dir(
+                        config,
+                        host,
+                        &rel_path,
+                        child_id,
+                        options,
+                        patterns,
+                        upload_target,
+                        scan,
+                    )
+                    .await?;
                 } else {
                     let entry = personal_item_to_file_entry(rel_parent, &item)?;
-                    items.push(entry);
+                    scan.items.push(entry);
                 }
             }
 

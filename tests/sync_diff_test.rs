@@ -31,8 +31,8 @@ fn dir_entry(path: &str) -> FileEntry {
 }
 
 #[test]
-fn oversized_sources_are_blocked_without_losing_delete_protection() {
-    let max = cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES;
+fn large_uploads_keep_cloud_directory_children_until_replacement_succeeds() {
+    let max = 5 * 1024 * 1024 * 1024;
     let actions = compute_diff(
         &[
             entry("movie", max + 1, 100),
@@ -54,9 +54,9 @@ fn oversized_sources_are_blocked_without_losing_delete_protection() {
         },
     );
     assert!(
-        actions.iter().any(
-            |a| matches!(a, SyncAction::UploadBlocked { rel_path, .. } if rel_path == "movie")
-        )
+        actions
+            .iter()
+            .any(|a| matches!(a, SyncAction::Upload { rel_path, .. } if rel_path == "movie"))
     );
     assert!(
         actions

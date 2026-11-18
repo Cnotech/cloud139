@@ -1,6 +1,6 @@
 use crate::client::{
     CLIENT_INFO, ClientError, DEVICE_INFO, MCLOUD_CHANNEL, MCLOUD_CHANNEL_SRC, MCLOUD_CLIENT,
-    MCLOUD_VERSION,
+    MCLOUD_VERSION, PC_CLIENT_INFO,
 };
 use reqwest::header::{HeaderMap, HeaderValue};
 
@@ -111,6 +111,12 @@ pub fn build_signed_headers(
     svc_type: &str,
 ) -> Result<HeaderMap, ClientError> {
     let mut headers = build_common_headers();
+    if svc_type == "1" {
+        headers.insert(
+            "x-yun-client-info",
+            HeaderValue::from_static(PC_CLIENT_INFO),
+        );
+    }
 
     headers.insert(
         "x-yun-svc-type",

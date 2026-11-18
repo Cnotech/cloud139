@@ -97,10 +97,7 @@ fn test_pkcs7_unpad_invalid_padding() {
 fn test_encode_uri_component() {
     assert_eq!(encode_uri_component("hello"), "hello");
     assert_eq!(encode_uri_component("hello world"), "hello%20world");
-    assert_eq!(encode_uri_component("!"), "%21");
-    assert_eq!(encode_uri_component("'"), "%27");
-    assert_eq!(encode_uri_component("()"), "%28%29");
-    assert_eq!(encode_uri_component("*"), "%2A");
+    assert_eq!(encode_uri_component("!'()*"), "!'()*");
     assert_eq!(encode_uri_component("a/b"), "a%2Fb");
     assert_eq!(encode_uri_component("a?b"), "a%3Fb");
     assert_eq!(encode_uri_component("a#b"), "a%23b");
@@ -127,6 +124,34 @@ fn test_calc_sign_different_bodies() {
     let sign2 = calc_sign(r#"{"b":2}"#, ts, rand_str);
 
     assert_ne!(sign1, sign2);
+}
+
+#[test]
+fn signature_matches_upstream_go_vectors_with_movie_names() {
+    // Generated with AList/OpenList encodeURIComponent + calSign, including the
+    // punctuation that previously produced different signatures in Rust.
+    let stamp = "2026-11-18 12:00:00";
+    let nonce = "0123456789abcdef";
+    for (body, expected) in [
+        (
+            r#"{"name":"电影 (2026)!'*.bin","size":8589934592}"#,
+            "2C9FA221DC7111889F42AD8109CBA963",
+        ),
+        (
+            r#"{"name":"a&b+c.bin","parentFileId":"/"}"#,
+            "51F6CCB395C487EDEAD3057842330C4B",
+        ),
+        (
+            r#"{"name":"普通中文.bin","size":10737418240}"#,
+            "691BD5B14771E78E6C5B9048509E1B2E",
+        ),
+    ] {
+        assert_eq!(calc_sign(body, stamp, nonce), expected);
+    }
+    assert_eq!(
+        encode_uri_component("电影 (2026)!'*.bin"),
+        "%E7%94%B5%E5%BD%B1%20(2026)!'*.bin"
+    );
 }
 
 #[test]

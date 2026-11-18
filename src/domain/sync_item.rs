@@ -40,16 +40,13 @@ pub enum SyncTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
-    UploadBlocked {
-        rel_path: String,
-        size: u64,
-    },
     Upload {
         rel_path: String,
         local_abs: PathBuf,
         remote_abs: String,
         size: u64,
         change: ChangeKind,
+        replace_directory_id: Option<String>,
     },
     Download {
         rel_path: String,
@@ -72,6 +69,10 @@ pub enum SyncAction {
     Skip {
         rel_path: String,
     },
+    Conflict {
+        rel_path: String,
+        reason: &'static str,
+    },
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -81,6 +82,5 @@ pub struct SyncSummary {
     pub deleted: usize,
     pub created_dirs: usize,
     pub failed: usize,
-    pub oversized: usize,
     pub bytes: u64,
 }

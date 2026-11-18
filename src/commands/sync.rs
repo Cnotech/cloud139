@@ -4,9 +4,9 @@ use crate::domain::{SyncDirection, SyncEndpoint};
 use crate::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, compute_diff, format_action_line, parse_sync_endpoint,
-    resolve_sync_direction, scan_cloud_personal, scan_local,
+    resolve_sync_direction, scan_cloud_personal, scan_cloud_upload_target, scan_local,
 };
-use crate::{debug, step};
+use crate::step;
 use clap::Parser;
 use std::io::IsTerminal;
 
@@ -22,7 +22,7 @@ fn parse_jobs(value: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    after_help = "本地到个人盘同步时，超过 5 GiB 的待上传文件会提示并继续处理其他文件，保留云端同名条目；实际执行有未完成项返回退出码 1，-n 仅预览并返回 0。"
+    after_help = "个人盘统一使用 PC 客户端标识，上传大小由服务器按账号权益校验。同步上传成功后才替换同名条目；有失败项返回退出码 1，-n 仅预览计划。"
 )]
 pub struct SyncArgs {
     #[arg(help = "源路径，本地路径或 cloud:/remote/path")]
@@ -67,7 +67,13 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 
     let is_tty = std::io::stderr().is_terminal();
 
-    let (source, target, local_root, cloud_root) = match (direction, src, dest) {
+    let diff_options = |local_root, cloud_root| SyncDiffOptions {
+        direction,
+        delete: args.delete,
+        local_root,
+        cloud_root,
+    };
+    let actions = match (direction, src, dest) {
         (
             SyncDirection::LocalToCloud,
             SyncEndpoint::Local(local_root),
@@ -75,10 +81,11 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         ) => {
             let source = scan_local(&local_root, scan_options.clone())
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
-            let target = scan_cloud_personal(&config, &cloud_root, scan_options)
+            let target = scan_cloud_upload_target(&config, &cloud_root, scan_options)
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
-            (source, target, local_root, cloud_root)
+            step!("正在计算同步差异...");
+            target.compute_upload_diff(&source, diff_options(local_root, cloud_root))
         }
         (
             SyncDirection::CloudToLocal,
@@ -94,29 +101,11 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             } else {
                 Vec::new()
             };
-            (source, target, local_root, cloud_root)
+            step!("正在计算同步差异...");
+            compute_diff(&source, &target, diff_options(local_root, cloud_root))
         }
         _ => return Err(CommandExit::new(2, "无效的同步方向").into()),
     };
-
-    debug!(
-        "sync: 方向={:?}, 源条目={}, 目标条目={}",
-        direction,
-        source.len(),
-        target.len()
-    );
-
-    step!("正在计算同步差异...");
-    let actions = compute_diff(
-        &source,
-        &target,
-        SyncDiffOptions {
-            direction,
-            delete: args.delete,
-            local_root,
-            cloud_root,
-        },
-    );
 
     if args.dry_run {
         for action in actions
@@ -141,15 +130,8 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 
     crate::presentation::sync_renderer::print_summary_with_mode(&summary, args.dry_run);
 
-    if !args.dry_run && (summary.failed > 0 || summary.oversized > 0) {
-        return Err(CommandExit::new(
-            1,
-            format!(
-                "同步未完成: 超限未传 {} 个，其他失败 {} 个",
-                summary.oversized, summary.failed
-            ),
-        )
-        .into());
+    if !args.dry_run && summary.failed > 0 {
+        return Err(CommandExit::new(1, format!("同步未完成: {} 个失败", summary.failed)).into());
     }
 
     Ok(())
