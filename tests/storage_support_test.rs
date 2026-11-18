@@ -9,13 +9,14 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
     let config = Config::default();
     for storage in [StorageType::Family, StorageType::Group] {
         assert!(matches!(
-            api::personal_api_request::<serde_json::Value>(
-                &config,
-                "invalid",
-                serde_json::json!({}),
-                storage,
-            )
-            .await,
+            api::HttpClientWrapper::new()
+                .personal_api_request::<serde_json::Value>(
+                    &config,
+                    "invalid",
+                    serde_json::json!({}),
+                    storage,
+                )
+                .await,
             Err(ClientError::UnsupportedStorage)
         ));
         let profile = Config {
@@ -23,7 +24,7 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
             ..config.clone()
         };
         assert!(matches!(
-            services::mkdir(&profile, "/", false).await,
+            services::mkdir(&profile, "/", services::mkdir_service::MkdirMode::Single).await,
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(

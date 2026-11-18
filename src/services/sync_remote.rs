@@ -33,7 +33,8 @@ impl<'a> SyncCloud<'a> {
                 if let Some(scan) = self.scan {
                     return Ok(scan.host.clone());
                 }
-                api::get_personal_cloud_host_with_client(&mut self.config.clone(), &self.client)
+                self.client
+                    .get_personal_cloud_host(&mut self.config.clone())
                     .await
             })
             .await?;

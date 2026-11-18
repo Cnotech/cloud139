@@ -1,4 +1,4 @@
-use super::{DownloadLink, HttpClientWrapper, get_personal_cloud_host_with_client, personal_post};
+use super::{DownloadLink, HttpClientWrapper, personal_post};
 use crate::client::ClientError;
 use crate::config::Config;
 use crate::domain::StorageType;
@@ -44,7 +44,7 @@ impl Default for ListPageOptions {
 pub(crate) struct PersonalClient<'a> {
     pub(super) config: &'a Config,
     host: Cow<'a, str>,
-    pub(super) http_client: &'a HttpClientWrapper,
+    http_client: &'a HttpClientWrapper,
     retry: ListingRetry,
 }
 
@@ -54,7 +54,7 @@ impl<'a> PersonalClient<'a> {
         client: &'a HttpClientWrapper,
         retry: ListingRetry,
     ) -> Result<Self, ClientError> {
-        let host = get_personal_cloud_host_with_client(&mut config.clone(), client).await?;
+        let host = client.get_personal_cloud_host(&mut config.clone()).await?;
         Ok(Self::with_host(config, host, client, retry))
     }
 

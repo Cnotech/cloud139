@@ -1,10 +1,7 @@
 #![allow(dead_code)]
 
 mod api_extended_test {
-    use cloud139::client::api::{
-        HttpClientWrapper, check_file_exists_with_client, get_parent_id,
-        get_personal_cloud_host_with_client, list_personal_files_with_client, parse_path_segments,
-    };
+    use cloud139::client::api::{HttpClientWrapper, get_parent_id, parse_path_segments};
     use cloud139::config::Config;
     use cloud139::domain::StorageType;
     use cloud139::models::*;
@@ -109,7 +106,7 @@ mod api_extended_test {
         config.personal_cloud_host = Some("https://cached.example.com".to_string());
 
         let wrapper = HttpClientWrapper::new();
-        let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
+        let result = wrapper.get_personal_cloud_host(&mut config).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "https://cached.example.com".to_string());
@@ -122,7 +119,7 @@ mod api_extended_test {
         config.authorization = "test".to_string();
 
         let wrapper = HttpClientWrapper::new();
-        let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
+        let result = wrapper.get_personal_cloud_host(&mut config).await;
 
         assert!(result.is_err());
     }
@@ -151,7 +148,7 @@ mod api_extended_test {
         config.authorization = "Basic dGVzdA==".to_string();
 
         let wrapper = HttpClientWrapper::new();
-        let result = list_personal_files_with_client(&config, "/", &wrapper).await;
+        let result = wrapper.list_personal_files(&config, "/").await;
         assert!(result.is_err());
     }
 
@@ -163,7 +160,7 @@ mod api_extended_test {
         config.authorization = "Basic dGVzdA==".to_string();
 
         let wrapper = HttpClientWrapper::new();
-        let result = check_file_exists_with_client(&config, "/", "test.txt", &wrapper).await;
+        let result = wrapper.check_file_exists(&config, "/", "test.txt").await;
         assert!(result.is_err());
     }
 

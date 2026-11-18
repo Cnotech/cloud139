@@ -14,23 +14,14 @@ pub struct RemoteEntry {
 }
 
 pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientError> {
-    resolve_with_size(config, path)
-        .await
-        .map(|(entry, _)| entry)
-}
-
-pub(super) async fn resolve_with_size(
-    config: &Config,
-    path: &str,
-) -> Result<(RemoteEntry, Option<i64>), ClientError> {
     config.require_personal()?;
     let path = normalize(path)?;
     if path == "/" {
-        return Ok(remote_root());
+        return Ok(remote_root().0);
     }
     let client = api::HttpClientWrapper::new();
     let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
-    resolve_entry(&listing, &path).await
+    resolve_entry(&listing, &path).await.map(|(entry, _)| entry)
 }
 
 fn remote_root() -> (RemoteEntry, Option<i64>) {
@@ -86,22 +77,6 @@ pub(super) async fn confirm_directory(
         .await
         .with_context(|| format!("无法复核云端目录 {path}"))?;
     anyhow::ensure!(current == expected_id, "云端目录 {path} 的 ID 已变更");
-    Ok(())
-}
-
-pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<(), ClientError> {
-    config.require_personal()?;
-    let path = normalize(path)?;
-    if path == "/" {
-        return if parents {
-            Ok(())
-        } else {
-            Err(ClientError::CannotOperateOnRoot)
-        };
-    }
-    let client = api::HttpClientWrapper::new();
-    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
-    ensure_personal_dir(&listing, &path, parents).await?;
     Ok(())
 }
 

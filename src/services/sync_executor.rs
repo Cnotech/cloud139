@@ -289,7 +289,14 @@ async fn execute_one_action(
                         .await?;
                         Ok(())
                     } else {
-                        crate::services::download(config, remote_abs, &local_path, attempt_pb).await
+                        crate::services::download(
+                            config,
+                            remote_abs,
+                            &local_path,
+                            attempt_pb,
+                            false,
+                        )
+                        .await
                     }
                 }
             })

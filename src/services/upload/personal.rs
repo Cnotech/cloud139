@@ -4,33 +4,11 @@ use crate::client::api::upload::{
 use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
 
-pub use crate::client::api::upload::init_upload;
 use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::utils::logger::{pb_debug, pb_success};
 use anyhow::Context;
 use indicatif::ProgressBar;
 use tokio::io::{AsyncSeekExt, SeekFrom};
-
-pub async fn upload(
-    config: &crate::config::Config,
-    local_path: &std::path::Path,
-    remote_path: &str,
-    file_name: &str,
-    file_size: i64,
-    force: bool,
-    pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    super::super::upload_service::upload(
-        config,
-        local_path,
-        remote_path,
-        file_name,
-        file_size,
-        force,
-        pb,
-    )
-    .await
-}
 
 fn finish_upload(name: &str, pb: &Option<ProgressBar>) {
     pb_success(&format!("上传完成: {name}"), pb);
@@ -506,6 +484,13 @@ mod tests {
             personal_cloud_host: Some(server.base_url()),
             ..Default::default()
         };
+        let client = api::HttpClientWrapper::new();
+        let personal = api::PersonalClient::with_host(
+            &config,
+            server.base_url(),
+            &client,
+            api::ListingRetry::None,
+        );
         for gib in [5_i64, 8, 50, 500] {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
@@ -514,37 +499,39 @@ mod tests {
                     .json_body_includes(format!("{{\"size\":{size}}}"));
                 then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
             });
-            let response = init_upload(
-                &config,
-                &server.url("/file/create"),
-                std::path::Path::new("large.bin"),
-                "large.bin",
-                size,
-                "/",
-                "fictional-hash",
-            )
-            .await
-            .unwrap();
-            assert_eq!(response.data.unwrap().file_id.as_deref(), Some("new"));
+            let response = personal
+                .create_upload(UploadFile {
+                    local_path: std::path::Path::new("large.bin"),
+                    file_name: "large.bin",
+                    file_size: size,
+                    parent_file_id: "/",
+                    content_hash: "fictional-hash",
+                    part_size: personal.upload_part_size(size),
+                })
+                .await
+                .unwrap();
+            assert_eq!(response.file_id, "new");
             request.assert_calls(1);
         }
         let rejected = server.mock(|when, then| {
             when.method(POST)
-                .path("/denied")
+                .path("/file/create")
+                .json_body_includes(r#"{"size":1}"#)
                 .header("x-yun-client-info", crate::client::PC_CLIENT_INFO);
             then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
         });
-        let error = init_upload(
-            &config,
-            &server.url("/denied"),
-            std::path::Path::new("small.bin"),
-            "small.bin",
-            1,
-            "/",
-            "fictional-hash",
-        )
-        .await
-        .unwrap_err();
+        let error = personal
+            .create_upload(UploadFile {
+                local_path: std::path::Path::new("small.bin"),
+                file_name: "small.bin",
+                file_size: 1,
+                parent_file_id: "/",
+                content_hash: "fictional-hash",
+                part_size: personal.upload_part_size(1),
+            })
+            .await
+            .err()
+            .expect("server should reject the upload");
         let message = error.to_string();
         assert!(message.contains("04010319") && message.contains("权益不足"));
         rejected.assert_calls(1);
@@ -554,11 +541,18 @@ mod tests {
     async fn ordinary_and_silver_limits_are_enforced_by_server_not_local_policy() {
         let server = MockServer::start();
         let gib = 1024_i64 * 1024 * 1024;
+        let client = api::HttpClientWrapper::new();
         for (plan, limit) in [("ordinary", 5 * gib), ("silver", 8 * gib)] {
             let config = crate::config::Config {
                 authorization: format!("fictional-{plan}-token"),
                 ..Default::default()
             };
+            let personal = api::PersonalClient::with_host(
+                &config,
+                server.base_url(),
+                &client,
+                api::ListingRetry::None,
+            );
             for size in [5 * gib, 5 * gib + 1, 8 * gib, 8 * gib + 1] {
                 let accepted = size <= limit;
                 let part_size = 100 * 1024 * 1024;
@@ -589,16 +583,16 @@ mod tests {
                         json!({"success":false,"code":"04010319","message":"权益不足"})
                     });
                 });
-                let result = init_upload(
-                    &config,
-                    &server.url("/file/create"),
-                    std::path::Path::new("boundary.bin"),
-                    "boundary.bin",
-                    size,
-                    "/",
-                    "fictional-hash",
-                )
-                .await;
+                let result = personal
+                    .create_upload(UploadFile {
+                        local_path: std::path::Path::new("boundary.bin"),
+                        file_name: "boundary.bin",
+                        file_size: size,
+                        parent_file_id: "/",
+                        content_hash: "fictional-hash",
+                        part_size: personal.upload_part_size(size),
+                    })
+                    .await;
                 assert_eq!(result.is_ok(), accepted, "{plan}: {size}");
                 if let Err(error) = result {
                     assert!(error.to_string().contains("04010319"));

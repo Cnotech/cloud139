@@ -114,7 +114,7 @@ impl Default for Config {
 
 /// 写入默认使用当前目录。读取优先尝试当前目录，再回退到全局目录。
 /// 显式指定配置时，读写都使用该路径。
-pub fn resolve_config_path(for_write: bool) -> PathBuf {
+fn resolve_config_path(for_write: bool) -> PathBuf {
     let mut candidates = config_load_candidates().into_iter();
     let primary = candidates.next().expect("配置至少有一个候选路径");
     if for_write || primary.exists() {
@@ -145,14 +145,10 @@ impl Config {
     }
 
     pub fn load() -> Result<Self, ConfigError> {
-        Self::load_with_path().map(|(config, _)| config)
+        Self::load_from_candidates(&config_load_candidates()).map(|(config, _)| config)
     }
 
-    /// 一起返回配置及本次读取的固定来源路径，不能在网络请求后重新搜索路径。
-    pub fn load_with_path() -> Result<(Self, PathBuf), ConfigError> {
-        Self::load_from_candidates(&config_load_candidates())
-    }
-
+    /// 返回本次读取的配置和固定来源路径。
     pub(crate) fn load_from_candidates(
         candidates: &[PathBuf],
     ) -> Result<(Self, PathBuf), ConfigError> {
@@ -166,10 +162,6 @@ impl Config {
             return Ok((toml::from_str(&content)?, path));
         }
         Err(ConfigError::NotFound)
-    }
-
-    pub fn save(&self) -> Result<(), ConfigError> {
-        self.save_to(&Self::save_path())
     }
 
     /// 同目录临时文件完整写入并同步后原子替换。写入期间不会暴露空文件。
@@ -204,7 +196,7 @@ impl Config {
 
     /// 网络请求前为缓存更新固定来源；内存配置不属于当前文件时不落盘。
     pub(crate) fn cache_path(&self) -> Option<PathBuf> {
-        let (current, path) = Self::load_with_path().ok()?;
+        let (current, path) = Self::load_from_candidates(&config_load_candidates()).ok()?;
         (self.same_account(&current)
             && self.authorization == current.authorization
             && self.refresh_token == current.refresh_token)

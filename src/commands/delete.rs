@@ -37,13 +37,7 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
         "准备删除云端条目 path={} permanent={}",
         args.path, args.permanent
     );
-    crate::services::delete_service::delete_recursive(
-        &config,
-        &args.path,
-        args.permanent,
-        args.recursive,
-    )
-    .await?;
+    crate::services::delete(&config, &args.path, args.permanent, args.recursive).await?;
 
     success!("文件或目录已移动到回收站");
 

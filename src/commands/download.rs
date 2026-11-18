@@ -23,13 +23,7 @@ pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
     debug!("准备下载文件 remote={} local={}", remote_path, local_path);
     step!("开始下载到: {:?}", local_path);
 
-    crate::services::download_service::download_recursive(
-        &config,
-        remote_path,
-        &local_path,
-        args.recursive,
-    )
-    .await?;
+    crate::services::download(&config, remote_path, &local_path, None, args.recursive).await?;
 
     success!("下载完成!");
     Ok(())

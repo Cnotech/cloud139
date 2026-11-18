@@ -50,9 +50,14 @@ async fn download_dir_check_stops_at_first_page() {
 
     let tmp = tempfile::tempdir().expect("tmp");
     let local = tmp.path().join("out.bin");
-    let result =
-        cloud139::services::download(&config_for(&server), "/hit", &local.to_string_lossy(), None)
-            .await;
+    let result = cloud139::services::download(
+        &config_for(&server),
+        "/hit",
+        &local.to_string_lossy(),
+        None,
+        false,
+    )
+    .await;
 
     let err = result.expect_err("目录不应被下载");
     let client_err = err.downcast::<ClientError>().expect("client error");
@@ -94,7 +99,7 @@ async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
     );
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("file.txt");
-    cloud139::services::download(&config, "/file.txt", target.to_str().unwrap(), None)
+    cloud139::services::download(&config, "/file.txt", target.to_str().unwrap(), None, false)
         .await
         .unwrap();
     assert_eq!(std::fs::read(target).unwrap(), b"data");

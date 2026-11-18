@@ -2,9 +2,8 @@ use crate::commands::CommandExit;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
 use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_service::{
-    SyncDiffOptions, SyncScanOptions, format_action_line, parse_sync_endpoint,
-    scan_cloud_download_source, scan_cloud_upload_target, scan_local_target, scan_upload_source,
-    sync_direction,
+    SyncDiffOptions, SyncScanOptions, format_action_line, parse_sync_endpoint, scan_cloud,
+    scan_local_target, scan_upload_source, sync_direction,
 };
 use crate::services::sync_verify::execute_verified_sync;
 use crate::step;
@@ -106,7 +105,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
                 )
                 .into());
             }
-            let target = scan_cloud_upload_target(&config, &cloud_root, scan_options)
+            let target = scan_cloud(&config, &cloud_root, &scan_options, direction)
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             config.personal_cloud_host = Some(target.host.clone());
@@ -151,7 +150,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             (actions, Some(target), None)
         }
         (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
-            let source = scan_cloud_download_source(&config, &cloud_root, scan_options.clone())
+            let source = scan_cloud(&config, &cloud_root, &scan_options, direction)
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             config.personal_cloud_host = Some(source.host.clone());
@@ -171,7 +170,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 
     let summary =
         execute_scanned_sync(&config, actions, execution, cloud.as_ref(), local.as_ref()).await?;
-    crate::presentation::sync_renderer::print_summary_with_mode(&summary, args.dry_run);
+    crate::presentation::sync_renderer::print_summary(&summary, args.dry_run);
     finish(args.dry_run, summary.failed)
 }
 

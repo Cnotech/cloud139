@@ -1,9 +1,6 @@
 use super::directory_service as dirs;
 use crate::{client::api, config::Config};
-pub async fn delete(config: &Config, path: &str, permanent: bool) -> anyhow::Result<()> {
-    delete_recursive(config, path, permanent, false).await
-}
-pub async fn delete_recursive(
+pub async fn delete(
     config: &Config,
     path: &str,
     permanent: bool,

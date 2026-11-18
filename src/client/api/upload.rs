@@ -1,10 +1,9 @@
 use super::personal::CREATE_FILE;
-use super::{HttpClientWrapper, ListingRetry, PersonalClient, mutation_succeeded, personal_post};
+use super::{HttpClientWrapper, ListingRetry, PersonalClient, mutation_succeeded};
 use crate::{
     client::ClientError,
     config::Config,
     debug,
-    domain::StorageType,
     models::{PersonalPartInfo, PersonalUploadResp},
 };
 use std::{collections::HashMap, ops::Range, path::Path};
@@ -39,13 +38,26 @@ impl PersonalClient<'_> {
         file: UploadFile<'_>,
     ) -> Result<CreatedUpload, ClientError> {
         let file_size = file.file_size;
-        let response = create_upload_at(
-            self.config,
-            &format!("{}{CREATE_FILE}", self.host()),
-            self.http_client,
-            file,
-        )
-        .await?;
+        let body = build_upload_body(file)?;
+        let response: PersonalUploadResp = self.request(CREATE_FILE, &body).await?;
+        if !response.base.success {
+            let quota_hint = if response.base.code.as_deref() == Some("04010319") {
+                format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
+            } else {
+                String::new()
+            };
+            return Err(ClientError::Api(format!(
+                "创建上传任务失败: {}{}{}",
+                response.base.message.as_deref().unwrap_or("未知错误"),
+                response
+                    .base
+                    .code
+                    .as_deref()
+                    .map(|code| format!("（错误码: {code}）"))
+                    .unwrap_or_default(),
+                quota_hint,
+            )));
+        }
         let data = response
             .data
             .ok_or_else(|| ClientError::Api("服务端未返回上传结果".into()))?;
@@ -151,40 +163,7 @@ impl PersonalClient<'_> {
     }
 }
 
-/// Initialize the personal-cloud upload protocol without transferring content.
-/// Size and SHA256 may be supplied by callers that already have this metadata.
-pub async fn init_upload(
-    config: &Config,
-    url: &str,
-    local_path: &Path,
-    file_name: &str,
-    file_size: i64,
-    parent_file_id: &str,
-    content_hash: &str,
-) -> Result<PersonalUploadResp, ClientError> {
-    let part_size = get_part_size(file_size, config.custom_upload_part_size);
-    create_upload_at(
-        config,
-        url,
-        &HttpClientWrapper::new(),
-        UploadFile {
-            local_path,
-            file_name,
-            file_size,
-            parent_file_id,
-            content_hash,
-            part_size,
-        },
-    )
-    .await
-}
-
-async fn create_upload_at(
-    config: &Config,
-    url: &str,
-    client: &HttpClientWrapper,
-    file: UploadFile<'_>,
-) -> Result<PersonalUploadResp, ClientError> {
+fn build_upload_body(file: UploadFile<'_>) -> Result<serde_json::Value, ClientError> {
     let UploadFile {
         local_path,
         file_name,
@@ -197,7 +176,7 @@ async fn create_upload_at(
 
     let content_type = get_content_type(local_path);
 
-    let body = serde_json::json!({
+    Ok(serde_json::json!({
         "contentHash": content_hash,
         "contentHashAlgorithm": "SHA256",
         "contentType": content_type,
@@ -208,30 +187,7 @@ async fn create_upload_at(
         "name": file_name,
         "type": "file",
         "fileRenameMode": "auto_rename"
-    });
-
-    let resp: PersonalUploadResp =
-        personal_post(config, url, &body, StorageType::PersonalNew, &client.client).await?;
-
-    if !resp.base.success {
-        let quota_hint = if resp.base.code.as_deref() == Some("04010319") {
-            format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
-        } else {
-            String::new()
-        };
-        return Err(ClientError::Api(format!(
-            "创建上传任务失败: {}{}{}",
-            resp.base.message.as_deref().unwrap_or("未知错误"),
-            resp.base
-                .code
-                .as_deref()
-                .map(|code| format!("（错误码: {code}）"))
-                .unwrap_or_default(),
-            quota_hint,
-        )));
-    }
-
-    Ok(resp)
+    }))
 }
 
 pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
@@ -330,17 +286,4 @@ pub async fn get_upload_urls(
         );
     }
     Ok(upload_urls)
-}
-
-pub async fn confirm_upload(
-    config: &Config,
-    host: &str,
-    file_id: &str,
-    upload_id: &str,
-    content_hash: &str,
-) -> Result<(), ClientError> {
-    let client = HttpClientWrapper::new();
-    PersonalClient::with_host(config, host, &client, ListingRetry::None)
-        .complete_upload(file_id, upload_id, content_hash)
-        .await
 }

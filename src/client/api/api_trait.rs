@@ -59,7 +59,9 @@ pub struct RealApiClient;
 #[async_trait]
 impl ApiClient for RealApiClient {
     async fn get_personal_cloud_host(&self, config: &mut Config) -> Result<String, ClientError> {
-        crate::client::api::get_personal_cloud_host(config).await
+        super::HttpClientWrapper::new()
+            .get_personal_cloud_host(config)
+            .await
     }
 
     async fn personal_api_request<T: for<'de> serde::Deserialize<'de> + Send>(
@@ -69,7 +71,9 @@ impl ApiClient for RealApiClient {
         body: serde_json::Value,
         storage_type: StorageType,
     ) -> Result<T, ClientError> {
-        crate::client::api::personal_api_request(config, url, body, storage_type).await
+        super::HttpClientWrapper::new()
+            .personal_api_request(config, url, body, storage_type)
+            .await
     }
 
     async fn get_file_id_by_path(
@@ -86,7 +90,9 @@ impl ApiClient for RealApiClient {
         parent_file_id: &str,
         file_name: &str,
     ) -> Result<bool, ClientError> {
-        crate::client::api::check_file_exists(config, parent_file_id, file_name).await
+        super::HttpClientWrapper::new()
+            .check_file_exists(config, parent_file_id, file_name)
+            .await
     }
 
     async fn list_personal_files(
@@ -94,7 +100,9 @@ impl ApiClient for RealApiClient {
         config: &Config,
         parent_file_id: &str,
     ) -> Result<Vec<PersonalFileItem>, ClientError> {
-        crate::client::api::list_personal_files(config, parent_file_id).await
+        super::HttpClientWrapper::new()
+            .list_personal_files(config, parent_file_id)
+            .await
     }
 
     async fn get_personal_download_link(

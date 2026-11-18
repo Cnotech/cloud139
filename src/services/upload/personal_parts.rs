@@ -1,24 +1,6 @@
 use crate::client::{ClientError, api::HttpClientWrapper};
 
-pub use crate::client::api::upload::{confirm_upload, get_upload_urls};
-
-pub async fn upload_single_part(
-    upload_urls: &std::collections::HashMap<i32, String>,
-    part_number: i32,
-    buffer: &[u8],
-    pb: Option<indicatif::ProgressBar>,
-) -> Result<(), ClientError> {
-    let client = HttpClientWrapper::new();
-    upload_part(
-        &client,
-        upload_urls,
-        part_number,
-        std::io::Cursor::new(buffer.to_vec()),
-        buffer.len() as u64,
-        pb,
-    )
-    .await
-}
+pub use crate::client::api::upload::get_upload_urls;
 
 pub(super) async fn upload_part(
     client: &HttpClientWrapper,

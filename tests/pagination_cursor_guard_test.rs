@@ -1,7 +1,7 @@
 //! Cursor cycles must fail explicitly, not loop or report a partial scan as complete.
-use cloud139::client::api::{get_file_id_by_path, list_personal_files};
-use cloud139::config::Config;
-use cloud139::services::sync_service::{SyncScanOptions, scan_cloud_personal};
+use cloud139::client::api::{HttpClientWrapper, get_file_id_by_path};
+use cloud139::services::sync_service::{SyncScanOptions, scan_cloud};
+use cloud139::{config::Config, domain::SyncDirection};
 use httpmock::prelude::*;
 use serde_json::json;
 use std::time::Duration;
@@ -47,17 +47,19 @@ async fn assert_cycle_fails(operation: &str, cycle: bool) {
                 .await
                 .map(|_| ())
                 .map_err(anyhow::Error::from),
-            "list" => list_personal_files(&config, "/")
+            "list" => HttpClientWrapper::new()
+                .list_personal_files(&config, "/")
                 .await
                 .map(|_| ())
                 .map_err(anyhow::Error::from),
-            "sync" => scan_cloud_personal(
+            "sync" => scan_cloud(
                 &config,
                 "/",
-                SyncScanOptions {
+                &SyncScanOptions {
                     recursive: true,
                     exclude: vec![],
                 },
+                SyncDirection::CloudToLocal,
             )
             .await
             .map(|_| ()),

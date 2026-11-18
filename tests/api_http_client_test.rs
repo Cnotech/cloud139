@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::client::api::{HttpClientWrapper, get_personal_cloud_host_with_client};
+use cloud139::client::api::HttpClientWrapper;
 use cloud139::config::Config;
 
 #[tokio::test]
@@ -9,7 +9,7 @@ async fn test_get_personal_cloud_host_with_cached_host() {
     config.personal_cloud_host = Some("https://cached.example.com".to_string());
 
     let wrapper = HttpClientWrapper::new();
-    let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
+    let result = wrapper.get_personal_cloud_host(&mut config).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "https://cached.example.com".to_string());
@@ -22,7 +22,7 @@ async fn test_get_personal_cloud_host_with_empty_account() {
     config.authorization = "test".to_string();
 
     let wrapper = HttpClientWrapper::new();
-    let result = get_personal_cloud_host_with_client(&mut config, &wrapper).await;
+    let result = wrapper.get_personal_cloud_host(&mut config).await;
 
     assert!(result.is_err());
 }
@@ -30,7 +30,7 @@ async fn test_get_personal_cloud_host_with_empty_account() {
 #[tokio::test]
 async fn cli_and_library_post_entry_points_send_the_same_personal_headers() {
     use cloud139::{
-        client::{Client, PC_CLIENT_INFO, api::personal_api_request},
+        client::{Client, PC_CLIENT_INFO},
         domain::StorageType,
     };
     use httpmock::prelude::*;
@@ -52,7 +52,8 @@ async fn cli_and_library_post_entry_points_send_the_same_personal_headers() {
     };
     let body = json!({"key":"中文"});
     let url = server.url("/post");
-    let direct: Value = personal_api_request(&config, &url, body.clone(), StorageType::PersonalNew)
+    let direct: Value = HttpClientWrapper::new()
+        .personal_api_request(&config, &url, body.clone(), StorageType::PersonalNew)
         .await
         .unwrap();
     let via_client: Value = Client::new(config)

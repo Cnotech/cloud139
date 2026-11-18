@@ -6,14 +6,6 @@ pub async fn login(
     token: &str,
     storage_type: &str,
     cloud_id: Option<&str>,
-) -> anyhow::Result<Config> {
-    login_with_group_root(token, storage_type, cloud_id, None).await
-}
-
-pub async fn login_with_group_root(
-    token: &str,
-    storage_type: &str,
-    cloud_id: Option<&str>,
     root_folder_id: Option<&str>,
 ) -> anyhow::Result<Config> {
     let token = token.strip_prefix("Basic ").unwrap_or(token);
@@ -23,8 +15,11 @@ pub async fn login_with_group_root(
         return Err(crate::client::ClientError::UnsupportedStorage.into());
     }
     info!("正在校验 Token 可用性 (ls /) ...");
-    config.personal_cloud_host =
-        Some(api::fetch_personal_cloud_host(&config, &api::HttpClientWrapper::new()).await?);
+    config.personal_cloud_host = Some(
+        api::HttpClientWrapper::new()
+            .fetch_personal_cloud_host(&config)
+            .await?,
+    );
     let list_args = crate::commands::list::ListArgs {
         recursive: false,
         path: "/".to_string(),

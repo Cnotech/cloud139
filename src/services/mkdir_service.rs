@@ -1,11 +1,32 @@
 use super::directory_service as dirs;
-use crate::{client::ClientError, config::Config};
-pub async fn mkdir(config: &Config, path: &str, _force: bool) -> Result<(), ClientError> {
-    dirs::ensure_dir(config, path, false).await
+use crate::{
+    client::{ClientError, api},
+    config::Config,
+};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MkdirMode {
+    Single,
+    Parents,
 }
-pub async fn mkdir_parents(config: &Config, path: &str) -> Result<(), ClientError> {
-    dirs::ensure_dir(config, path, true).await
+
+pub async fn mkdir(config: &Config, path: &str, mode: MkdirMode) -> Result<(), ClientError> {
+    config.require_personal()?;
+    let parents = mode == MkdirMode::Parents;
+    let path = dirs::normalize(path)?;
+    if path == "/" {
+        return if parents {
+            Ok(())
+        } else {
+            Err(ClientError::CannotOperateOnRoot)
+        };
+    }
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    dirs::ensure_personal_dir(&listing, &path, parents).await?;
+    Ok(())
 }
+
 pub fn parse_path(path: &str) -> Result<(String, String), ClientError> {
     if path.trim().is_empty() {
         return Err(dirs::invalid("路径不能为空"));

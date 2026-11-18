@@ -10,12 +10,13 @@ async fn maybe_refresh_config_at(
     url: &str,
     timeout: Duration,
 ) -> Result<(), ClientError> {
-    refresh_config_if_needed(candidates, async |config| {
-        apply_token_refresh(config, async |account, token| {
-            refresh::request_with_timeout(url, account, token, timeout).await
-        })
-        .await
-    })
+    refresh_config_if_needed(
+        candidates,
+        RefreshOptions {
+            endpoint: Some(url),
+            timeout,
+        },
+    )
     .await
 }
 

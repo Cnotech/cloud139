@@ -60,25 +60,11 @@ pub struct JsonFileItem {
     pub content_hash_algorithm: Option<String>,
 }
 
-pub fn to_json(result: &ListResult) -> anyhow::Result<String> {
-    to_json_with_pagination(result, None, None)
-}
-
-pub fn to_json_with_pagination(
-    result: &ListResult,
-    page: Option<i32>,
-    page_size: Option<i32>,
-) -> anyhow::Result<String> {
-    Ok(serde_json::to_string_pretty(&json_output(
-        result, page, page_size,
-    ))?)
-}
-
-pub(crate) fn json_output(
-    result: &ListResult,
-    page: Option<i32>,
-    page_size: Option<i32>,
-) -> JsonListOutput {
+pub fn json_output(result: &ListResult, pagination: Option<(i32, i32)>) -> JsonListOutput {
+    let (page, page_size) = match pagination {
+        Some((page, page_size)) => (Some(page), Some(page_size)),
+        None => (None, None),
+    };
     let items = result
         .items
         .iter()

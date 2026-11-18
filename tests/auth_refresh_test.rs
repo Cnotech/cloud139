@@ -9,6 +9,13 @@ use cloud139::config::{Config, TOKEN_REFRESH_THRESHOLD_MS};
 
 const REFRESH_PATH: &str = "/tellin/authTokenRefresh.do";
 
+fn refresh_options(endpoint: &str) -> auth::RefreshOptions<'_> {
+    auth::RefreshOptions {
+        endpoint: Some(endpoint),
+        ..Default::default()
+    }
+}
+
 fn base_config() -> Config {
     Config {
         account: "13800138000".to_string(),
@@ -43,7 +50,7 @@ async fn refresh_rebuilds_authorization_and_expiry() {
 
     let config = base_config();
     let before = chrono::Utc::now().timestamp_millis();
-    let refreshed = auth::refresh_token_at(&config, &server.url(REFRESH_PATH))
+    let refreshed = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect("refresh should succeed");
     mock.assert();
@@ -77,7 +84,7 @@ async fn refresh_escapes_account_and_token_as_xml_text() {
         ..base_config()
     };
 
-    let refreshed = auth::refresh_token_at(&config, &server.url(REFRESH_PATH))
+    let refreshed = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap();
 
@@ -96,7 +103,7 @@ async fn refresh_reports_server_error_code() {
         );
     });
 
-    let err = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
+    let err = auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect_err("refresh should fail");
     mock.assert();
@@ -118,7 +125,7 @@ async fn refresh_rejects_empty_token() {
             .body("<root><return>0</return><token></token><accessToken></accessToken></root>");
     });
 
-    let err = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
+    let err = auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect_err("empty token should fail");
     assert!(err.to_string().contains("响应未返回有效 Token"), "{err}");
@@ -138,7 +145,7 @@ async fn skips_refresh_when_token_is_fresh() {
         chrono::Utc::now().timestamp_millis() + TOKEN_REFRESH_THRESHOLD_MS + 24 * 60 * 60 * 1000,
     );
 
-    let result = auth::refresh_if_needed_at(&config, &server.url(REFRESH_PATH))
+    let result = auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect("should not fail");
     assert!(result.is_none(), "fresh token must not be refreshed");
@@ -156,7 +163,7 @@ async fn refreshes_when_token_is_near_expiry() {
     let mut config = base_config();
     config.token_expire_time = Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000);
 
-    let result = auth::refresh_if_needed_at(&config, &server.url(REFRESH_PATH))
+    let result = auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect("refresh should succeed");
     mock.assert_calls(1);
@@ -174,7 +181,7 @@ async fn refresh_prefers_token_over_access_token() {
              <accessToken>fallback-token</accessToken><expiretime>3600</expiretime></root>",
         );
     });
-    let config = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
+    let config = auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap();
     mock.assert_calls(1);
@@ -196,9 +203,10 @@ async fn refresh_uses_access_token_when_token_is_missing_or_empty() {
                  <accessToken>fallback-token</accessToken></root>"
             ));
         });
-        let config = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
-            .await
-            .unwrap();
+        let config =
+            auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
+                .await
+                .unwrap();
         mock.assert_calls(1);
         assert_eq!(config.refresh_token.as_deref(), Some("fallback-token"));
         assert_eq!(
@@ -217,7 +225,7 @@ async fn refresh_defaults_to_thirty_days_without_expiretime() {
             .body("<root><return>0</return><token>new-token</token></root>");
     });
     let before = chrono::Utc::now().timestamp_millis();
-    let config = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
+    let config = auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap();
     let after = chrono::Utc::now().timestamp_millis();
@@ -236,7 +244,7 @@ async fn refresh_without_refresh_token_fails_without_request() {
     });
     let mut config = base_config();
     config.refresh_token = None;
-    let error = auth::refresh_token_at(&config, &server.url(REFRESH_PATH))
+    let error = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap_err();
     assert!(matches!(error, cloud139::client::ClientError::TokenExpired));
@@ -255,7 +263,7 @@ async fn refresh_rejects_malformed_responses() {
             when.method(POST).path(REFRESH_PATH);
             then.status(200).body(body);
         });
-        let error = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
+        let error = auth::refresh_token(&base_config(), refresh_options(&server.url(REFRESH_PATH)))
             .await
             .unwrap_err();
         mock.assert_calls(1);
@@ -273,10 +281,11 @@ async fn refresh_if_needed_recovers_expired_and_unknown_expiry() {
         });
         let mut config = base_config();
         config.token_expire_time = expiry;
-        let refreshed = auth::refresh_if_needed_at(&config, &server.url(REFRESH_PATH))
-            .await
-            .unwrap()
-            .unwrap();
+        let refreshed =
+            auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
+                .await
+                .unwrap()
+                .unwrap();
         mock.assert_calls(1);
         assert_eq!(refreshed.refresh_token.as_deref(), Some("new-token"));
         assert!(!refreshed.needs_refresh());
@@ -308,7 +317,7 @@ async fn refreshed_authorization_can_be_parsed_by_login() {
         ));
         then.status(200).body(success_body(new_token, 2592000));
     });
-    let refreshed = auth::refresh_token_at(&config, &server.url(REFRESH_PATH))
+    let refreshed = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap();
     mock.assert_calls(1);

@@ -873,10 +873,11 @@ async fn recursive_download_rejects_local_case_or_unicode_collisions() {
         let aliases = volume_probe.path().join(second).exists();
         server.set("dir", vec![file("one", first), file("two", second)]);
         let destination = tmp.path().join(format!("download-{index}"));
-        let result = services::download_service::download_recursive(
+        let result = services::download(
             &server.config(),
             "/folder",
             destination.to_str().unwrap(),
+            None,
             true,
         )
         .await;
@@ -900,7 +901,7 @@ async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
     let server = Server::new();
     server.set("/", vec![file("one", "report.txt")]);
     server.state.lock().unwrap().fail_trash_item = true;
-    let error = services::delete(&server.config(), "/report.txt", false)
+    let error = services::delete(&server.config(), "/report.txt", false, false)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("删除失败"));
@@ -941,7 +942,7 @@ async fn root_mutations_are_rejected_for_personal_storage_without_network() {
         let config = Config::default();
         for root in ["/", "//./", "/a/..", ""] {
             assert!(
-                services::delete_service::delete_recursive(&config, root, false, true)
+                services::delete(&config, root, false, true)
                     .await
                     .unwrap_err()
                     .to_string()
@@ -988,19 +989,31 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
 async fn mkdir_parents_is_idempotent_and_rejects_files_without_rename() {
     let server = Server::new();
     let config = server.config();
-    services::mkdir_service::mkdir_parents(&config, "/a/b/empty")
-        .await
-        .unwrap();
+    services::mkdir(
+        &config,
+        "/a/b/empty",
+        services::mkdir_service::MkdirMode::Parents,
+    )
+    .await
+    .unwrap();
     assert_eq!(server.mutations().len(), 3);
-    services::mkdir_service::mkdir_parents(&config, "/a/b/empty/")
-        .await
-        .unwrap();
+    services::mkdir(
+        &config,
+        "/a/b/empty/",
+        services::mkdir_service::MkdirMode::Parents,
+    )
+    .await
+    .unwrap();
     assert_eq!(server.mutations().len(), 3);
     server.set("/", vec![file("f", "occupied")]);
     assert!(
-        services::mkdir_service::mkdir_parents(&config, "/occupied/child")
-            .await
-            .is_err()
+        services::mkdir(
+            &config,
+            "/occupied/child",
+            services::mkdir_service::MkdirMode::Parents
+        )
+        .await
+        .is_err()
     );
     assert_eq!(server.mutations().len(), 3);
     assert!(
@@ -1075,12 +1088,12 @@ async fn recursive_download_requires_flag_preserves_empty_and_file_contents() {
     let out = tmp.path().join("out");
     let local = out.to_str().unwrap();
     assert!(
-        services::download_service::download_recursive(&server.config(), "/dir", local, false)
+        services::download(&server.config(), "/dir", local, None, false)
             .await
             .is_err()
     );
     assert!(!out.exists());
-    services::download_service::download_recursive(&server.config(), "/dir", local, true)
+    services::download(&server.config(), "/dir", local, None, true)
         .await
         .unwrap();
     assert!(out.join("empty").is_dir());
@@ -1107,9 +1120,7 @@ async fn recursive_download_validates_listed_size_without_content_length() {
         server.set("d", vec![item]);
         server.state.lock().unwrap().close_delimited_payload = Some(payload);
         std::fs::write(&destination, b"keep original").unwrap();
-        let result =
-            services::download_service::download_recursive(&server.config(), "/dir", local, true)
-                .await;
+        let result = services::download(&server.config(), "/dir", local, None, true).await;
         if valid {
             result.unwrap();
             assert_eq!(std::fs::read(&destination).unwrap(), payload);
@@ -1131,14 +1142,9 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     for name in ["../escape", "/escape", "C:escape", "a\\b", "."] {
         server.set("d", vec![file("f", name)]);
         assert!(
-            services::download_service::download_recursive(
-                &server.config(),
-                "/dir",
-                out.to_str().unwrap(),
-                true
-            )
-            .await
-            .is_err()
+            services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
+                .await
+                .is_err()
         );
         assert!(!out.exists());
     }
@@ -1146,14 +1152,9 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     std::fs::create_dir(&out).unwrap();
     std::fs::write(out.join("empty"), b"keep").unwrap();
     assert!(
-        services::download_service::download_recursive(
-            &server.config(),
-            "/dir",
-            out.to_str().unwrap(),
-            true
-        )
-        .await
-        .is_err()
+        services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
+            .await
+            .is_err()
     );
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
@@ -1657,21 +1658,21 @@ async fn directory_delete_needs_recursive_and_permanent_never_trashes() {
     let server = Server::new();
     server.set("/", vec![folder("d", "dir")]);
     assert!(
-        services::delete(&server.config(), "/dir", false)
+        services::delete(&server.config(), "/dir", false, false)
             .await
             .unwrap_err()
             .to_string()
             .contains("-r")
     );
     assert!(
-        services::delete_service::delete_recursive(&server.config(), "/dir", true, true)
+        services::delete(&server.config(), "/dir", true, true)
             .await
             .unwrap_err()
             .to_string()
             .contains("永久删除")
     );
     assert!(server.mutations().is_empty());
-    services::delete_service::delete_recursive(&server.config(), "/dir", false, true)
+    services::delete(&server.config(), "/dir", false, true)
         .await
         .unwrap();
     assert_eq!(server.mutations()[0].0, "/recyclebin/batchTrash");
@@ -1701,10 +1702,11 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     );
     assert!(server.mutations().is_empty());
     assert!(
-        services::download_service::download_recursive(
+        services::download(
             &server.config(),
             "/dir",
             tmp.path().join("link/out").to_str().unwrap(),
+            None,
             true
         )
         .await
@@ -1714,14 +1716,9 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     std::fs::create_dir(&out).unwrap();
     symlink(outside.path().join("data.bin"), out.join("data.bin")).unwrap();
     assert!(
-        services::download_service::download_recursive(
-            &server.config(),
-            "/dir",
-            out.to_str().unwrap(),
-            true
-        )
-        .await
-        .is_err()
+        services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
+            .await
+            .is_err()
     );
     assert_eq!(
         std::fs::read(outside.path().join("data.bin")).unwrap(),
@@ -1761,7 +1758,8 @@ async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
             ..Default::default()
         };
         assert!(
-            cloud139::client::api::list_personal_files(&config, "/")
+            cloud139::client::api::HttpClientWrapper::new()
+                .list_personal_files(&config, "/")
                 .await
                 .is_err()
         );
@@ -1779,7 +1777,7 @@ async fn server_root_id_alias_is_rejected_before_delete_or_rename() {
     let server = Server::new();
     server.set("/", vec![folder("/", "alias")]);
     assert!(
-        services::delete_service::delete_recursive(&server.config(), "/alias", false, true)
+        services::delete(&server.config(), "/alias", false, true)
             .await
             .is_err()
     );

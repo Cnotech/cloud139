@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::client::api::get_personal_cloud_host_with_client;
+use cloud139::client::api::HttpClientWrapper;
 use cloud139::config::Config;
 use cloud139::domain::StorageType;
 
@@ -67,8 +67,8 @@ async fn test_get_personal_cloud_host_cached() {
         personal_cloud_host: Some("cached-host.example.com".to_string()),
         ..Default::default()
     };
-    let http_client = cloud139::client::api::HttpClientWrapper::new();
-    let host = get_personal_cloud_host_with_client(&mut config, &http_client).await;
+    let http_client = HttpClientWrapper::new();
+    let host = http_client.get_personal_cloud_host(&mut config).await;
 
     assert!(host.is_ok());
     assert_eq!(host.unwrap(), "cached-host.example.com");

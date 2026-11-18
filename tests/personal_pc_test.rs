@@ -57,16 +57,25 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
             .header("x-yun-client-info", PC_CLIENT_INFO);
         then.json_body(json!({"success":true,"data":{"items":[],"nextPageCursor":""}}));
     });
-    api::list_personal_files(&config, "/").await.unwrap();
+    api::HttpClientWrapper::new()
+        .list_personal_files(&config, "/")
+        .await
+        .unwrap();
     old_list.assert_calls(1);
     let refresh = server.mock(|when, then| {
         when.method(POST).path("/refresh")
             .body("<root><token>old|1|RCS|9999999999999|signature</token><account>13800138000</account><clienttype>656</clienttype></root>");
         then.body("<root><return>0</return><token>new-token</token><expiretime>2592000</expiretime></root>");
     });
-    let refreshed = auth::refresh_token_at(&config, &server.url("/refresh"))
-        .await
-        .unwrap();
+    let refreshed = auth::refresh_token(
+        &config,
+        auth::RefreshOptions {
+            endpoint: Some(&server.url("/refresh")),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
     refresh.assert_calls(1);
     let auth_value = format!(
         "Basic {}",
@@ -87,14 +96,15 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
                 .header("x-yun-client-info", PC_CLIENT_INFO);
             then.json_body(json!({"success":true}));
         });
-        let response: serde_json::Value = api::personal_api_request(
-            &refreshed,
-            &server.url(endpoint),
-            json!({}),
-            StorageType::PersonalNew,
-        )
-        .await
-        .unwrap();
+        let response: serde_json::Value = api::HttpClientWrapper::new()
+            .personal_api_request(
+                &refreshed,
+                &server.url(endpoint),
+                json!({}),
+                StorageType::PersonalNew,
+            )
+            .await
+            .unwrap();
         assert_eq!(response["success"], true);
         request.assert_calls(1);
     }

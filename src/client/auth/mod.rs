@@ -1,5 +1,6 @@
 use crate::client::ClientError;
 use crate::client::api::refresh;
+pub use crate::client::api::refresh::RefreshOptions;
 use crate::config::{Config, ConfigUpdate, config_load_candidates};
 use crate::{debug, warn};
 use std::path::PathBuf;
@@ -63,22 +64,10 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
     Ok((account, token_info, expire_time))
 }
 
-/// 使用官方续期接口和默认请求超时刷新 Token。
-pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
-    apply_token_refresh(config, refresh::request).await
-}
-
-/// 向指定的接口地址发起 Token 续期，使用默认请求超时。
-pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
-    apply_token_refresh(config, async |account, token| {
-        refresh::request_at(url, account, token).await
-    })
-    .await
-}
-
-async fn apply_token_refresh(
+/// 刷新 Token。默认使用官方端点，可通过 options 指定其他端点。
+pub async fn refresh_token(
     config: &Config,
-    request: impl AsyncFnOnce(&str, &str) -> Result<refresh::RefreshedToken, ClientError>,
+    options: RefreshOptions<'_>,
 ) -> Result<Config, ClientError> {
     config.require_personal()?;
     debug!("开始续期 Token account={}", config.account);
@@ -93,7 +82,7 @@ async fn apply_token_refresh(
     let refresh::RefreshedToken {
         token: new_token,
         expire_seconds,
-    } = request(&config.account, refresh_token).await?;
+    } = refresh::request(&config.account, refresh_token, options).await?;
 
     let authorization = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
@@ -112,27 +101,15 @@ async fn apply_token_refresh(
 }
 
 /// 按需续期：需要续期时返回新配置，不需要时返回 None。
-pub async fn refresh_if_needed(config: &Config) -> Result<Option<Config>, ClientError> {
-    refresh_if_needed_with(config, refresh_token).await
-}
-
-/// 需要续期时向指定的接口地址发起请求。
-pub async fn refresh_if_needed_at(
+pub async fn refresh_if_needed(
     config: &Config,
-    url: &str,
-) -> Result<Option<Config>, ClientError> {
-    refresh_if_needed_with(config, async |config| refresh_token_at(config, url).await).await
-}
-
-async fn refresh_if_needed_with(
-    config: &Config,
-    refresh: impl AsyncFnOnce(&Config) -> Result<Config, ClientError>,
+    options: RefreshOptions<'_>,
 ) -> Result<Option<Config>, ClientError> {
     config.require_personal()?;
     if !config.needs_refresh() {
         return Ok(None);
     }
-    refresh(config).await.map(Some)
+    refresh_token(config, options).await.map(Some)
 }
 
 /// 命令启动时按需续期并落盘。
@@ -140,12 +117,12 @@ async fn refresh_if_needed_with(
 /// 失败只告警、不阻断：此刻的 authorization 可能仍然可用，
 /// 而续期失败最常见的原因是网络；真正过期后由命令自己报 401。
 pub async fn maybe_refresh_config() -> Result<(), ClientError> {
-    refresh_config_if_needed(&config_load_candidates(), refresh_token).await
+    refresh_config_if_needed(&config_load_candidates(), RefreshOptions::default()).await
 }
 
 async fn refresh_config_if_needed(
     candidates: &[PathBuf],
-    refresh: impl AsyncFnOnce(&Config) -> Result<Config, ClientError>,
+    options: RefreshOptions<'_>,
 ) -> Result<(), ClientError> {
     let (config, path) = match Config::load_from_candidates(candidates) {
         Ok(loaded) => loaded,
@@ -166,7 +143,7 @@ async fn refresh_config_if_needed(
         }
     };
     // 等待锁之前可能已有进程完成了续期，必须使用锁内重新读取的配置判断。
-    match refresh_if_needed_with(&update.config, refresh).await {
+    match refresh_if_needed(&update.config, options).await {
         Ok(Some(new_config)) => {
             update
                 .save(&new_config)

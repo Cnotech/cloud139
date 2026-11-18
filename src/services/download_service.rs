@@ -7,16 +7,6 @@ use sha2::{Digest, Sha256};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
-/// 下载文件服务
-pub async fn download(
-    config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-) -> Result<()> {
-    download_path(config, remote_path, local_path, pb, false).await
-}
-
 async fn download_personal(
     personal: &PersonalClient<'_>,
     remote_path: &str,
@@ -189,16 +179,7 @@ fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientE
 }
 
 /// Recursive download retains empty directories and rejects unsafe names and local symlinks.
-pub async fn download_recursive(
-    config: &Config,
-    remote: &str,
-    local: &str,
-    recursive: bool,
-) -> Result<()> {
-    download_path(config, remote, local, None, recursive).await
-}
-
-async fn download_path(
+pub async fn download(
     config: &Config,
     remote: &str,
     local: &str,

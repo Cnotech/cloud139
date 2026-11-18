@@ -27,11 +27,7 @@ pub fn parse_sync_endpoint(value: &str) -> SyncEndpoint {
     SyncEndpoint::Local(PathBuf::from(value))
 }
 
-pub fn resolve_sync_direction(src: &str, dest: &str) -> Result<SyncDirection> {
-    sync_direction(&parse_sync_endpoint(src), &parse_sync_endpoint(dest))
-}
-
-pub(crate) fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDirection> {
+pub fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDirection> {
     match (src, dest) {
         (SyncEndpoint::Local(_), SyncEndpoint::Cloud(_)) => Ok(SyncDirection::LocalToCloud),
         (SyncEndpoint::Cloud(_), SyncEndpoint::Local(_)) => Ok(SyncDirection::CloudToLocal),
@@ -385,10 +381,6 @@ pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
     })
 }
 
-pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileItem) -> bool {
-    item.is_folder()
-}
-
 pub fn cloud_child_path(parent: &str, name: &str) -> String {
     format!(
         "{}/{}",
@@ -457,8 +449,8 @@ pub(super) fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
 }
 
 #[derive(Default)]
-pub(crate) struct CloudSyncScan {
-    pub(super) items: Vec<FileEntry>,
+pub struct CloudSyncScan {
+    pub items: Vec<FileEntry>,
     directories: BTreeMap<String, String>,
     protected: BTreeSet<String>,
     pub(crate) files: BTreeMap<String, CloudSyncFile>,
@@ -611,39 +603,12 @@ impl CloudSyncScan {
     }
 }
 
-pub async fn scan_cloud_personal(
+/// 扫描云端目录，按同步方向应用对应的扫描规则。
+pub async fn scan_cloud(
     config: &crate::config::Config,
     cloud_root: &str,
-    options: SyncScanOptions,
-) -> Result<Vec<FileEntry>> {
-    Ok(
-        scan_cloud_personal_inner(config, cloud_root, options, false)
-            .await?
-            .items,
-    )
-}
-
-pub(crate) async fn scan_cloud_upload_target(
-    config: &crate::config::Config,
-    cloud_root: &str,
-    options: SyncScanOptions,
-) -> Result<CloudSyncScan> {
-    scan_cloud_personal_inner(config, cloud_root, options, true).await
-}
-
-pub(crate) async fn scan_cloud_download_source(
-    config: &crate::config::Config,
-    cloud_root: &str,
-    options: SyncScanOptions,
-) -> Result<CloudSyncScan> {
-    scan_cloud_personal_inner(config, cloud_root, options, false).await
-}
-
-async fn scan_cloud_personal_inner(
-    config: &crate::config::Config,
-    cloud_root: &str,
-    options: SyncScanOptions,
-    upload_target: bool,
+    options: &SyncScanOptions,
+    direction: SyncDirection,
 ) -> Result<CloudSyncScan> {
     config.require_personal()?;
     let cloud_root = super::directory_service::normalize(cloud_root)?;
@@ -659,7 +624,7 @@ async fn scan_cloud_personal_inner(
         },
         seen_objects: BTreeSet::from([root_id.clone()]),
         recursive: options.recursive,
-        upload_target,
+        upload_target: direction == SyncDirection::LocalToCloud,
         patterns: compile_exclude_patterns(&options.exclude)?,
     };
     scanner.scan_directory(&listing, "", &root_id).await?;
@@ -713,7 +678,7 @@ impl CloudScanner {
                     continue;
                 }
 
-                if should_treat_personal_item_as_folder(&item) {
+                if item.is_folder() {
                     let child_id = item
                         .file_id
                         .as_deref()

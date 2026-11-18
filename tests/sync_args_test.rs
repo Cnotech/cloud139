@@ -2,7 +2,7 @@ use clap::{CommandFactory, Parser};
 use cloud139::cli::app::{Cli, Commands};
 use cloud139::commands::sync::SyncArgs;
 use cloud139::domain::{SyncDirection, SyncEndpoint};
-use cloud139::services::sync_service::{parse_sync_endpoint, resolve_sync_direction};
+use cloud139::services::sync_service::{parse_sync_endpoint, sync_direction};
 
 #[test]
 fn test_sync_args_parse_defaults() {
@@ -90,23 +90,36 @@ fn test_parse_local_endpoint_keeps_path() {
 }
 
 #[test]
-fn test_resolve_sync_direction_local_to_cloud() {
-    let direction = resolve_sync_direction("./local", "cloud:/remote").unwrap();
+fn test_sync_direction_local_to_cloud() {
+    let direction = sync_direction(
+        &parse_sync_endpoint("./local"),
+        &parse_sync_endpoint("cloud:/remote"),
+    )
+    .unwrap();
     assert_eq!(direction, SyncDirection::LocalToCloud);
 }
 
 #[test]
-fn test_resolve_sync_direction_cloud_to_local() {
-    let direction = resolve_sync_direction("cloud:/remote", "./local").unwrap();
+fn test_sync_direction_cloud_to_local() {
+    let direction = sync_direction(
+        &parse_sync_endpoint("cloud:/remote"),
+        &parse_sync_endpoint("./local"),
+    )
+    .unwrap();
     assert_eq!(direction, SyncDirection::CloudToLocal);
 }
 
 #[test]
-fn test_resolve_sync_direction_rejects_same_kind() {
-    let local_err = resolve_sync_direction("./a", "./b").unwrap_err();
+fn test_sync_direction_rejects_same_kind() {
+    let local_err =
+        sync_direction(&parse_sync_endpoint("./a"), &parse_sync_endpoint("./b")).unwrap_err();
     assert!(local_err.to_string().contains("本地路径"));
 
-    let cloud_err = resolve_sync_direction("cloud:/a", "cloud:/b").unwrap_err();
+    let cloud_err = sync_direction(
+        &parse_sync_endpoint("cloud:/a"),
+        &parse_sync_endpoint("cloud:/b"),
+    )
+    .unwrap_err();
     assert!(cloud_err.to_string().contains("云端路径"));
 }
 

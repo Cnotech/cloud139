@@ -1,3 +1,4 @@
+use crate::services::mkdir_service::{MkdirMode, mkdir};
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -14,10 +15,11 @@ pub struct MkdirArgs {
 
 pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {
     let config = crate::config::Config::load_personal()?;
-    if args.parents {
-        crate::services::mkdir_service::mkdir_parents(&config, &args.path).await?;
+    let mode = if args.parents {
+        MkdirMode::Parents
     } else {
-        crate::services::mkdir_service::mkdir(&config, &args.path, args.force).await?;
-    }
+        MkdirMode::Single
+    };
+    mkdir(&config, &args.path, mode).await?;
     Ok(())
 }

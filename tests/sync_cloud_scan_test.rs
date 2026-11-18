@@ -1,7 +1,6 @@
 use cloud139::models::PersonalFileItem;
 use cloud139::services::sync_service::{
     cloud_child_path, normalize_cloud_path, personal_item_to_file_entry,
-    should_treat_personal_item_as_folder,
 };
 
 fn item(
@@ -28,21 +27,10 @@ fn item(
 
 #[test]
 fn test_should_treat_personal_item_as_folder_accepts_known_folder_values() {
-    assert!(should_treat_personal_item_as_folder(&item(
-        "docs", None, "folder", None
-    )));
-    assert!(should_treat_personal_item_as_folder(&item(
-        "docs", None, "dir", None
-    )));
-    assert!(should_treat_personal_item_as_folder(&item(
-        "docs", None, "1", None
-    )));
-    assert!(!should_treat_personal_item_as_folder(&item(
-        "readme.md",
-        Some(3),
-        "file",
-        None
-    )));
+    assert!(item("docs", None, "folder", None).is_folder());
+    assert!(item("docs", None, "dir", None).is_folder());
+    assert!(item("docs", None, "1", None).is_folder());
+    assert!(!item("readme.md", Some(3), "file", None).is_folder());
 }
 
 #[test]

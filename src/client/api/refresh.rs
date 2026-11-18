@@ -5,8 +5,23 @@ use crate::client::ClientError;
 use serde::Deserialize;
 use std::time::Duration;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
+
+/// 续期端点及整个 HTTP 请求的超时。
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshOptions<'a> {
+    pub endpoint: Option<&'a str>,
+    pub timeout: Duration,
+}
+
+impl Default for RefreshOptions<'_> {
+    fn default() -> Self {
+        Self {
+            endpoint: None,
+            timeout: Duration::from_secs(10),
+        }
+    }
+}
 
 pub(in crate::client) struct RefreshedToken {
     pub token: String,
@@ -31,25 +46,10 @@ fn build_refresh_body(account: &str, token: &str) -> String {
 pub(in crate::client) async fn request(
     account: &str,
     token: &str,
+    options: RefreshOptions<'_>,
 ) -> Result<RefreshedToken, ClientError> {
-    request_at(AUTH_TOKEN_REFRESH_URL, account, token).await
-}
-
-pub(in crate::client) async fn request_at(
-    url: &str,
-    account: &str,
-    token: &str,
-) -> Result<RefreshedToken, ClientError> {
-    request_with_timeout(url, account, token, REQUEST_TIMEOUT).await
-}
-
-pub(in crate::client) async fn request_with_timeout(
-    url: &str,
-    account: &str,
-    token: &str,
-    timeout: Duration,
-) -> Result<RefreshedToken, ClientError> {
-    let client = refresh_http_client(timeout)?;
+    let url = options.endpoint.unwrap_or(AUTH_TOKEN_REFRESH_URL);
+    let client = refresh_http_client(options.timeout)?;
     let text = client
         .post(url)
         .headers(build_refresh_headers())
