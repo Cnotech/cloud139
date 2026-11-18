@@ -145,7 +145,7 @@ async fn skips_refresh_when_token_is_fresh() {
         chrono::Utc::now().timestamp_millis() + TOKEN_REFRESH_THRESHOLD_MS + 24 * 60 * 60 * 1000,
     );
 
-    let result = auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
+    let result = auth::refresh_token_if_due(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect("should not fail");
     assert!(result.is_none(), "fresh token must not be refreshed");
@@ -163,7 +163,7 @@ async fn refreshes_when_token_is_near_expiry() {
     let mut config = base_config();
     config.token_expire_time = Some(chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000);
 
-    let result = auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
+    let result = auth::refresh_token_if_due(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .expect("refresh should succeed");
     mock.assert_calls(1);
@@ -272,7 +272,7 @@ async fn refresh_rejects_malformed_responses() {
 }
 
 #[tokio::test]
-async fn refresh_if_needed_recovers_expired_and_unknown_expiry() {
+async fn refresh_token_if_due_recovers_expired_and_unknown_expiry() {
     for expiry in [Some(chrono::Utc::now().timestamp_millis() - 1), None] {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
@@ -282,13 +282,13 @@ async fn refresh_if_needed_recovers_expired_and_unknown_expiry() {
         let mut config = base_config();
         config.token_expire_time = expiry;
         let refreshed =
-            auth::refresh_if_needed(&config, refresh_options(&server.url(REFRESH_PATH)))
+            auth::refresh_token_if_due(&config, refresh_options(&server.url(REFRESH_PATH)))
                 .await
                 .unwrap()
                 .unwrap();
         mock.assert_calls(1);
         assert_eq!(refreshed.refresh_token.as_deref(), Some("new-token"));
-        assert!(!refreshed.needs_refresh());
+        assert!(!refreshed.is_token_refresh_due());
     }
 }
 

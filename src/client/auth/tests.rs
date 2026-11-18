@@ -5,12 +5,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
-async fn maybe_refresh_config_at(
+async fn run_startup_refresh(
     candidates: &[PathBuf],
     url: &str,
     timeout: Duration,
 ) -> Result<(), ClientError> {
-    refresh_config_if_needed(
+    refresh_and_save_token_if_due(
         candidates,
         RefreshOptions {
             endpoint: Some(url),
@@ -95,9 +95,10 @@ async fn assert_timeout_keeps_config_and_continues(response: String, release: bo
     let (url, accepted, release_tx, task) = server(response).await;
     let paths = vec![path.clone()];
     let start = std::time::Instant::now();
-    let operation = tokio::spawn(async move {
-        maybe_refresh_config_at(&paths, &url, Duration::from_millis(250)).await
-    });
+    let operation =
+        tokio::spawn(
+            async move { run_startup_refresh(&paths, &url, Duration::from_millis(250)).await },
+        );
     tokio::time::timeout(Duration::from_secs(2), accepted)
         .await
         .unwrap()
@@ -142,7 +143,7 @@ async fn refresh_writes_original_source_when_local_config_appears() {
     let paths = vec![local.clone(), global.clone()];
     let operation =
         tokio::spawn(
-            async move { maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)).await },
+            async move { run_startup_refresh(&paths, &url, Duration::from_secs(2)).await },
         );
     tokio::time::timeout(Duration::from_secs(2), accepted)
         .await
@@ -168,7 +169,7 @@ async fn refresh_does_not_overwrite_external_replacement() {
     let paths = vec![path.clone()];
     let operation =
         tokio::spawn(
-            async move { maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)).await },
+            async move { run_startup_refresh(&paths, &url, Duration::from_secs(2)).await },
         );
     tokio::time::timeout(Duration::from_secs(2), accepted)
         .await
@@ -194,7 +195,7 @@ async fn concurrent_startup_skips_busy_refresh_without_waiting() {
     let first_paths = paths.clone();
     let first_url = url.clone();
     let first = tokio::spawn(async move {
-        maybe_refresh_config_at(&first_paths, &first_url, Duration::from_secs(2)).await
+        run_startup_refresh(&first_paths, &first_url, Duration::from_secs(2)).await
     });
     tokio::time::timeout(Duration::from_secs(2), accepted)
         .await
@@ -202,7 +203,7 @@ async fn concurrent_startup_skips_busy_refresh_without_waiting() {
         .unwrap();
     tokio::time::timeout(
         Duration::from_millis(250),
-        maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)),
+        run_startup_refresh(&paths, &url, Duration::from_secs(2)),
     )
     .await
     .unwrap()
@@ -217,7 +218,7 @@ async fn concurrent_startup_skips_busy_refresh_without_waiting() {
     // 完成后重新读取新到期时间，不会用旧快照再次续期。
     tokio::time::timeout(
         Duration::from_millis(250),
-        maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)),
+        run_startup_refresh(&paths, &url, Duration::from_secs(2)),
     )
     .await
     .unwrap()
@@ -284,7 +285,7 @@ async fn startup_skips_missing_or_invalid_config_without_request() {
             when.method(POST).path("/refresh");
             then.status(500);
         });
-        maybe_refresh_config_at(
+        run_startup_refresh(
             std::slice::from_ref(&path),
             &server.url("/refresh"),
             Duration::from_secs(1),
@@ -309,7 +310,7 @@ async fn startup_skips_fresh_config_without_rewriting_or_request() {
         when.method(POST).path("/refresh");
         then.status(500);
     });
-    maybe_refresh_config_at(
+    run_startup_refresh(
         std::slice::from_ref(&path),
         &server.url("/refresh"),
         Duration::from_secs(1),
@@ -342,7 +343,7 @@ async fn startup_persists_refreshed_credentials_and_skips_next_refresh() {
             );
         });
         let before = chrono::Utc::now().timestamp_millis();
-        maybe_refresh_config_at(
+        run_startup_refresh(
             std::slice::from_ref(&path),
             &server.url("/refresh"),
             Duration::from_secs(1),
@@ -365,7 +366,7 @@ async fn startup_persists_refreshed_credentials_and_skips_next_refresh() {
             toml::to_string(&config).unwrap()
         );
 
-        maybe_refresh_config_at(
+        run_startup_refresh(
             std::slice::from_ref(&path),
             &server.url("/refresh"),
             Duration::from_secs(1),
@@ -401,7 +402,7 @@ async fn startup_refresh_failures_keep_config_and_release_lock() {
             when.method(POST).path("/refresh");
             then.status(200).body(body);
         });
-        maybe_refresh_config_at(
+        run_startup_refresh(
             std::slice::from_ref(&path),
             &server.url("/refresh"),
             Duration::from_secs(1),
@@ -426,7 +427,7 @@ async fn startup_connection_failure_keeps_config_and_continues() {
     drop(listener);
     tokio::time::timeout(
         Duration::from_secs(2),
-        maybe_refresh_config_at(
+        run_startup_refresh(
             std::slice::from_ref(&path),
             &url,
             Duration::from_millis(250),
@@ -454,7 +455,7 @@ async fn startup_refresh_does_not_depend_on_legacy_sidecar_path() {
             "<root><return>0</return><token>new-token</token><expiretime>2592000</expiretime></root>",
         );
     });
-    maybe_refresh_config_at(
+    run_startup_refresh(
         std::slice::from_ref(&path),
         &server.url("/refresh"),
         Duration::from_secs(1),
@@ -476,7 +477,7 @@ async fn startup_reports_save_error_if_config_is_removed_during_refresh() {
     let paths = vec![path.clone()];
     let operation =
         tokio::spawn(
-            async move { maybe_refresh_config_at(&paths, &url, Duration::from_secs(2)).await },
+            async move { run_startup_refresh(&paths, &url, Duration::from_secs(2)).await },
         );
     tokio::time::timeout(Duration::from_secs(2), accepted)
         .await

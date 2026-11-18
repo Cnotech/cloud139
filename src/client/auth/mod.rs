@@ -1,7 +1,7 @@
 use crate::client::ClientError;
 use crate::client::api::refresh;
 pub use crate::client::api::refresh::RefreshOptions;
-use crate::config::{Config, ConfigUpdate, config_load_candidates};
+use crate::config::{Config, ConfigUpdate};
 use crate::{debug, warn};
 use std::path::PathBuf;
 
@@ -100,27 +100,23 @@ pub async fn refresh_token(
     Ok(new_config)
 }
 
-/// 按需续期：需要续期时返回新配置，不需要时返回 None。
-pub async fn refresh_if_needed(
+/// Token 达到续期条件时返回更新后的配置，否则返回 `None`。
+pub async fn refresh_token_if_due(
     config: &Config,
     options: RefreshOptions<'_>,
 ) -> Result<Option<Config>, ClientError> {
     config.require_personal()?;
-    if !config.needs_refresh() {
+    if !config.is_token_refresh_due() {
         return Ok(None);
     }
     refresh_token(config, options).await.map(Some)
 }
 
-/// 命令启动时按需续期并落盘。
+/// 按顺序查找配置，在 Token 达到续期条件时刷新并写回原文件。
 ///
-/// 失败只告警、不阻断：此刻的 authorization 可能仍然可用，
-/// 而续期失败最常见的原因是网络；真正过期后由命令自己报 401。
-pub async fn maybe_refresh_config() -> Result<(), ClientError> {
-    refresh_config_if_needed(&config_load_candidates(), RefreshOptions::default()).await
-}
-
-async fn refresh_config_if_needed(
+/// 配置无法加载时跳过。锁忙或续期请求失败时告警，并继续使用现有配置。
+/// 存储类型不受支持或写回失败时返回错误。
+pub async fn refresh_and_save_token_if_due(
     candidates: &[PathBuf],
     options: RefreshOptions<'_>,
 ) -> Result<(), ClientError> {
@@ -130,7 +126,7 @@ async fn refresh_config_if_needed(
         Err(_) => return Ok(()),
     };
     config.require_personal()?;
-    if !config.needs_refresh() {
+    if !config.is_token_refresh_due() {
         return Ok(());
     }
 
@@ -143,7 +139,7 @@ async fn refresh_config_if_needed(
         }
     };
     // 等待锁之前可能已有进程完成了续期，必须使用锁内重新读取的配置判断。
-    match refresh_if_needed(&update.config, options).await {
+    match refresh_token_if_due(&update.config, options).await {
         Ok(Some(new_config)) => {
             update
                 .save(&new_config)

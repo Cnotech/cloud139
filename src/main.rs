@@ -1,7 +1,8 @@
 use clap::Parser;
 
 use cloud139::cli::app::{Cli, Commands};
-use cloud139::client::ClientError;
+use cloud139::client::{ClientError, auth};
+use cloud139::config;
 use cloud139::error;
 
 #[tokio::main]
@@ -11,14 +12,17 @@ async fn main() -> anyhow::Result<()> {
         cloud139::utils::logger::route_status_to_stderr();
     }
     if let Some(path) = cli.config.clone() {
-        cloud139::config::set_config_override(path);
+        config::set_config_override(path);
     }
     cloud139::utils::logger::init_verbose(&cli.verbose);
 
     // 除登录外的命令，启动时按需续期。139 的 refresh 接口每次滚动发放 30 天有效的新 token，
     // 所以只要 CLI 每天被调用，就不需要额外的定时任务来维持登录态。
     if !matches!(&cli.command, Commands::Login(_)) {
-        match cloud139::client::auth::maybe_refresh_config().await {
+        let candidates = config::config_load_candidates();
+        match auth::refresh_and_save_token_if_due(&candidates, auth::RefreshOptions::default())
+            .await
+        {
             Err(ClientError::UnsupportedStorage) => {
                 error!("{}", ClientError::UnsupportedStorage);
                 std::process::exit(1);

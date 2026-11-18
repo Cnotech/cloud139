@@ -103,39 +103,39 @@ user_domain_id = "domain123"
     }
 
     #[test]
-    fn test_config_needs_refresh_no_expiry() {
+    fn test_token_refresh_due_no_expiry() {
         let config = Config::default();
-        assert!(config.needs_refresh());
+        assert!(config.is_token_refresh_due());
     }
 
     #[test]
-    fn test_config_needs_refresh_past() {
+    fn test_token_refresh_due_past() {
         let past = chrono::Utc::now().timestamp_millis() - 24 * 60 * 60 * 1000;
         let config = Config {
             token_expire_time: Some(past),
             ..Default::default()
         };
-        assert!(config.needs_refresh());
+        assert!(config.is_token_refresh_due());
     }
 
     #[test]
-    fn test_config_needs_refresh_future() {
+    fn test_token_refresh_due_future() {
         let future = chrono::Utc::now().timestamp_millis() + 24 * 60 * 60 * 1000 * 30;
         let config = Config {
             token_expire_time: Some(future),
             ..Default::default()
         };
-        assert!(!config.needs_refresh());
+        assert!(!config.is_token_refresh_due());
     }
 
     #[test]
-    fn test_config_needs_refresh_near_expiry() {
+    fn test_token_refresh_due_near_expiry() {
         let near = chrono::Utc::now().timestamp_millis() + 3 * 24 * 60 * 60 * 1000;
         let config = Config {
             token_expire_time: Some(near),
             ..Default::default()
         };
-        assert!(config.needs_refresh());
+        assert!(config.is_token_refresh_due());
     }
 
     #[test]

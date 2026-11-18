@@ -31,6 +31,12 @@ use crate::{error, info, success, warn};
 | 常量 | SCREAMING_SNAKE_CASE | `KEY_HEX_1` |
 | Trait | PascalCase | `ApiTrait` |
 
+### 条件操作
+
+- 条件操作先写动作和对象，再用 `_if_<具体条件>` 标明执行条件。避免用 `maybe_` 或 `_if_needed` 代替具体条件。
+- 将调用方需要知道的副作用写进名称。`refresh_token_if_due` 返回更新后的配置，`refresh_and_save_token_if_due` 还会把结果写回配置文件。
+- 只返回布尔值的判断用 `is_` 或 `has_` 等谓词，如 `is_token_refresh_due`。在文档中说明具体触发条件。
+
 ## 错误处理
 
 ```rust

@@ -247,11 +247,11 @@ impl Config {
 
     /// 下一次命令启动时是否需要续期（唯一判断）。
     /// 剩余有效期不超过阈值，或没有过期时间时返回 true。
-    pub fn needs_refresh(&self) -> bool {
-        self.needs_refresh_at(chrono::Utc::now().timestamp_millis())
+    pub fn is_token_refresh_due(&self) -> bool {
+        self.is_token_refresh_due_at(chrono::Utc::now().timestamp_millis())
     }
 
-    fn needs_refresh_at(&self, now_ms: i64) -> bool {
+    fn is_token_refresh_due_at(&self, now_ms: i64) -> bool {
         match self.token_expire_time {
             Some(expire_time) => expire_time - now_ms <= TOKEN_REFRESH_THRESHOLD_MS,
             None => true,
@@ -526,7 +526,11 @@ mod refresh_tests {
                 token_expire_time: remaining.map(|ms| now + ms),
                 ..Default::default()
             };
-            assert_eq!(config.needs_refresh_at(now), expected, "{remaining:?}");
+            assert_eq!(
+                config.is_token_refresh_due_at(now),
+                expected,
+                "{remaining:?}"
+            );
         }
     }
 }
