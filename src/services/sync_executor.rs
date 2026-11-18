@@ -1,7 +1,7 @@
 use crate::debug;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::sync_service::format_action_line;
-use crate::utils::logger::{mp_error, mp_step};
+use crate::utils::logger::{mp_error, mp_step, mp_warn};
 use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -49,8 +49,18 @@ pub async fn execute_sync_actions(
     let multiprogress = Arc::new(MultiProgress::new());
     let skip_count = count_skips(&actions);
     let mut futures = FuturesUnordered::new();
+    let mut oversized = 0;
 
     for action in actions.iter() {
+        if matches!(action, SyncAction::UploadBlocked { .. }) {
+            if options.progress {
+                mp_warn(&format_action_line(action, false), &multiprogress);
+            } else {
+                crate::warn!("{}", format_action_line(action, false));
+            }
+            oversized += 1;
+            continue;
+        }
         if matches!(action, SyncAction::Skip { .. }) {
             continue;
         }
@@ -63,6 +73,19 @@ pub async fn execute_sync_actions(
         let mp = multiprogress.clone();
 
         futures.push(tokio::spawn(async move {
+            // Validate current metadata before ensuring parents (which can replace
+            // cloud files) or deleting an existing destination.
+            if let SyncAction::Upload { local_abs, .. } = &action
+                && let Err(error) = super::upload_service::checked_upload_size(
+                    crate::domain::StorageType::PersonalNew,
+                    local_abs,
+                )
+            {
+                if let Some(pb) = pb {
+                    pb.finish_and_clear();
+                }
+                return (action, Err(error.into()));
+            }
             if let SyncAction::Upload { remote_abs, .. } = &action
                 && let Err(e) = ensure_upload_parent_dir(&config, remote_abs, &dir_cache, &mp).await
             {
@@ -79,6 +102,7 @@ pub async fn execute_sync_actions(
 
     let mut summary = SyncSummary {
         skipped: skip_count,
+        oversized,
         ..SyncSummary::default()
     };
 
@@ -86,16 +110,29 @@ pub async fn execute_sync_actions(
         match result {
             Ok((action, Ok(()))) => {
                 if options.print_actions {
-                    mp_step(&format_action_line(&action, false), &multiprogress);
+                    if options.progress {
+                        mp_step(&format_action_line(&action, false), &multiprogress);
+                    } else {
+                        crate::step!("{}", format_action_line(&action, false));
+                    }
                 }
                 merge_summary(&mut summary, summary_for_success(&action));
             }
             Ok((action, Err(err))) => {
-                mp_error(
-                    &format!("同步失败: {}: {}", action_rel_path(&action), err),
-                    &multiprogress,
-                );
-                summary.failed += 1;
+                let message = format!("同步失败: {}: {}", action_rel_path(&action), err);
+                if options.progress {
+                    mp_error(&message, &multiprogress);
+                } else {
+                    crate::error!("{}", message);
+                }
+                if matches!(
+                    err.downcast_ref::<crate::client::ClientError>(),
+                    Some(crate::client::ClientError::UploadTooLarge { .. })
+                ) {
+                    summary.oversized += 1;
+                } else {
+                    summary.failed += 1;
+                }
             }
             Err(e) if e.is_panic() => {
                 mp_error("同步任务异常终止", &multiprogress);
@@ -200,6 +237,10 @@ fn summarize_actions(actions: &[SyncAction]) -> SyncSummary {
 
 fn summary_for_success(action: &SyncAction) -> SyncSummary {
     match action {
+        SyncAction::UploadBlocked { .. } => SyncSummary {
+            oversized: 1,
+            ..SyncSummary::default()
+        },
         SyncAction::Upload { size, .. } | SyncAction::Download { size, .. } => SyncSummary {
             transferred: 1,
             bytes: *size,
@@ -226,6 +267,7 @@ fn merge_summary(total: &mut SyncSummary, next: SyncSummary) {
     total.deleted += next.deleted;
     total.created_dirs += next.created_dirs;
     total.failed += next.failed;
+    total.oversized += next.oversized;
     total.bytes += next.bytes;
 }
 
@@ -261,6 +303,7 @@ fn action_rel_path(action: &SyncAction) -> String {
         | SyncAction::Download { rel_path, .. }
         | SyncAction::CreateDir { rel_path, .. }
         | SyncAction::Delete { rel_path, .. }
+        | SyncAction::UploadBlocked { rel_path, .. }
         | SyncAction::Skip { rel_path } => rel_path.clone(),
     }
 }
@@ -279,6 +322,10 @@ async fn execute_one_action(
             change,
             ..
         } => {
+            let file_size = super::upload_service::checked_upload_size(
+                crate::domain::StorageType::PersonalNew,
+                local_abs,
+            )?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
@@ -293,7 +340,7 @@ async fn execute_one_action(
                 local_abs,
                 &remote_dir,
                 file_name,
-                std::fs::metadata(local_abs)?.len() as i64,
+                file_size,
                 true,
                 pb,
             )
@@ -362,7 +409,7 @@ async fn execute_one_action(
                 tokio::fs::create_dir_all(path).await?;
             }
         },
-        SyncAction::Skip { .. } => {}
+        SyncAction::Skip { .. } | SyncAction::UploadBlocked { .. } => {}
     }
 
     Ok(())

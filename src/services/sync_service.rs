@@ -129,11 +129,28 @@ pub fn compute_diff(
         }
     }
 
+    // Keep the complete source inventory for --delete. A blocked file may replace
+    // a cloud directory: protect that directory's descendants as well.
+    let blocked_paths: std::collections::HashSet<_> = actions
+        .iter()
+        .filter_map(|action| match action {
+            SyncAction::UploadBlocked { rel_path, .. } => Some(rel_path.clone()),
+            _ => None,
+        })
+        .collect();
+    actions.retain(|action| {
+        !matches!(action, SyncAction::Delete { rel_path, .. }
+        if std::iter::successors(Some(rel_path.as_str()), |path| path.rsplit_once('/').map(|(parent, _)| parent))
+            .any(|path| blocked_paths.contains(path)))
+    });
+
     actions.sort_by_key(|action| match action {
         SyncAction::CreateDir { rel_path, .. } => {
             (0, rel_path.matches('/').count(), rel_path.clone())
         }
-        SyncAction::Upload { rel_path, .. } | SyncAction::Download { rel_path, .. } => {
+        SyncAction::Upload { rel_path, .. }
+        | SyncAction::Download { rel_path, .. }
+        | SyncAction::UploadBlocked { rel_path, .. } => {
             (1, rel_path.matches('/').count(), rel_path.clone())
         }
         SyncAction::Skip { rel_path } => (2, rel_path.matches('/').count(), rel_path.clone()),
@@ -178,6 +195,12 @@ fn change_kind(
 
 fn transfer_action(entry: &FileEntry, options: &SyncDiffOptions, change: ChangeKind) -> SyncAction {
     match options.direction {
+        SyncDirection::LocalToCloud if entry.size > crate::domain::PERSONAL_UPLOAD_MAX_BYTES => {
+            SyncAction::UploadBlocked {
+                rel_path: entry.rel_path.clone(),
+                size: entry.size,
+            }
+        }
         SyncDirection::LocalToCloud => SyncAction::Upload {
             rel_path: entry.rel_path.clone(),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
@@ -244,6 +267,10 @@ pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
         SyncAction::CreateDir { rel_path, .. } => format!("{}cd+++++++++ {}", prefix, rel_path),
         SyncAction::Delete { rel_path, .. } => format!("{}*deleting   {}", prefix, rel_path),
         SyncAction::Skip { rel_path } => format!("{}skipping    {}", prefix, rel_path),
+        SyncAction::UploadBlocked { rel_path, size } => format!(
+            "{}超限未传    {}（{} 字节，个人盘上传限制 5 GiB；保留云端同名条目）",
+            prefix, rel_path, size
+        ),
     }
 }
 
