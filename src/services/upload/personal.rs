@@ -210,6 +210,7 @@ pub(in crate::services) async fn upload_to_parent(
             file_size,
             config.custom_upload_part_size,
         ),
+        initial_parts: data.part_infos.as_deref().unwrap_or_default(),
         pb,
     })
     .await?;
@@ -256,7 +257,9 @@ fn checked_part_count(file_size: i64, part_size: i64) -> Result<i64, ClientError
     Ok(count)
 }
 
-async fn init_upload(
+/// Initialize the personal-cloud upload protocol without transferring content.
+/// Size and SHA256 may be supplied by callers that already have this metadata.
+pub async fn init_upload(
     config: &crate::config::Config,
     url: &str,
     local_path: &std::path::Path,
@@ -306,14 +309,20 @@ async fn init_upload(
         api::personal_api_request(config, url, body, StorageType::PersonalNew).await?;
 
     if !resp.base.success {
+        let quota_hint = if resp.base.code.as_deref() == Some("04010319") {
+            format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
+        } else {
+            String::new()
+        };
         return Err(ClientError::Api(format!(
-            "创建上传任务失败: {}{}",
+            "创建上传任务失败: {}{}{}",
             resp.base.message.as_deref().unwrap_or("未知错误"),
             resp.base
                 .code
                 .as_deref()
                 .map(|code| format!("（错误码: {code}）"))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            quota_hint,
         )));
     }
 
@@ -355,6 +364,7 @@ pub(super) struct UploadPartsParams<'a> {
     file_size: i64,
     content_hash: &'a str,
     part_size: i64,
+    initial_parts: &'a [crate::models::PersonalPartInfo],
     pb: Option<ProgressBar>,
 }
 
@@ -371,31 +381,47 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     let mut file = std::fs::File::open(local_path)?;
     let part_count = checked_part_count(file_size, part_size)?;
 
-    let upload_urls = crate::services::upload::personal_parts::get_upload_urls(
-        config, host, file_id, upload_id, part_count, part_size, file_size,
-    )
-    .await?;
+    for batch_start in (0..part_count).step_by(100) {
+        let batch_end = (batch_start + 100).min(part_count);
+        let upload_urls = if batch_start == 0 {
+            params
+                .initial_parts
+                .iter()
+                .map(|part| (part.part_number, part.upload_url.clone()))
+                .collect()
+        } else {
+            super::personal_parts::get_upload_url_batch(
+                config,
+                host,
+                file_id,
+                upload_id,
+                batch_start..batch_end,
+                part_size,
+                file_size,
+            )
+            .await?
+        };
+        for i in batch_start..batch_end {
+            file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
 
-    for i in 0..part_count {
-        file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
+            let read_size = part_size.min(file_size - i * part_size);
+            let mut buffer = vec![0u8; read_size as usize];
+            file.read_exact(&mut buffer)?;
 
-        let read_size = part_size.min(file_size - i * part_size);
-        let mut buffer = vec![0u8; read_size as usize];
-        file.read_exact(&mut buffer)?;
+            let part_number = (i + 1) as i32;
+            pb_debug(
+                &format!("上传分片 {}/{}", part_number, part_count),
+                &params.pb,
+            );
 
-        let part_number = (i + 1) as i32;
-        pb_debug(
-            &format!("上传分片 {}/{}", part_number, part_count),
-            &params.pb,
-        );
-
-        crate::services::upload::personal_parts::upload_single_part(
-            &upload_urls,
-            part_number,
-            &buffer,
-            params.pb.clone(),
-        )
-        .await?;
+            crate::services::upload::personal_parts::upload_single_part(
+                &upload_urls,
+                part_number,
+                &buffer,
+                params.pb.clone(),
+            )
+            .await?;
+        }
     }
 
     crate::services::upload::personal_parts::confirm_upload(
@@ -549,7 +575,7 @@ mod tests {
             personal_cloud_host: Some(server.base_url()),
             ..Default::default()
         };
-        for gib in [5_i64, 50, 500] {
+        for gib in [5_i64, 8, 50, 500] {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
                 when.method(POST).path("/file/create")
@@ -594,6 +620,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ordinary_and_silver_limits_are_enforced_by_server_not_local_policy() {
+        let server = MockServer::start();
+        let gib = 1024_i64 * 1024 * 1024;
+        for (plan, limit) in [("ordinary", 5 * gib), ("silver", 8 * gib)] {
+            let config = crate::config::Config {
+                authorization: format!("fictional-{plan}-token"),
+                ..Default::default()
+            };
+            for size in [5 * gib, 5 * gib + 1, 8 * gib, 8 * gib + 1] {
+                let accepted = size <= limit;
+                let part_size = 100 * 1024 * 1024;
+                let count = (size + part_size - 1) / part_size;
+                let parts: Vec<_> = (0..count)
+                    .map(|i| {
+                        json!({
+                            "partNumber": i + 1,
+                            "partSize": part_size.min(size - i * part_size),
+                            "parallelHashCtx": {"partOffset": i * part_size}
+                        })
+                    })
+                    .collect();
+                let mut request = server.mock(|when, then| {
+                    when.method(POST).path("/file/create")
+                        .header("Authorization", format!("Basic fictional-{plan}-token"))
+                        .header("x-yun-client-info", crate::client::PC_CLIENT_INFO)
+                        .json_body(json!({
+                            "contentHash": "fictional-hash", "contentHashAlgorithm": "SHA256",
+                            "contentType": "application/octet-stream", "parallelUpload": false,
+                            "partInfos": parts, "size": size, "parentFileId": "/",
+                            "name": "boundary.bin", "type": "file", "fileRenameMode": "auto_rename"
+                        }));
+                    then.json_body(if accepted {
+                        json!({"success":true,"data":{"fileId":"test-file","uploadId":"test-upload",
+                            "partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}})
+                    } else {
+                        json!({"success":false,"code":"04010319","message":"权益不足"})
+                    });
+                });
+                let result = init_upload(
+                    &config,
+                    &server.url("/file/create"),
+                    std::path::Path::new("boundary.bin"),
+                    "boundary.bin",
+                    size,
+                    "/",
+                    "fictional-hash",
+                )
+                .await;
+                assert_eq!(result.is_ok(), accepted, "{plan}: {size}");
+                if let Err(error) = result {
+                    assert!(error.to_string().contains("04010319"));
+                }
+                request.assert_calls(1);
+                request.delete();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_reuses_initial_urls_and_fetches_only_the_remaining_batch() {
+        let server = MockServer::start();
+        let config = crate::config::Config::default();
+        let source = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(source.path(), vec![b'x'; 101]).unwrap();
+        let part = server.mock(|when, then| {
+            when.method(PUT)
+                .path("/initial")
+                .body("x")
+                .header("Origin", "https://yun.139.com")
+                .header("Referer", "https://yun.139.com/");
+            then.status(200);
+        });
+        let tail = server.mock(|when, then| {
+            when.method(PUT).path("/tail").body("x");
+            then.status(200);
+        });
+        let first_reissue = server.mock(|when, then| {
+            when.method(POST)
+                .path("/file/getUploadUrl")
+                .json_body_includes(r#"{"partInfos":[{"partNumber":1}]}"#);
+            then.status(500);
+        });
+        let urls = server.mock(|when, then| {
+            when.method(POST).path("/file/getUploadUrl")
+                .json_body(json!({"fileId":"new","uploadId":"upload",
+                    "partInfos":[{"partNumber":101,"partSize":1,"parallelHashCtx":{"partOffset":100}}],
+                    "commonAccountInfo":{"account":config.account,"accountType":1}}));
+            then.json_body(json!({"success":true,"data":{"partInfos":[{"partNumber":101,"uploadUrl":server.url("/tail")}]}}));
+        });
+        let complete = server.mock(|when, then| {
+            when.path("/file/complete");
+            then.json_body(json!({"success":true}));
+        });
+        let initial: Vec<_> = (1..=100)
+            .map(|part_number| crate::models::PersonalPartInfo {
+                part_number,
+                upload_url: server.url("/initial"),
+            })
+            .collect();
+        upload_parts(UploadPartsParams {
+            config: &config,
+            host: &server.base_url(),
+            local_path: source.path(),
+            upload_id: "upload",
+            file_id: "new",
+            file_size: 101,
+            content_hash: "fictional-hash",
+            part_size: 1,
+            initial_parts: &initial,
+            pb: None,
+        })
+        .await
+        .unwrap();
+        part.assert_calls(100);
+        tail.assert_calls(1);
+        first_reissue.assert_calls(0);
+        urls.assert_calls(1);
+        complete.assert_calls(1);
+    }
+
+    #[tokio::test]
     async fn truncated_local_file_never_uploads_a_partial_part_or_completes() {
         let server = MockServer::start();
         let config = crate::config::Config::default();
@@ -620,6 +767,10 @@ mod tests {
             file_size: 2,
             content_hash: "fictional-hash",
             part_size: 2,
+            initial_parts: &[crate::models::PersonalPartInfo {
+                part_number: 1,
+                upload_url: server.url("/part"),
+            }],
             pb: None,
         })
         .await
@@ -627,7 +778,7 @@ mod tests {
         assert!(
             matches!(error, ClientError::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof)
         );
-        urls.assert_calls(1);
+        urls.assert_calls(0);
         part.assert_calls(0);
         complete.assert_calls(0);
     }

@@ -143,13 +143,8 @@ mod utils_test_extended {
 
     #[test]
     fn test_encode_uri_component_special_chars() {
-        // Note: encode_uri_component encodes * as %2A
         let result = encode_uri_component("!()*'");
-        assert!(result.contains("%21"));
-        assert!(result.contains("%28"));
-        assert!(result.contains("%29"));
-        assert!(result.contains("%2A"));
-        assert!(result.contains("%27"));
+        assert_eq!(result, "!()*'");
     }
 
     #[test]

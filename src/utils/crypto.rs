@@ -149,11 +149,8 @@ pub fn encode_uri_component(s: &str) -> String {
     let mut result = String::new();
     for c in s.chars() {
         match c {
-            '!' => result.push_str("%21"),
-            '\'' => result.push_str("%27"),
-            '(' => result.push_str("%28"),
-            ')' => result.push_str("%29"),
-            '*' => result.push_str("%2A"),
+            // Match JavaScript encodeURIComponent and the AList/OpenList signer.
+            '!' | '\'' | '(' | ')' | '*' => result.push(c),
             ' ' => result.push_str("%20"),
             _ => {
                 if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' {

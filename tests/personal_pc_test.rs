@@ -106,7 +106,7 @@ fn local_metadata_no_longer_rejects_files_at_web_account_boundaries() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("sparse.bin");
     let file = std::fs::File::create(&path).unwrap();
-    for size in [5_u64, 50, 500] {
+    for size in [5_u64, 8, 50, 500] {
         let bytes = size * 1024 * 1024 * 1024 + 1;
         file.set_len(bytes).unwrap();
         assert_eq!(
@@ -130,7 +130,8 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
         let infos: Vec<_> = (start..=end)
             .map(|n| {
                 json!({
-                    "partNumber": n, "partSize": if n == 101 { 1 } else { part_size }
+                    "partNumber": n, "partSize": if n == 101 { 1 } else { part_size },
+                    "parallelHashCtx": { "partOffset": (n - 1) as i64 * part_size }
                 })
             })
             .collect();
@@ -234,7 +235,7 @@ async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
         assert_eq!(summary.transferred, 0);
         list.assert_calls(1);
         create.assert_calls(1);
-        urls.assert_calls(1);
+        urls.assert_calls(0);
         part.assert_calls(1);
         complete.assert_calls(usize::from(!transfer_fails));
         rename.assert_calls(0);
