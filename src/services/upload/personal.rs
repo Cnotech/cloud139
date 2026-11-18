@@ -86,7 +86,8 @@ pub(in crate::services) async fn upload_sync_to_parent(
     super::super::directory_service::validate_name(file_name)?;
     // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
     // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
-    if verification.is_some() && is_content_addressed(file_name) {
+    let verify_content_addressed = verification.is_some() && is_content_addressed(file_name);
+    if verify_content_addressed {
         let path = local_path.to_path_buf();
         let local_hash =
             tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(&path))
@@ -124,6 +125,15 @@ pub(in crate::services) async fn upload_sync_to_parent(
         format!("同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}")
     })?;
     let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
+    // The source may change after the preflight read. This is the digest used by
+    // upload initialization and remote verification; bind publication to it too.
+    if verify_content_addressed {
+        anyhow::ensure!(
+            uploaded.sha256.eq_ignore_ascii_case(file_name),
+            "内容寻址对象 {file_name} 的上传内容哈希 {} 与文件名不一致；临时名称 {saved_name}，旧条目未替换",
+            uploaded.sha256
+        );
+    }
     let promote = async {
         let id = uploaded
             .id
