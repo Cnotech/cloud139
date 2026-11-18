@@ -5,15 +5,14 @@ src/
 ├── main.rs                    # 程序入口
 ├── lib.rs                     # 库入口
 ├── cli/                       # CLI 层：命令行参数定义
-├── application/               # 应用层：业务逻辑服务
-│   └── services/              # 业务服务实现
-│       ├── login / list / download / upload / delete
-│       ├── mkdir / mv / cp / rename / sync
-│       └── upload/            # 上传子模块（按存储类型拆分）
+├── services/                  # 应用层：业务逻辑服务
+│   └── upload/                # 上传子模块（按存储类型拆分）
 ├── domain/                    # 领域层：核心业务模型
 ├── presentation/              # 展示层：输出格式化、进度条
 ├── commands/                  # 命令层：命令执行逻辑
 ├── client/                    # 基础设施：API 客户端
+│   ├── api/                   # 端点、请求构造、协议解析与流式传输
+│   └── auth/                  # 登录配置与 Token 续期策略
 ├── models/                    # 数据模型（API 请求/响应）
 ├── config/                    # 配置管理
 └── utils/                     # 工具函数
@@ -31,7 +30,7 @@ src/
 - 连接 CLI 层和应用层
 - 调用应用层服务执行业务逻辑
 
-### 3. 应用层 (application/)
+### 3. 应用层 (services/)
 - 包含业务逻辑服务
 - 协调领域对象和基础设施
 - 实现核心业务用例
@@ -48,6 +47,5 @@ src/
 - 用户界面相关逻辑
 
 ### 6. 基础设施层 (client/)
-- API 客户端实现
-- 外部服务交互
-- 技术细节实现
+- `client/api/` 集中实现云盘 API，包括端点、请求头、签名、请求体和响应解析
+- 业务服务通过文件操作方法和传输接口调用 API，负责路径校验、本地读写、进度和同步流程

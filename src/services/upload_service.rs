@@ -6,6 +6,8 @@ use std::path::Path;
 
 use super::directory_service as dirs;
 
+pub use crate::client::api::upload::get_part_size;
+
 /// Re-read metadata before hashing or any destructive sync operation.
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     dirs::safe_local(path)?;
@@ -14,16 +16,6 @@ pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
         return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
     }
     i64::try_from(metadata.len()).map_err(|_| dirs::invalid("文件过大"))
-}
-
-pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
-    if custom_size != 0 {
-        return custom_size;
-    }
-    if size / (1024 * 1024 * 1024) > 30 {
-        return 512 * 1024 * 1024;
-    }
-    100 * 1024 * 1024
 }
 
 pub async fn upload(
@@ -175,16 +167,9 @@ async fn upload_file(
             return Err(ClientError::ForceRequired);
         }
     }
-    let saved_name = super::upload::personal::upload_to_parent(
-        listing.config,
-        &listing.host,
-        path,
-        parent_id,
-        name,
-        size,
-        pb.clone(),
-    )
-    .await?;
+    let saved_name =
+        super::upload::personal::upload_to_parent(listing, path, parent_id, name, size, pb.clone())
+            .await?;
     crate::utils::logger::pb_success(&format!("上传完成: {saved_name}"), &pb);
     if let Some(pb) = pb {
         pb.finish_and_clear();

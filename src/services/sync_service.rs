@@ -653,7 +653,7 @@ async fn scan_cloud_personal_inner(
     let mut scanner = CloudScanner {
         scan: CloudSyncScan {
             directories: BTreeMap::from([(String::new(), root_id.clone())]),
-            host: listing.host.to_string(),
+            host: listing.host().to_string(),
             root: cloud_root,
             ..CloudSyncScan::default()
         },

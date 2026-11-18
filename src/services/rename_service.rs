@@ -29,24 +29,5 @@ pub async fn rename(
     {
         return Err(ClientError::ForceRequired);
     }
-    rename_personal_id(&personal, &entry.id, target).await
-}
-
-pub(super) async fn rename_personal_id(
-    personal: &api::PersonalClient<'_>,
-    id: &str,
-    name: &str,
-) -> Result<(), ClientError> {
-    let resp: crate::models::PersonalUploadResp = personal
-        .request(
-            "/file/update",
-            serde_json::json!({ "fileId": id, "name": name, "description": "" }),
-        )
-        .await?;
-    if !resp.base.success {
-        return Err(ClientError::Api(
-            resp.base.message.unwrap_or_else(|| "重命名失败".into()),
-        ));
-    }
-    Ok(())
+    personal.rename(&entry.id, target).await
 }

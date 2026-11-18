@@ -1,6 +1,6 @@
 use super::*;
 use httpmock::prelude::*;
-use std::fs;
+use std::{fs, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -11,7 +11,10 @@ async fn maybe_refresh_config_at(
     timeout: Duration,
 ) -> Result<(), ClientError> {
     refresh_config_if_needed(candidates, async |config| {
-        request_token_refresh(config, url, timeout).await
+        apply_token_refresh(config, async |account, token| {
+            refresh::request_with_timeout(url, account, token, timeout).await
+        })
+        .await
     })
     .await
 }

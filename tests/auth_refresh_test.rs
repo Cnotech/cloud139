@@ -61,6 +61,31 @@ async fn refresh_rebuilds_authorization_and_expiry() {
 }
 
 #[tokio::test]
+async fn refresh_escapes_account_and_token_as_xml_text() {
+    let server = MockServer::start();
+    let request = server.mock(|when, then| {
+        when.method(POST).path(REFRESH_PATH).body(concat!(
+            "<root><token>old&amp;&lt;token&gt;</token>",
+            "<account>account&amp;&lt;name&gt;</account>",
+            "<clienttype>656</clienttype></root>"
+        ));
+        then.status(200).body(success_body("new-token", 7200));
+    });
+    let config = Config {
+        account: "account&<name>".into(),
+        refresh_token: Some("old&<token>".into()),
+        ..base_config()
+    };
+
+    let refreshed = auth::refresh_token_at(&config, &server.url(REFRESH_PATH))
+        .await
+        .unwrap();
+
+    request.assert_calls(1);
+    assert_eq!(refreshed.refresh_token.as_deref(), Some("new-token"));
+}
+
+#[tokio::test]
 async fn refresh_reports_server_error_code() {
     let server = MockServer::start();
     let mock = server.mock(|when, then| {

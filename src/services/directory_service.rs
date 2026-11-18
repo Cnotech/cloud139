@@ -1,4 +1,5 @@
 //! Shared path validation, directory traversal, and mutation preflight.
+pub use crate::client::api::mutation_succeeded;
 use crate::client::{ClientError, api};
 use crate::config::Config;
 use std::collections::HashSet;
@@ -142,22 +143,7 @@ pub(super) async fn ensure_personal_child_dir(
         if !parents && !last {
             return Err(ClientError::FileNotFound);
         }
-        let response: crate::models::PersonalUploadResp = listing
-            .request(
-                "/file/create",
-                serde_json::json!({
-                    "parentFileId": parent_id, "name": name, "description": "", "type": "folder"
-                }),
-            )
-            .await?;
-        if !response.base.success {
-            return Err(ClientError::Api(
-                response
-                    .base
-                    .message
-                    .unwrap_or_else(|| "创建目录失败".into()),
-            ));
-        }
+        listing.create_directory(parent_id, name).await?;
         // Resolve the actual directory: never proceed using an automatically renamed sibling.
         let item = listing
             .find_child(parent_id, name)
@@ -407,35 +393,12 @@ pub async fn transfer(
         }
         ids.push(entry.id);
     }
-    let endpoint = if moving { "batchMove" } else { "batchCopy" };
-    let resp: serde_json::Value = listing
-        .request(
-            &format!("/file/{endpoint}"),
-            serde_json::json!({ "fileIds": ids, "toParentFileId": target_id }),
-        )
-        .await?;
-    if !mutation_succeeded(&resp) {
-        return Err(ClientError::Api(
-            "批量操作失败（可能部分完成），请检查云端状态".into(),
-        ));
+    if moving {
+        listing.move_files(&ids, &target_id).await?;
+    } else {
+        listing.copy_files(&ids, &target_id).await?;
     }
     crate::success!("{}任务已接受", if moving { "移动" } else { "复制" });
 
     Ok(())
-}
-
-/// Some batch responses carry per-item success flags under data.
-pub fn mutation_succeeded(response: &serde_json::Value) -> bool {
-    fn no_failure(value: &serde_json::Value) -> bool {
-        match value {
-            serde_json::Value::Object(map) => {
-                map.get("success").and_then(serde_json::Value::as_bool) != Some(false)
-                    && map.values().all(no_failure)
-            }
-            serde_json::Value::Array(items) => items.iter().all(no_failure),
-            _ => true,
-        }
-    }
-    response.get("success").and_then(serde_json::Value::as_bool) == Some(true)
-        && no_failure(response)
 }

@@ -1,8 +1,7 @@
 use crate::client::ClientError;
-use crate::client::api::{HttpClientWrapper, ListingRetry, PersonalClient};
+use crate::client::api::{DownloadLink, HttpClientWrapper, ListingRetry, PersonalClient};
 use crate::config::Config;
 use anyhow::Result;
-use futures_util::StreamExt;
 use indicatif::ProgressBar;
 use sha2::{Digest, Sha256};
 use std::io::{ErrorKind, Write};
@@ -26,12 +25,11 @@ async fn download_personal(
     pb: Option<ProgressBar>,
     listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
-    let (download_url, reported_name) = personal.download_link(file_id).await?;
-    let http = &personal.http_client.client;
+    let mut link = personal.download_link(file_id).await?;
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
-        let file_name = reported_name.unwrap_or_else(|| {
+        let file_name = link.name.take().unwrap_or_else(|| {
             remote_path
                 .trim_start_matches('/')
                 .rsplit('/')
@@ -41,9 +39,9 @@ async fn download_personal(
         });
         super::directory_service::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
-        write_download(http, &download_url, &file_path, pb, listed_size).await?;
+        write_download(link, &file_path, pb, listed_size).await?;
     } else {
-        write_download(http, &download_url, local_path_obj, pb, listed_size).await?;
+        write_download(link, local_path_obj, pb, listed_size).await?;
     }
 
     Ok(())
@@ -76,8 +74,8 @@ async fn download_to_path(
     pb: Option<ProgressBar>,
     size: Option<i64>,
 ) -> Result<(), ClientError> {
-    let (url, _) = personal.download_link(file_id).await?;
-    write_download(&personal.http_client.client, &url, destination, pb, size).await
+    let link = personal.download_link(file_id).await?;
+    write_download(link, destination, pb, size).await
 }
 
 pub(super) async fn personal_content_sha256(
@@ -88,20 +86,18 @@ pub(super) async fn personal_content_sha256(
 ) -> Result<String, ClientError> {
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
-    let (url, _) = personal.download_link(file_id).await?;
-    let response = request_download_content(&client.client, &url).await?;
-    let mut body = response.bytes_stream();
+    let mut body = personal.download_link(file_id).await?.open().await?;
     let mut hasher = Sha256::new();
     let mut bytes = 0;
-    while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(reqwest::Error::without_url)?;
+    while let Some(chunk) = body.next_chunk().await? {
+        let chunk = chunk.as_ref();
         bytes += chunk.len() as u64;
         if expected_size.is_some_and(|size| bytes > size) {
             return Err(ClientError::Api(
                 "读取校验内容时，远端文件大于预期大小".into(),
             ));
         }
-        hasher.update(&chunk);
+        hasher.update(chunk);
     }
     if expected_size.is_some_and(|size| bytes != size) {
         return Err(ClientError::Api(
@@ -111,23 +107,9 @@ pub(super) async fn personal_content_sha256(
     Ok(hex::encode(hasher.finalize()))
 }
 
-async fn request_download_content(
-    client: &reqwest::Client,
-    url: &str,
-) -> Result<reqwest::Response, ClientError> {
-    // Errors for signed download URLs must omit the URL.
-    Ok(client
-        .get(url)
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(reqwest::Error::without_url)?)
-}
-
 /// 下载文件到本地
 async fn write_download(
-    client: &reqwest::Client,
-    url: &str,
+    link: DownloadLink<'_>,
     local_path: &Path,
     pb: Option<ProgressBar>,
     listed_size: Option<i64>,
@@ -140,7 +122,7 @@ async fn write_download(
         pb.reset_eta();
     }
 
-    let response = request_download_content(client, url).await?;
+    let mut response = link.open().await?;
 
     let parent = super::directory_service::local_parent_directory(local_path);
     std::fs::create_dir_all(parent)?;
@@ -163,11 +145,9 @@ async fn write_download(
         }
         staged.tempfile_in(parent)?
     };
-    let mut stream = response.bytes_stream();
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(reqwest::Error::without_url)?;
-        file.write_all(&chunk)?;
+    while let Some(chunk) = response.next_chunk().await? {
+        let chunk = chunk.as_ref();
+        file.write_all(chunk)?;
         if let Some(pb) = &pb {
             pb.inc(chunk.len() as u64);
         }
@@ -306,7 +286,8 @@ mod tests {
         pb: Option<ProgressBar>,
         size: Option<i64>,
     ) -> Result<(), ClientError> {
-        write_download(&HttpClientWrapper::new().client, url, path, pb, size).await
+        let client = HttpClientWrapper::new();
+        write_download(DownloadLink::for_test(&client, url), path, pb, size).await
     }
 
     /// 第一个连接只发一半的 body（触发不完整响应），其余连接完整发送。

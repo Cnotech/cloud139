@@ -1,28 +1,18 @@
 pub mod api;
-pub mod api_trait;
 pub mod auth;
-pub mod endpoints;
 pub mod error;
-pub mod headers;
 
 pub use crate::debug;
 pub use crate::info;
 pub use crate::utils::rand::{generate_rand_str, sort_json_value_to_string};
+pub use api::headers::{
+    CLIENT_INFO, DEVICE_INFO, MCLOUD_CHANNEL, MCLOUD_CHANNEL_SRC, MCLOUD_CLIENT, MCLOUD_VERSION,
+    PC_CLIENT_INFO,
+};
+pub use api::{api_trait, endpoints, headers};
 pub use endpoints::family;
 pub use error::ClientError;
 use serde::Deserialize;
-
-pub const MCLOUD_VERSION: &str = "7.14.0";
-pub const MCLOUD_CLIENT: &str = "10701";
-pub const MCLOUD_CHANNEL: &str = "1000101";
-pub const MCLOUD_CHANNEL_SRC: &str = "10000034";
-pub const DEVICE_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||";
-pub const CLIENT_INFO: &str = "||9|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
-
-// Personal-cloud file APIs use the desktop client identity; authentication and
-// legacy family/group protocols retain their existing fingerprints.
-pub const PC_CLIENT_INFO: &str =
-    "||13|7.14.0|chrome|120.0.0.0|||windows 10||zh-CN|||dW5kZWZpbmVk||";
 
 pub struct Client {
     pub config: crate::config::Config,
@@ -31,14 +21,9 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: crate::config::Config) -> Self {
-        let http_client = api::http_client_builder()
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .build()
-            .expect("HTTP 客户端初始化失败");
-
         Self {
             config,
-            http_client,
+            http_client: api::desktop_http_client(),
         }
     }
 

@@ -1,13 +1,8 @@
 use crate::client::ClientError;
-use crate::client::endpoints::AUTH_TOKEN_REFRESH_URL;
+use crate::client::api::refresh;
 use crate::config::{Config, ConfigUpdate, config_load_candidates};
 use crate::{debug, warn};
-use serde::Deserialize;
 use std::path::PathBuf;
-use std::time::Duration;
-
-const REFRESH_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-const REFRESH_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn login(
     token: &str,
@@ -70,18 +65,20 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
 
 /// 使用官方续期接口和默认请求超时刷新 Token。
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
-    request_token_refresh(config, AUTH_TOKEN_REFRESH_URL, REFRESH_REQUEST_TIMEOUT).await
+    apply_token_refresh(config, refresh::request).await
 }
 
 /// 向指定的接口地址发起 Token 续期，使用默认请求超时。
 pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
-    request_token_refresh(config, url, REFRESH_REQUEST_TIMEOUT).await
+    apply_token_refresh(config, async |account, token| {
+        refresh::request_at(url, account, token).await
+    })
+    .await
 }
 
-async fn request_token_refresh(
+async fn apply_token_refresh(
     config: &Config,
-    url: &str,
-    timeout: Duration,
+    request: impl AsyncFnOnce(&str, &str) -> Result<refresh::RefreshedToken, ClientError>,
 ) -> Result<Config, ClientError> {
     config.require_personal()?;
     debug!("开始续期 Token account={}", config.account);
@@ -90,80 +87,14 @@ async fn request_token_refresh(
     // 正是靠它来换取新 token；提前判死会让唯一能自愈的路径失效。
     let refresh_token = config
         .refresh_token
-        .as_ref()
+        .as_deref()
         .ok_or(ClientError::TokenExpired)?;
 
-    let body = format!(
-        r#"<root><token>{}</token><account>{}</account><clienttype>656</clienttype></root>"#,
-        refresh_token, config.account
-    );
+    let refresh::RefreshedToken {
+        token: new_token,
+        expire_seconds,
+    } = request(&config.account, refresh_token).await?;
 
-    let client = reqwest::Client::builder()
-        .connect_timeout(REFRESH_CONNECT_TIMEOUT.min(timeout))
-        // reqwest 的总超时包含连接、响应头和完整响应体读取。
-        .timeout(timeout)
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        .build()?;
-
-    let mut req_headers = reqwest::header::HeaderMap::new();
-    req_headers.insert(
-        "Content-Type",
-        "application/xml;charset=UTF-8".parse().unwrap(),
-    );
-    req_headers.insert("Referer", "https://yun.139.com/".parse().unwrap());
-
-    let resp = client
-        .post(url)
-        .headers(req_headers)
-        .body(body)
-        .send()
-        .await?;
-
-    let text = resp.text().await?;
-
-    #[derive(Deserialize)]
-    #[serde(rename = "root")]
-    struct RefreshResp {
-        #[serde(rename = "return")]
-        return_code: String,
-        #[serde(default)]
-        desc: String,
-        /// 新 token；接口实际把新 token 放在这里
-        #[serde(default)]
-        token: String,
-        /// 新 token 有效期（秒），实测固定返回 2592000（30 天）
-        #[serde(default, rename = "expiretime")]
-        expire_time: Option<i64>,
-        /// 部分场景为空，仅在 token 缺失时兜底使用
-        #[serde(default, rename = "accessToken")]
-        access_token: String,
-    }
-
-    let refresh_resp: RefreshResp = serde_xml_rs::from_str(&text)
-        .map_err(|error| ClientError::Other(format!("无法解析 Token 续期响应，{error}")))?;
-
-    if refresh_resp.return_code != "0" {
-        return Err(ClientError::Other(format!(
-            "续期 Token 失败 code={} desc={}",
-            refresh_resp.return_code, refresh_resp.desc
-        )));
-    }
-
-    // 以 <token> 为准；<accessToken> 实测为空，只在 token 缺失时兜底。
-    let new_token = if refresh_resp.token.is_empty() {
-        refresh_resp.access_token
-    } else {
-        refresh_resp.token
-    };
-    if new_token.is_empty() {
-        return Err(ClientError::Other(
-            "续期 Token 失败，响应未返回有效 Token".into(),
-        ));
-    }
-
-    let expire_seconds = refresh_resp
-        .expire_time
-        .unwrap_or(DEFAULT_TOKEN_LIFETIME_SECS);
     let authorization = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         format!("pc:{}:{}", config.account, new_token),
@@ -179,9 +110,6 @@ async fn request_token_refresh(
 
     Ok(new_config)
 }
-
-/// 接口没返回 expiretime 时的兜底有效期（实测固定 30 天）。
-const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
 
 /// 按需续期：需要续期时返回新配置，不需要时返回 None。
 pub async fn refresh_if_needed(config: &Config) -> Result<Option<Config>, ClientError> {

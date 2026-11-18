@@ -1,5 +1,4 @@
 use super::{
-    delete_service::trash_personal_file_id,
     directory_service as dirs,
     sync_service::{CloudSyncFile, CloudSyncScan, cloud_child_path},
 };
@@ -181,7 +180,7 @@ impl<'a> SyncCloud<'a> {
                     || current.map(CloudSyncFile::from).as_ref() == scan.files.get(rel_path)),
             "提交删除前发现云端条目 {path} 已变更"
         );
-        trash_personal_file_id(&listing, expected_id).await?;
+        listing.trash(expected_id).await?;
         Ok(())
     }
 }

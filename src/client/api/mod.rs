@@ -1,44 +1,24 @@
+use self::endpoints::ROUTE_POLICY_URL;
+use self::request::{SignedEndpoint, signed_post};
 use crate::client::ClientError;
-use crate::client::endpoints::ROUTE_POLICY_URL;
-use crate::client::headers::{build_route_headers, build_signed_headers};
 use crate::config::Config;
 use crate::debug;
 use crate::models::QueryRoutePolicyResp;
-use crate::utils::generate_rand_str;
-use std::time::Duration;
 
+pub mod api_trait;
+pub mod endpoints;
+pub mod headers;
 mod personal;
+pub(super) mod refresh;
+mod request;
+mod transfer;
+pub mod upload;
+
+pub use personal::mutation_succeeded;
 pub(crate) use personal::{ListPageOptions, ListingRetry, PersonalClient};
-
-pub struct HttpClientWrapper {
-    pub client: reqwest::Client,
-}
-
-impl Default for HttpClientWrapper {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl HttpClientWrapper {
-    pub fn new() -> Self {
-        Self {
-            client: http_client_builder()
-                .build()
-                .expect("HTTP 客户端初始化失败"),
-        }
-    }
-
-    pub fn with_client(client: reqwest::Client) -> Self {
-        Self { client }
-    }
-}
-
-pub(super) fn http_client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .read_timeout(Duration::from_secs(30))
-}
+pub use request::HttpClientWrapper;
+pub(super) use request::desktop_http_client;
+pub(crate) use transfer::DownloadLink;
 
 pub async fn get_personal_cloud_host(config: &mut Config) -> Result<String, ClientError> {
     get_personal_cloud_host_with_client(config, &HttpClientWrapper::new()).await
@@ -83,7 +63,7 @@ pub(crate) async fn fetch_personal_cloud_host(
     });
 
     let route_resp: QueryRoutePolicyResp = signed_post(
-        config,
+        &config.authorization,
         url,
         &body,
         &http_client.client,
@@ -167,44 +147,14 @@ pub(super) async fn personal_post<T: for<'de> serde::Deserialize<'de>>(
     if storage_type != crate::domain::StorageType::PersonalNew {
         return Err(ClientError::UnsupportedStorage);
     }
-    signed_post(config, url, body, client, SignedEndpoint::Personal).await
-}
-
-enum SignedEndpoint {
-    Route,
-    Personal,
-}
-
-async fn signed_post<T: for<'de> serde::Deserialize<'de>>(
-    config: &Config,
-    url: &str,
-    body: &serde_json::Value,
-    client: &reqwest::Client,
-    endpoint: SignedEndpoint,
-) -> Result<T, ClientError> {
-    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let nonce = generate_rand_str(16);
-    let payload = body.to_string();
-    let sign = crate::utils::crypto::calc_sign(&payload, &ts, &nonce);
-    let auth = &config.authorization;
-    let mut headers = match endpoint {
-        SignedEndpoint::Route => build_route_headers(auth, &ts, &nonce, &sign),
-        SignedEndpoint::Personal => build_signed_headers(auth, &ts, &nonce, &sign, "1"),
-    }?;
-    headers.entry(reqwest::header::CONTENT_TYPE).or_insert(
-        reqwest::header::HeaderValue::from_static("application/json"),
-    );
-
-    debug!("发送签名请求 method=POST url={}", url);
-    Ok(client
-        .post(url)
-        .headers(headers)
-        .body(payload)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?)
+    signed_post(
+        &config.authorization,
+        url,
+        body,
+        client,
+        SignedEndpoint::Personal,
+    )
+    .await
 }
 
 pub async fn check_file_exists(
@@ -284,19 +234,7 @@ pub async fn get_personal_file_detail(
     debug!("查询个人云文件详情 file_id={}", file_id);
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    let resp: crate::models::QueryFileResp = personal
-        .request("/file/query", serde_json::json!({ "fileId": file_id }))
-        .await?;
-
-    if !resp.base.success {
-        let msg = resp
-            .base
-            .message
-            .unwrap_or_else(|| "获取文件详情失败".to_string());
-        return Err(ClientError::Api(msg));
-    }
-
-    Ok(resp.data)
+    personal.file_detail(file_id).await
 }
 
 pub async fn get_personal_download_link(
@@ -305,5 +243,5 @@ pub async fn get_personal_download_link(
 ) -> Result<String, ClientError> {
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    personal.download_link(file_id).await.map(|(url, _)| url)
+    personal.download_link(file_id).await.map(|link| link.url)
 }

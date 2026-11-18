@@ -1,8 +1,10 @@
-use super::personal_parts::{PART_BATCH_SIZE, part_infos, part_offset_and_size};
+use crate::client::api::upload::{
+    PART_BATCH_SIZE, UploadFile, checked_part_count, part_offset_and_size,
+};
 use crate::client::{ClientError, api};
-use crate::domain::StorageType;
-use crate::models::{PersonalFileItem, PersonalUploadResp};
-use crate::services::rename_service::rename_personal_id;
+use crate::models::PersonalFileItem;
+
+pub use crate::client::api::upload::init_upload;
 use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::utils::logger::{pb_debug, pb_success};
 use anyhow::Context;
@@ -102,8 +104,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         "替换目录需要扫描记录"
     );
     let uploaded = transfer_to_parent(
-        config,
-        host,
+        &personal,
         local_path,
         parent_id,
         &temporary_name,
@@ -116,10 +117,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
     })?;
     let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
     let promote = async {
-        let id = uploaded
-            .id
-            .as_deref()
-            .ok_or_else(|| ClientError::Api("服务端未返回临时文件 ID".into()))?;
+        let id = uploaded.id.as_str();
         if before
             .iter()
             .any(|item| item.file_id.as_deref() == Some(id))
@@ -155,12 +153,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
                 check_destination(&files, file_name, expected_id, expected_file)?;
             }
         }
-        let listing = api::PersonalClient::with_host(
-            config,
-            host,
-            &client,
-            super::super::sync_service::SYNC_LIST_RETRY,
-        );
+        let listing = personal.with_listing_retry(super::super::sync_service::SYNC_LIST_RETRY);
         if let Some(dir_id) = replace_directory_id {
             scan.context("替换目录需要扫描记录")?
                 .confirm_subtree(&listing, rel_path, dir_id)
@@ -211,8 +204,7 @@ fn check_destination(
 }
 
 pub(in crate::services) async fn upload_to_parent(
-    config: &crate::config::Config,
-    host: &str,
+    personal: &api::PersonalClient<'_>,
     local_path: &std::path::Path,
     parent_file_id: &str,
     file_name: &str,
@@ -220,8 +212,7 @@ pub(in crate::services) async fn upload_to_parent(
     pb: Option<ProgressBar>,
 ) -> Result<String, ClientError> {
     let uploaded = transfer_to_parent(
-        config,
-        host,
+        personal,
         local_path,
         parent_file_id,
         file_name,
@@ -232,24 +223,26 @@ pub(in crate::services) async fn upload_to_parent(
     if let Some(name) = uploaded.name {
         return Ok(name);
     }
-    let files = api::list_personal_files(config, parent_file_id).await?;
+    let files = personal
+        .with_listing_retry(api::ListingRetry::None)
+        .list_files(parent_file_id)
+        .await?;
     files
         .into_iter()
-        .find(|item| uploaded.id.as_ref() == item.file_id.as_ref() && !item.is_folder())
+        .find(|item| item.file_id.as_deref() == Some(&uploaded.id) && !item.is_folder())
         .and_then(|item| item.name)
         .ok_or_else(|| ClientError::Api("上传已提交，但无法确认云端文件名称".into()))
 }
 
 struct UploadReceipt {
     name: Option<String>,
-    id: Option<String>,
+    id: String,
     size: u64,
     sha256: String,
 }
 
 async fn transfer_to_parent(
-    config: &crate::config::Config,
-    host: &str,
+    personal: &api::PersonalClient<'_>,
     local_path: &std::path::Path,
     parent_file_id: &str,
     file_name: &str,
@@ -260,170 +253,52 @@ async fn transfer_to_parent(
         return Err(ClientError::InvalidFilePath);
     }
     let file_size = super::super::upload_service::checked_upload_size(local_path)?;
-    checked_part_count(
-        file_size,
-        crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size),
-    )?;
+    let part_size = personal.upload_part_size(file_size);
+    checked_part_count(file_size, part_size)?;
     pb_debug("开始计算文件 SHA-256", &pb);
     let path = local_path.to_owned();
     let content_hash =
         tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(path))
             .await
             .map_err(|error| ClientError::Other(format!("计算文件哈希失败: {error}")))??;
-    let response = init_upload(
-        config,
-        &format!("{host}/file/create"),
-        local_path,
-        file_name,
-        file_size,
-        parent_file_id,
-        &content_hash,
-    )
-    .await?;
-    let mut receipt = UploadReceipt {
-        name: None,
-        id: None,
+    let response = personal
+        .create_upload(UploadFile {
+            local_path,
+            file_name,
+            file_size,
+            parent_file_id,
+            content_hash: &content_hash,
+            part_size,
+        })
+        .await?;
+    let receipt = UploadReceipt {
+        name: response.name,
+        id: response.file_id,
         size: file_size as u64,
         sha256: content_hash,
     };
-    let data = response
-        .data
-        .ok_or_else(|| ClientError::Api("服务端未返回上传结果".into()))?;
-    receipt.name = data.file_name.filter(|name| !name.is_empty());
-    receipt.id = data.file_id.filter(|id| !id.is_empty() && id != "/");
-    let file_id = receipt
-        .id
-        .as_deref()
-        .ok_or_else(|| ClientError::Api("服务端未返回新文件 ID".into()))?;
-    let Some(parts) = data.part_infos.as_deref().filter(|parts| !parts.is_empty()) else {
-        if data.exist == Some(true) || file_size == 0 {
-            pb_debug("服务端确认秒传或创建空文件", &pb);
-            return Ok(receipt);
-        }
-        return Err(ClientError::Api(
-            "服务端未确认秒传，也未返回上传分片".into(),
-        ));
-    };
-    let upload_id = data
-        .upload_id
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
-    pb_debug("开始上传分片", &pb);
-    upload_parts(UploadPartsParams {
-        config,
-        host,
-        local_path,
-        upload_id: &upload_id,
-        file_id,
-        file_size,
-        content_hash: &receipt.sha256,
-        part_size: crate::services::upload_service::get_part_size(
+    if let Some(pending) = response.pending {
+        pb_debug("开始上传分片", &pb);
+        upload_parts(UploadPartsParams {
+            personal,
+            local_path,
+            upload_id: &pending.upload_id,
+            file_id: &receipt.id,
             file_size,
-            config.custom_upload_part_size,
-        ),
-        initial_parts: parts,
-        pb,
-    })
-    .await?;
+            content_hash: &receipt.sha256,
+            part_size,
+            initial_parts: &pending.parts,
+            pb,
+        })
+        .await?;
+    } else {
+        pb_debug("服务端确认秒传或创建空文件", &pb);
+    }
     Ok(receipt)
 }
 
-fn checked_part_count(file_size: i64, part_size: i64) -> Result<i64, ClientError> {
-    if file_size < 0 || part_size <= 0 {
-        return Err(ClientError::Api(
-            "文件大小必须非负，上传分片大小必须大于 0".into(),
-        ));
-    }
-    let count = file_size / part_size + i64::from(file_size % part_size != 0);
-    if count > i32::MAX as i64 {
-        return Err(ClientError::Api("上传分片数量超出协议范围".into()));
-    }
-    Ok(count)
-}
-
-/// Initialize the personal-cloud upload protocol without transferring content.
-/// Size and SHA256 may be supplied by callers that already have this metadata.
-pub async fn init_upload(
-    config: &crate::config::Config,
-    url: &str,
-    local_path: &std::path::Path,
-    file_name: &str,
-    file_size: i64,
-    parent_file_id: &str,
-    content_hash: &str,
-) -> Result<PersonalUploadResp, ClientError> {
-    let part_size =
-        crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size);
-    let part_count = checked_part_count(file_size, part_size)?;
-
-    let content_type = get_content_type(local_path);
-
-    let body = serde_json::json!({
-        "contentHash": content_hash,
-        "contentHashAlgorithm": "SHA256",
-        "contentType": content_type,
-        "parallelUpload": false,
-        "partInfos": part_infos(0..part_count.min(PART_BATCH_SIZE), part_size, file_size),
-        "size": file_size,
-        "parentFileId": parent_file_id,
-        "name": file_name,
-        "type": "file",
-        "fileRenameMode": "auto_rename"
-    });
-
-    let resp: PersonalUploadResp =
-        api::personal_api_request(config, url, body, StorageType::PersonalNew).await?;
-
-    if !resp.base.success {
-        let quota_hint = if resp.base.code.as_deref() == Some("04010319") {
-            format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
-        } else {
-            String::new()
-        };
-        return Err(ClientError::Api(format!(
-            "创建上传任务失败: {}{}{}",
-            resp.base.message.as_deref().unwrap_or("未知错误"),
-            resp.base
-                .code
-                .as_deref()
-                .map(|code| format!("（错误码: {code}）"))
-                .unwrap_or_default(),
-            quota_hint,
-        )));
-    }
-
-    Ok(resp)
-}
-
-fn get_content_type(path: &std::path::Path) -> String {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("txt") => "text/plain",
-        Some("html") | Some("htm") => "text/html",
-        Some("css") => "text/css",
-        Some("js") => "application/javascript",
-        Some("json") => "application/json",
-        Some("xml") => "application/xml",
-        Some("pdf") => "application/pdf",
-        Some("zip") => "application/zip",
-        Some("tar") => "application/x-tar",
-        Some("gz") => "application/gzip",
-        Some("png") => "image/png",
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("bmp") => "image/bmp",
-        Some("svg") => "image/svg+xml",
-        Some("mp3") => "audio/mpeg",
-        Some("mp4") => "video/mp4",
-        Some("avi") => "video/x-msvideo",
-        Some("mov") => "video/quicktime",
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
-
-pub(super) struct UploadPartsParams<'a> {
-    config: &'a crate::config::Config,
-    host: &'a str,
+struct UploadPartsParams<'a> {
+    personal: &'a api::PersonalClient<'a>,
     local_path: &'a std::path::Path,
     upload_id: &'a str,
     file_id: &'a str,
@@ -434,9 +309,8 @@ pub(super) struct UploadPartsParams<'a> {
     pb: Option<ProgressBar>,
 }
 
-pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
-    let config = params.config;
-    let host = params.host;
+async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> {
+    let personal = params.personal;
     let local_path = params.local_path;
     let upload_id = params.upload_id;
     let file_id = params.file_id;
@@ -445,7 +319,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     let part_size = params.part_size;
 
     let file = tokio::fs::File::open(local_path).await?;
-    let data_client = crate::client::api::HttpClientWrapper::new();
+    let data_client = api::HttpClientWrapper::new();
     if file.metadata().await?.len() < file_size as u64 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -464,16 +338,15 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
                 .map(|part| (part.part_number, part.upload_url.clone()))
                 .collect()
         } else {
-            super::personal_parts::get_upload_url_batch(
-                config,
-                host,
-                file_id,
-                upload_id,
-                batch_start..batch_end,
-                part_size,
-                file_size,
-            )
-            .await?
+            personal
+                .upload_urls(
+                    file_id,
+                    upload_id,
+                    batch_start..batch_end,
+                    part_size,
+                    file_size,
+                )
+                .await?
         };
         for i in batch_start..batch_end {
             let (offset, read_size) = part_offset_and_size(i, part_size, file_size);
@@ -485,7 +358,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
                 &params.pb,
             );
             super::personal_parts::upload_part(
-                &data_client.client,
+                &data_client,
                 &upload_urls,
                 part_number,
                 part,
@@ -496,14 +369,9 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         }
     }
 
-    crate::services::upload::personal_parts::confirm_upload(
-        config,
-        host,
-        file_id,
-        upload_id,
-        content_hash,
-    )
-    .await
+    personal
+        .complete_upload(file_id, upload_id, content_hash)
+        .await
 }
 
 async fn install_uploaded_file(
@@ -544,15 +412,18 @@ async fn install_uploaded_file(
             "{UPLOAD_BACKUP_PREFIX}{}",
             crate::utils::crypto::generate_random_string(20)
         );
-        rename_personal_id(personal, old_id, &backup_name)
+        personal
+            .rename(old_id, &backup_name)
             .await
             .map_err(|error| {
                 ClientError::Api(format!(
                     "无法为旧文件保留备份，新文件保存在 {saved_name}: {error}"
                 ))
             })?;
-        rename_personal_id(personal, file_id, file_name).await.map_err(|error| {
-            ClientError::Api(format!("无法重命名新文件；旧文件保留为 {backup_name}，请检查新文件 {saved_name}: {error}"))
+        personal.rename(file_id, file_name).await.map_err(|error| {
+            ClientError::Api(format!(
+                "无法重命名新文件；旧文件保留为 {backup_name}，请检查新文件 {saved_name}: {error}"
+            ))
         })?;
         let published = confirm_uploaded_name(personal, parent_file_id, file_id, file_name)
             .await
@@ -568,13 +439,13 @@ async fn install_uploaded_file(
                 "旧文件备份 {backup_name} 已变更，停止回收"
             )));
         }
-        super::super::delete_service::trash_personal_file_id(personal, old_id)
-            .await
-            .map_err(|error| ClientError::Api(format!(
+        personal.trash(old_id).await.map_err(|error| {
+            ClientError::Api(format!(
                 "新文件已重命名为 {file_name}，但旧文件备份 {backup_name} 未确认移到回收站: {error}"
-            )))?;
+            ))
+        })?;
     } else {
-        rename_personal_id(personal, file_id, file_name).await?;
+        personal.rename(file_id, file_name).await?;
         confirm_uploaded_name(personal, parent_file_id, file_id, file_name).await?;
     }
     Ok(file_name.to_owned())
@@ -748,6 +619,8 @@ mod tests {
             when.method(PUT)
                 .path("/initial")
                 .body("x")
+                .header("Content-Type", "application/octet-stream")
+                .header("Content-Length", "1")
                 .header("Origin", "https://yun.139.com")
                 .header("Referer", "https://yun.139.com/");
             then.status(200);
@@ -779,9 +652,15 @@ mod tests {
                 upload_url: server.url("/initial"),
             })
             .collect();
+        let client = api::HttpClientWrapper::new();
+        let personal = api::PersonalClient::with_host(
+            &config,
+            server.base_url(),
+            &client,
+            api::ListingRetry::None,
+        );
         upload_parts(UploadPartsParams {
-            config: &config,
-            host: &server.base_url(),
+            personal: &personal,
             local_path: source.path(),
             upload_id: "upload",
             file_id: "new",
@@ -818,9 +697,15 @@ mod tests {
             when.path("/file/complete");
             then.json_body(json!({"success":true}));
         });
+        let client = api::HttpClientWrapper::new();
+        let personal = api::PersonalClient::with_host(
+            &config,
+            server.base_url(),
+            &client,
+            api::ListingRetry::None,
+        );
         let error = upload_parts(UploadPartsParams {
-            config: &config,
-            host: &server.base_url(),
+            personal: &personal,
             local_path: source.path(),
             upload_id: "upload",
             file_id: "new",
