@@ -30,6 +30,7 @@ pub struct FileEntry {
 pub enum ChangeKind {
     New,
     SizeOrTime,
+    Verify,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

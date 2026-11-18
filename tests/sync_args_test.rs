@@ -130,11 +130,22 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
         delete: false,
         exclude: vec!["target/**".to_string()],
         jobs: 4,
+        verify: false,
+        json: false,
     };
 
     assert!(args.recursive);
     assert!(args.dry_run);
     assert_eq!(args.jobs, 4);
+}
+
+#[test]
+fn test_verify_defaults_to_one_job_and_json_requires_verify() {
+    let verified =
+        SyncArgs::try_parse_from(["sync", ".", "cloud:/backup", "--verify", "--json"]).unwrap();
+    assert_eq!(verified.jobs, 1);
+    assert!(verified.verify && verified.json);
+    assert!(SyncArgs::try_parse_from(["sync", ".", "cloud:/backup", "--json"]).is_err());
 }
 
 #[test]

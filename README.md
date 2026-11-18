@@ -409,6 +409,12 @@ cloud139 rename /folder/old newname
 
 用文件替换云端同名目录需要 `-r`，且该目录及其后代都须纳入本轮同步范围。`sync --delete` 会保留 `.cloud139-upload-` 和 `.cloud139-backup-` 开头的恢复条目，以及包含这些条目的目录。替换失败后可按报错提示核对并手动恢复这些副本。
 
+本地到个人盘可加 `--verify`，用 SHA-256 识别大小相同但内容不同的文件，并在替换前校验新上传的临时副本。远端未提供可比的 SHA-256 时，同步会读取该文件的远端内容计算哈希。这可能增加下载流量和耗时。校验模式固定串行。
+
+`--verify --delete` 只清理初始扫描中目标端多余的文件。所有校验和更新通过后，同步会复核保留文件和待删除文件的 ID，再开始清理。空源、被排除规则筛空的源会拒绝执行。清理开始后如果服务端拒绝某次删除，已完成的删除保留，剩余删除停止。
+
+`--verify --json` 在标准输出写一行 JSON，日志走标准错误。字段包括 `objects`、`uploaded`、`skipped`、`deleted`、`hashMissing`、`seconds`、`failures`。前五项按文件计数，`hashMissing` 计入至少一次需要读取远端内容的文件。`failures` 每项包含 `path`、`error`、`retries`。加 `-n` 时仅扫描和展示已知计划，同大小文件标记为待校验，计划上传和删除计数不代表已执行。
+
 ```bash
 cloud139 sync <源路径> <目标路径> [选项]
 ```
@@ -430,13 +436,18 @@ cloud139 sync <源路径> <目标路径> [选项]
 | --dry-run | -n | 否 | 演习模式，只输出操作计划，不执行实际同步 |
 | --delete | - | 否 | 删除目标中源没有的文件或空目录 |
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
-| --jobs | -j | 否 | 并发传输数量上限，默认：4 |
+| --jobs | -j | 否 | 并发传输数量上限，默认 4；校验模式固定为 1 |
+| --verify | - | 否 | 校验内容并修复不一致的文件，仅支持本地到个人盘 |
+| --json | - | 否 | 输出一行 JSON 校验汇总，需配合 `--verify` |
 
 **示例：**
 
 ```bash
 # 本地到云端同步（递归、删除目标多余文件、8并发）
 cloud139 sync ./backup cloud:/backup -r --delete -j 8
+
+# 校验备份内容，确认全部更新成功后清理多余文件
+cloud139 sync ./backup cloud:/backup -r --verify --delete --json
 
 # 云端到本地同步（先演习预览）
 cloud139 sync cloud:/photos ./photos -r -n

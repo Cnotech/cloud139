@@ -1,16 +1,18 @@
 use crate::debug;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
-use crate::services::sync_service::format_action_line;
+use crate::services::sync_service::{CloudSyncScan, format_action_line};
 use crate::utils::logger::{mp_error, mp_step};
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, OnceCell, Semaphore};
+
+type DirectoryCache = Mutex<HashMap<String, Arc<OnceCell<String>>>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct SyncExecuteOptions {
@@ -25,6 +27,15 @@ pub async fn execute_sync_actions(
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
+    execute_scanned_sync(config, actions, options, None).await
+}
+
+pub(crate) async fn execute_scanned_sync(
+    config: &crate::config::Config,
+    actions: Vec<SyncAction>,
+    options: SyncExecuteOptions,
+    cloud: Option<Arc<CloudSyncScan>>,
+) -> Result<SyncSummary> {
     debug!(
         "execute_sync_actions: {} 个动作, dry_run={}, jobs={}",
         actions
@@ -38,7 +49,7 @@ pub async fn execute_sync_actions(
         return Ok(summarize_actions(&actions));
     }
 
-    let dir_cache: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let dir_cache = Arc::new(DirectoryCache::default());
     let semaphore = Arc::new(Semaphore::new(options.jobs.max(1)));
     let multiprogress = Arc::new(MultiProgress::new());
     let skip_count = count_skips(&actions);
@@ -54,28 +65,12 @@ pub async fn execute_sync_actions(
         let pb = make_action_progress(&multiprogress, action, options.progress);
         let action = action.clone();
         let dir_cache = dir_cache.clone();
-        let mp = multiprogress.clone();
+        let cloud = cloud.clone();
 
         futures.push(tokio::spawn(async move {
-            // Validate current metadata before ensuring parents (which can replace
-            // cloud files) or deleting an existing destination.
-            if let SyncAction::Upload { local_abs, .. } = &action
-                && let Err(error) = super::upload_service::checked_upload_size(local_abs)
-            {
-                if let Some(pb) = pb {
-                    pb.finish_and_clear();
-                }
-                return (action, Err(error.into()));
-            }
-            if let SyncAction::Upload { remote_abs, .. } = &action
-                && let Err(e) = ensure_upload_parent_dir(&config, remote_abs, &dir_cache, &mp).await
-            {
-                drop(permit);
-                return (action, Err(e));
-            }
-
             let result =
-                execute_one_action(&config, &action, pb.clone(), Some(&dir_cache), Some(&mp)).await;
+                execute_one_action(&config, &action, pb.clone(), &dir_cache, cloud.as_deref())
+                    .await;
             if result.is_err()
                 && let Some(pb) = pb
             {
@@ -104,7 +99,7 @@ pub async fn execute_sync_actions(
                 merge_summary(&mut summary, summary_for_success(&action));
             }
             Ok((action, Err(err))) => {
-                let message = format!("同步失败: {}: {}", action_rel_path(&action), err);
+                let message = format!("同步失败: {}: {err:#}", action_rel_path(&action));
                 if options.progress {
                     mp_error(&message, &multiprogress);
                 } else {
@@ -132,71 +127,35 @@ fn count_skips(actions: &[SyncAction]) -> usize {
         .count()
 }
 
-async fn ensure_upload_parent_dir(
-    config: &crate::config::Config,
-    remote_abs: &str,
-    cache: &Arc<Mutex<HashSet<String>>>,
-    mp: &MultiProgress,
-) -> Result<()> {
-    let parent = remote_parent(remote_abs);
-    if parent == "/" {
-        return Ok(());
-    }
-
-    let mut dirs_to_ensure = Vec::new();
-    let mut current = String::new();
-    for part in parent.trim_matches('/').split('/') {
-        if current.is_empty() {
-            current = format!("/{}", part);
-        } else {
-            current = format!("{}/{}", current, part);
-        }
-        dirs_to_ensure.push(current.clone());
-    }
-
-    // NOTE on cache semantics: when ensure_personal_cloud_dir fails for a
-    // sub-directory, successfully created parent directories remain in the
-    // cache. This is intentional: the parent dirs were verified as existing
-    // (either just created or previously cached), so retrying them is
-    // unnecessary. Only the failed dir itself is removed from the cache so
-    // that a future retry can attempt it again.
-    for dir in dirs_to_ensure {
-        ensure_personal_cloud_dir_cached(config, &dir, cache, Some(mp)).await?;
-    }
-
-    Ok(())
-}
-
-async fn ensure_personal_cloud_dir_cached(
+async fn ensure_cloud_path(
     config: &crate::config::Config,
     path: &str,
-    cache: &Arc<Mutex<HashSet<String>>>,
-    mp: Option<&MultiProgress>,
-) -> Result<()> {
-    let needs_create = {
-        let mut cache_guard = cache.lock().await;
-        if cache_guard.contains(path) {
-            false
-        } else {
-            cache_guard.insert(path.to_string());
-            true
-        }
-    };
-
-    if !needs_create {
-        return Ok(());
+    cache: &DirectoryCache,
+) -> Result<String> {
+    let path = super::directory_service::normalize(path)?;
+    let mut prefix = String::new();
+    let mut parent_id = "/".to_owned();
+    let mut seen = HashSet::from([parent_id.clone()]);
+    for name in path.split('/').filter(|name| !name.is_empty()) {
+        prefix.push('/');
+        prefix.push_str(name);
+        let cell = directory_cell(cache, &prefix).await;
+        let id = cell
+            .get_or_try_init(|| ensure_personal_child(config, &prefix, &parent_id, name, &seen))
+            .await?;
+        ensure!(seen.insert(id.clone()), "目录解析返回重复 ID: {prefix}");
+        parent_id.clone_from(id);
     }
+    Ok(parent_id)
+}
 
-    if let Err(e) = ensure_personal_cloud_dir(config, path).await {
-        let mut cache_guard = cache.lock().await;
-        cache_guard.remove(path);
-        if let Some(mp) = mp {
-            mp_error(&format!("创建云端目录失败: {}", e), mp);
-        }
-        return Err(e);
-    }
-
-    Ok(())
+async fn directory_cell(cache: &DirectoryCache, path: &str) -> Arc<OnceCell<String>> {
+    cache
+        .lock()
+        .await
+        .entry(path.to_owned())
+        .or_default()
+        .clone()
 }
 
 fn summarize_actions(actions: &[SyncAction]) -> SyncSummary {
@@ -248,7 +207,7 @@ fn merge_summary(total: &mut SyncSummary, next: SyncSummary) {
     total.bytes += next.bytes;
 }
 
-fn make_action_progress(
+pub(super) fn make_action_progress(
     multiprogress: &MultiProgress,
     action: &SyncAction,
     enabled: bool,
@@ -289,8 +248,8 @@ async fn execute_one_action(
     config: &crate::config::Config,
     action: &SyncAction,
     pb: Option<ProgressBar>,
-    dir_cache: Option<&Arc<Mutex<HashSet<String>>>>,
-    mp: Option<&MultiProgress>,
+    dir_cache: &DirectoryCache,
+    cloud: Option<&CloudSyncScan>,
 ) -> Result<()> {
     match action {
         SyncAction::Upload {
@@ -299,22 +258,34 @@ async fn execute_one_action(
             replace_directory_id,
             ..
         } => {
+            // Resolve upload metadata before ensuring parents, which can replace cloud files.
+            super::upload_service::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
-            crate::services::upload::personal::upload_for_sync(
-                config,
+            let parent_id = ensure_cloud_path(config, &remote_dir, dir_cache).await?;
+            let mut config = config.clone();
+            let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
+            use crate::services::upload::personal::{SyncUploadPlan, upload_sync_to_parent};
+            upload_sync_to_parent(
+                &config,
                 local_abs,
-                &remote_dir,
-                file_name,
-                replace_directory_id.as_deref(),
+                SyncUploadPlan {
+                    host: &host,
+                    parent_id: &parent_id,
+                    remote_parent: &remote_dir,
+                    file_name,
+                    replace_directory_id: replace_directory_id.as_deref(),
+                    verification: None,
+                },
                 pb,
             )
             .await?;
         }
         SyncAction::Download {
+            rel_path,
             remote_abs,
             local_abs,
             cloud_mtime,
@@ -329,11 +300,23 @@ async fn execute_one_action(
             }
             // 下载是读操作，断连就地重试；每次重试从头写本地文件（download 内部重建）。
             let local_path = local_abs.to_string_lossy().to_string();
+            let scanned = cloud.and_then(|cloud| {
+                let file = cloud.files.get(rel_path)?;
+                Some((cloud.host.as_str(), file.id.as_deref()?, file.size))
+            });
             crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || {
                 let local_path = local_path.clone();
                 let attempt_pb = pb.clone();
                 async move {
-                    crate::services::download(config, remote_abs, &local_path, attempt_pb).await
+                    if let Some((host, id, size)) = scanned {
+                        super::download_service::download_scanned_personal(
+                            config, host, id, local_abs, attempt_pb, size,
+                        )
+                        .await?;
+                        Ok(())
+                    } else {
+                        crate::services::download(config, remote_abs, &local_path, attempt_pb).await
+                    }
                 }
             })
             .await?;
@@ -362,11 +345,7 @@ async fn execute_one_action(
             target, target_abs, ..
         } => match target {
             SyncTarget::Cloud => {
-                if let Some(cache) = dir_cache {
-                    ensure_personal_cloud_dir_cached(config, target_abs, cache, mp).await?;
-                } else {
-                    ensure_personal_cloud_dir(config, target_abs).await?;
-                }
+                ensure_cloud_path(config, target_abs, dir_cache).await?;
             }
             SyncTarget::Local => {
                 let path = Path::new(target_abs);
@@ -396,93 +375,106 @@ fn remote_parent(remote_abs: &str) -> String {
     }
 }
 
-pub(crate) async fn ensure_personal_cloud_dir(
+async fn ensure_personal_child(
     config: &crate::config::Config,
     path: &str,
-) -> Result<()> {
-    let (parent, name) = crate::services::mkdir_service::parse_path(path)?;
-    let config = config.clone();
-
-    let parent_file_id = if parent == "/" {
-        "/".to_string()
-    } else {
-        match crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
-            crate::client::api::get_file_id_by_path(&config, &parent)
+    parent_id: &str,
+    name: &str,
+    ancestors: &HashSet<String>,
+) -> Result<String> {
+    use crate::client::api;
+    let mut config = config.clone();
+    let host = api::get_personal_cloud_host(&mut config).await?;
+    let list_children = || {
+        crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
+            api::list_personal_files(&config, parent_id)
                 .await
-                .map_err(anyhow::Error::from)
+                .map_err(Into::into)
         })
-        .await
-        {
-            Ok(id) => id,
-            Err(e) => {
-                return Err(anyhow::anyhow!("获取父目录失败: {}", e));
-            }
-        }
     };
-
-    // 查找同名条目并判断类型
-    let existing = crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
-        crate::client::api::list_personal_files(&config, &parent_file_id)
-            .await
-            .map_err(anyhow::Error::from)
-    })
-    .await?
-    .into_iter()
-    .find(|item| item.name.as_deref() == Some(&name));
-
-    if let Some(item) = existing {
-        if crate::services::sync_service::should_treat_personal_item_as_folder(&item) {
-            // 同名条目已经是目录，无需操作
-            return Ok(());
+    let children = list_children().await?;
+    let replace_id = if let Some(item) = unique_child(&children, name)? {
+        let id = item
+            .file_id
+            .as_deref()
+            .filter(|id| !id.is_empty() && !ancestors.contains(*id))
+            .context("云端子目录条目缺少有效 ID")?;
+        if item.is_folder() {
+            return Ok(id.to_owned());
         }
-        // 同名条目是文件，先删除再创建目录
-        let full_path = if parent == "/" {
-            format!("/{}", name)
-        } else {
-            format!("{}/{}", parent.trim_end_matches('/'), name)
-        };
-        crate::services::delete_service::delete_recursive(&config, &full_path, false, true).await?;
+        Some(id)
+    } else {
+        None
+    };
+    super::sync_service::confirm_cloud_directory(&config, &remote_parent(path), parent_id).await?;
+    if let Some(id) = replace_id {
+        let current = crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || async {
+            super::directory_service::resolve(&config, path)
+                .await
+                .map_err(Into::into)
+        })
+        .await?;
+        ensure!(
+            !current.folder && current.id == id,
+            "云端同名文件 {path} 已变更"
+        );
+        super::delete_service::trash_personal_file_id(&config, &host, id).await?;
     }
 
-    // 创建目录
-    let mut config_for_create = config.clone();
-    let host = crate::client::api::get_personal_cloud_host(&mut config_for_create).await?;
-
     let body = serde_json::json!({
-        "parentFileId": parent_file_id,
+        "parentFileId": parent_id,
         "name": name,
         "description": "",
         "type": "folder"
     });
 
-    let resp: crate::models::PersonalUploadResp = crate::client::api::personal_api_request(
-        &config_for_create,
+    let resp: crate::models::PersonalUploadResp = api::personal_api_request(
+        &config,
         &format!("{}/file/create", host),
         body,
         crate::domain::StorageType::PersonalNew,
     )
     .await?;
 
-    if resp.base.success {
-        Ok(())
-    } else {
-        let is_conflict = resp.base.code.as_deref() == Some("409")
-            || resp
-                .base
-                .message
-                .as_deref()
-                .map(|m| m.contains("已存在"))
-                .unwrap_or(false);
-        if is_conflict {
-            Ok(())
-        } else {
-            let msg = resp
-                .base
-                .message
-                .unwrap_or_else(|| "创建云端目录失败".to_string());
-            Err(crate::client::ClientError::Api(msg).into())
-        }
+    if resp.base.success
+        && let Some(data) = resp.data
+        && data.file_name.as_deref() == Some(name)
+        && let Some(id) = data
+            .file_id
+            .filter(|id| !id.is_empty() && !ancestors.contains(id))
+    {
+        return Ok(id);
     }
+    let conflict = resp.base.code.as_deref() == Some("409")
+        || resp
+            .base
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("已存在"));
+    ensure!(
+        resp.base.success || conflict,
+        "{}",
+        resp.base.message.as_deref().unwrap_or("创建云端目录失败")
+    );
+    let children = list_children().await?;
+    unique_child(&children, name)?
+        .filter(|item| item.is_folder())
+        .and_then(|item| item.file_id.as_ref())
+        .filter(|id| !id.is_empty() && !ancestors.contains(*id))
+        .cloned()
+        .context("创建后无法确认云端目录")
+}
+
+fn unique_child<'a>(
+    children: &'a [crate::models::PersonalFileItem],
+    name: &str,
+) -> Result<Option<&'a crate::models::PersonalFileItem>> {
+    let mut matches = children
+        .iter()
+        .filter(|item| item.name.as_deref() == Some(name));
+    let first = matches.next();
+    ensure!(matches.next().is_none(), "云端存在多个同名子条目: {name}");
+    Ok(first)
 }
 
 #[cfg(test)]
@@ -492,57 +484,28 @@ mod tests {
     use crate::domain::ChangeKind;
     use httpmock::prelude::*;
     use serde_json::json;
-    use std::collections::HashSet;
-
     #[tokio::test]
     async fn test_dir_cache_prevents_duplicate_entries() {
-        let cache: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
-
-        cache.lock().await.insert("/a".to_string());
-
-        let needs_create = {
-            let mut guard = cache.lock().await;
-            if guard.contains("/a") {
-                false
-            } else {
-                guard.insert("/a".to_string());
-                true
-            }
-        };
-        assert!(!needs_create, "already-cached dir should not need creation");
-
-        let needs_create_new = {
-            let mut guard = cache.lock().await;
-            if guard.contains("/b") {
-                false
-            } else {
-                guard.insert("/b".to_string());
-                true
-            }
-        };
-        assert!(needs_create_new, "new dir should need creation");
-        assert!(cache.lock().await.contains("/b"));
+        let cache = DirectoryCache::default();
+        let first = directory_cell(&cache, "/a").await;
+        assert!(Arc::ptr_eq(&first, &directory_cell(&cache, "/a").await));
+        assert!(!Arc::ptr_eq(&first, &directory_cell(&cache, "/b").await));
     }
 
     #[tokio::test]
-    async fn test_dir_cache_remove_on_failure() {
-        let cache: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
-
-        cache.lock().await.insert("/failed_dir".to_string());
-        let mut guard = cache.lock().await;
-        guard.remove("/failed_dir");
-        drop(guard);
-
-        let needs_create = {
-            let mut guard = cache.lock().await;
-            if guard.contains("/failed_dir") {
-                false
-            } else {
-                guard.insert("/failed_dir".to_string());
-                true
-            }
-        };
-        assert!(needs_create, "removed dir should need creation again");
+    async fn test_dir_cache_allows_retry_on_failure() {
+        let cache = DirectoryCache::default();
+        let cell = directory_cell(&cache, "/retry").await;
+        assert!(
+            cell.get_or_try_init(|| async { Err::<String, _>("failed") })
+                .await
+                .is_err()
+        );
+        let id = directory_cell(&cache, "/retry").await;
+        assert_eq!(
+            id.get_or_init(|| async { "created".to_string() }).await,
+            "created"
+        );
     }
 
     #[test]
@@ -638,11 +601,10 @@ mod tests {
             }));
         });
 
-        ensure_personal_cloud_dir(&config, "/conflict")
+        let id = ensure_cloud_path(&config, "/conflict", &DirectoryCache::default())
             .await
             .expect("cloud dir creation should replace same-name file");
-
-        // 路径解析与「检查是否已存在」现在共用同一个翻页 list，所以调用两次。
+        assert_eq!(id, "dir_1");
         list_for_existing.assert_calls(2);
         delete_file.assert_calls(1);
         create_dir.assert_calls(1);
@@ -720,8 +682,7 @@ mod tests {
             }));
         });
 
-        let cache: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
-        let mp = MultiProgress::new();
+        let cache = DirectoryCache::default();
         let create_action = SyncAction::CreateDir {
             rel_path: "docs".to_string(),
             target: SyncTarget::Cloud,
@@ -729,14 +690,16 @@ mod tests {
         };
 
         let (parent_result, create_result) = tokio::join!(
-            ensure_upload_parent_dir(&config, "/remote/docs/file.txt", &cache, &mp),
-            execute_one_action(&config, &create_action, None, Some(&cache), Some(&mp)),
+            ensure_cloud_path(&config, "/remote/docs", &cache),
+            execute_one_action(&config, &create_action, None, &cache, None),
         );
 
-        parent_result.expect("upload parent ensure should succeed");
+        assert_eq!(
+            parent_result.expect("upload parent ensure should succeed"),
+            "dir_docs"
+        );
         create_result.expect("create dir action should succeed");
 
-        // 同上：路径解析不再单独发一个 list 请求。
         root_existing_list.assert_calls(2);
         remote_list.assert_calls(1);
         create_dir.assert_calls(1);

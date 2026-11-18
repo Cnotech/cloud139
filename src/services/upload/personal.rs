@@ -3,6 +3,7 @@ use crate::domain::StorageType;
 use crate::models::{PersonalFileItem, PersonalUploadResp};
 use crate::services::sync_service::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::utils::logger::{pb_debug, pb_error, pb_success, pb_warn};
+use anyhow::Context;
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
 
@@ -52,50 +53,63 @@ fn finish_upload(name: &str, pb: &Option<ProgressBar>) {
     }
 }
 
-/// Upload a unique sibling first, then promote it. Server-side entitlement,
-/// transfer, or completion failures must not delete the existing destination.
-pub(in crate::services) async fn upload_for_sync(
+pub(in crate::services) struct SyncUploadPlan<'a> {
+    pub host: &'a str,
+    pub parent_id: &'a str,
+    pub remote_parent: &'a str,
+    pub file_name: &'a str,
+    pub replace_directory_id: Option<&'a str>,
+    pub verification: Option<SyncUploadVerification<'a>>,
+}
+
+pub(in crate::services) struct SyncUploadVerification<'a> {
+    pub existing_id: Option<&'a str>,
+    pub hash_missing: &'a mut bool,
+}
+
+/// Upload a unique sibling before replacing the destination.
+pub(in crate::services) async fn upload_sync_to_parent(
     config: &crate::config::Config,
     local_path: &std::path::Path,
-    remote_path: &str,
-    file_name: &str,
-    replace_directory_id: Option<&str>,
+    plan: SyncUploadPlan<'_>,
     pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
+) -> anyhow::Result<String> {
+    let SyncUploadPlan {
+        host,
+        parent_id,
+        remote_parent,
+        file_name,
+        replace_directory_id,
+        verification,
+    } = plan;
     let file_size = super::super::upload_service::checked_upload_size(local_path)?;
     super::super::directory_service::validate_name(file_name)?;
-    let mut config = config.clone();
-    let host = api::get_personal_cloud_host(&mut config).await?;
-    let parent_id = if remote_path == "/" || remote_path.is_empty() {
-        "/".to_owned()
-    } else {
-        api::get_file_id_by_path(&config, remote_path).await?
-    };
     let temporary_name = format!(
         "{SYNC_UPLOAD_PREFIX}{}",
         crate::utils::crypto::generate_random_string(24)
     );
-    let before = api::list_personal_files(&config, &parent_id).await?;
+    let before = api::list_personal_files(config, parent_id).await?;
     if before
         .iter()
         .any(|item| item.name.as_deref() == Some(&temporary_name))
     {
-        return Err(ClientError::Api("临时上传名称冲突，旧条目未替换".into()));
+        anyhow::bail!("临时上传名称冲突，旧条目未替换");
+    }
+    if let Some(check) = &verification {
+        check_destination(&before, file_name, check.existing_id)?;
     }
     let uploaded = transfer_to_parent(
-        &config,
-        &host,
+        config,
+        host,
         local_path,
-        &parent_id,
+        parent_id,
         &temporary_name,
         file_size,
         pb.clone(),
     )
     .await
-    .map_err(|error| {
-        ClientError::Api(format!(
-            "同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}: {error}"
-        ))
+    .with_context(|| {
+        format!("同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}")
     })?;
     let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
     let promote = async {
@@ -107,27 +121,71 @@ pub(in crate::services) async fn upload_for_sync(
             .iter()
             .any(|item| item.file_id.as_deref() == Some(id))
         {
-            return Err(ClientError::Api("临时文件 ID 已存在，旧条目未替换".into()));
+            anyhow::bail!("临时文件 ID 已存在，旧条目未替换");
         }
-        let files = confirm_uploaded_name(&config, &parent_id, id, saved_name).await?;
-        install_uploaded_file(
-            &config,
-            &host,
-            &parent_id,
+        let mut files = confirm_uploaded_name(config, parent_id, id, saved_name).await?;
+        if let Some(check) = verification {
+            check_destination(&files, file_name, check.existing_id)?;
+            let item = files
+                .iter()
+                .find(|item| {
+                    item.file_id.as_deref() == Some(id) && item.name.as_deref() == Some(saved_name)
+                })
+                .context("找不到已确认的临时文件")?;
+            let remote = super::super::sync_service::CloudSyncFile::from(item);
+            if remote.size.is_some_and(|size| size != uploaded.size) {
+                anyhow::bail!("上传后校验失败：临时文件大小不一致");
+            }
+            let digest = super::super::sync_verify::remote_sha256(
+                config,
+                host,
+                &remote,
+                Some(uploaded.size),
+                check.hash_missing,
+            )
+            .await?;
+            if digest != uploaded.sha256 {
+                anyhow::bail!("上传后校验失败：临时文件 SHA-256 不一致");
+            }
+            if remote.sha256.is_none() {
+                files = confirm_uploaded_name(config, parent_id, id, saved_name).await?;
+                check_destination(&files, file_name, check.existing_id)?;
+            }
+        }
+        super::super::sync_service::confirm_cloud_directory(config, remote_parent, parent_id)
+            .await?;
+        let installed = install_uploaded_file(
+            config,
+            host,
+            parent_id,
             id,
             file_name,
             &files,
             replace_directory_id,
         )
-        .await
+        .await?;
+        finish_upload(&installed, &pb);
+        Ok(id.to_owned())
     }
     .await
-    .map_err(|error| {
-        ClientError::Api(format!(
-            "临时名称 {saved_name}，替换 {file_name} 未完成: {error}"
-        ))
-    })?;
-    finish_upload(&promote, &pb);
+    .with_context(|| format!("临时名称 {saved_name}，替换 {file_name} 未完成"))?;
+    Ok(promote)
+}
+
+fn check_destination(
+    files: &[PersonalFileItem],
+    name: &str,
+    expected_id: Option<&str>,
+) -> anyhow::Result<()> {
+    let mut matches = files
+        .iter()
+        .filter(|item| item.name.as_deref() == Some(name));
+    let unchanged = match (matches.next(), expected_id) {
+        (None, None) => true,
+        (Some(item), Some(id)) => item.file_id.as_deref() == Some(id) && matches.next().is_none(),
+        _ => false,
+    };
+    anyhow::ensure!(unchanged, "目标 {name} 在扫描后发生变化");
     Ok(())
 }
 
@@ -165,11 +223,12 @@ pub(in crate::services) async fn upload_to_parent(
     Ok(uploaded.name.unwrap_or_else(|| file_name.to_owned()))
 }
 
-#[derive(Default)]
 struct UploadReceipt {
     name: Option<String>,
     id: Option<String>,
     multipart: bool,
+    size: u64,
+    sha256: String,
 }
 
 async fn transfer_to_parent(
@@ -202,21 +261,25 @@ async fn transfer_to_parent(
         &content_hash,
     )
     .await?;
+    let mut receipt = UploadReceipt {
+        name: None,
+        id: None,
+        multipart: false,
+        size: file_size as u64,
+        sha256: content_hash,
+    };
     let Some(data) = response.data else {
-        return Ok(UploadReceipt::default());
+        return Ok(receipt);
     };
     if data.exist.unwrap_or(false) {
         pb_debug("服务器复用已有文件内容", &pb);
     }
-    let file_id = data.file_id.filter(|id| !id.is_empty() && id != "/");
+    receipt.name = data.file_name;
+    receipt.id = data.file_id.filter(|id| !id.is_empty() && id != "/");
     let Some(parts) = data.part_infos.as_deref().filter(|parts| !parts.is_empty()) else {
-        return Ok(UploadReceipt {
-            name: data.file_name,
-            id: file_id,
-            multipart: false,
-        });
+        return Ok(receipt);
     };
-    let file_id = file_id.ok_or(ClientError::InvalidFilePath)?;
+    let file_id = receipt.id.as_deref().ok_or(ClientError::InvalidFilePath)?;
     let upload_id = data
         .upload_id
         .filter(|id| !id.is_empty())
@@ -227,9 +290,9 @@ async fn transfer_to_parent(
         host,
         local_path,
         upload_id: &upload_id,
-        file_id: &file_id,
+        file_id,
         file_size,
-        content_hash: &content_hash,
+        content_hash: &receipt.sha256,
         part_size: crate::services::upload_service::get_part_size(
             file_size,
             config.custom_upload_part_size,
@@ -238,11 +301,8 @@ async fn transfer_to_parent(
         pb,
     })
     .await?;
-    Ok(UploadReceipt {
-        name: data.file_name,
-        id: Some(file_id),
-        multipart: true,
-    })
+    receipt.multipart = true;
+    Ok(receipt)
 }
 
 async fn check_file_exists(

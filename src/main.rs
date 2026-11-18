@@ -7,6 +7,9 @@ use cloud139::error;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if matches!(&cli.command, Commands::Sync(args) if args.json) {
+        cloud139::utils::logger::route_status_to_stderr();
+    }
     if let Some(path) = cli.config.clone() {
         cloud139::config::set_config_override(path);
     }

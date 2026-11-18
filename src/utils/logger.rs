@@ -1,25 +1,26 @@
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use indicatif::{MultiProgress, ProgressBar};
 
 #[macro_export]
 macro_rules! info {
     ($($arg:tt)*) => {
-        println!("\x1b[36minfo\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::status("36", "info", format_args!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! success {
     ($($arg:tt)*) => {
-        println!("\x1b[32msuccess\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::status("32", "success", format_args!($($arg)*))
     };
 }
 
 #[macro_export]
 macro_rules! warn {
     ($($arg:tt)*) => {
-        println!("\x1b[33mwarn\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::status("33", "warn", format_args!($($arg)*))
     };
 }
 
@@ -33,7 +34,7 @@ macro_rules! error {
 #[macro_export]
 macro_rules! step {
     ($($arg:tt)*) => {
-        println!("\x1b[34mstep\x1b[0m {}", format!($($arg)*))
+        $crate::utils::logger::status("34", "step", format_args!($($arg)*))
     };
 }
 
@@ -41,7 +42,7 @@ macro_rules! step {
 macro_rules! debug {
     ($($arg:tt)*) => {
         if $crate::utils::logger::is_debug() {
-            println!("\x1b[90mdebug\x1b[0m {}", format!($($arg)*))
+            $crate::utils::logger::status("90", "debug", format_args!($($arg)*))
         }
     };
 }
@@ -54,6 +55,20 @@ macro_rules! print {
 }
 
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
+static STATUS_TO_STDERR: AtomicBool = AtomicBool::new(false);
+
+pub fn route_status_to_stderr() {
+    STATUS_TO_STDERR.store(true, Ordering::Relaxed);
+}
+
+#[doc(hidden)]
+pub fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
+    if STATUS_TO_STDERR.load(Ordering::Relaxed) {
+        eprintln!("\x1b[{color}m{level}\x1b[0m {message}");
+    } else {
+        println!("\x1b[{color}m{level}\x1b[0m {message}");
+    }
+}
 
 pub fn init_verbose(level: &str) {
     VERBOSE_DEBUG.set(level == "debug").ok();
