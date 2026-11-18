@@ -69,7 +69,7 @@ pub fn compute_diff(
     target: &[FileEntry],
     options: SyncDiffOptions,
 ) -> Vec<SyncAction> {
-    compute_diff_inner(source, target, options, None)
+    compute_diff_inner(source, target, options, None, false)
 }
 
 fn compute_diff_inner(
@@ -77,6 +77,7 @@ fn compute_diff_inner(
     target: &[FileEntry],
     options: SyncDiffOptions,
     cloud_target: Option<&CloudSyncScan>,
+    verify: bool,
 ) -> Vec<SyncAction> {
     debug!(
         "compute_diff: source={} entries, target={} entries, direction={:?}",
@@ -154,7 +155,10 @@ fn compute_diff_inner(
                 }
             }
             (Some(src), Some(dst)) => {
-                if let Some(change) = change_kind(src, dst, options.direction) {
+                let change = change_kind(src, dst, options.direction).or_else(|| {
+                    (verify && src.kind == SyncEntryKind::File).then_some(ChangeKind::Verify)
+                });
+                if let Some(change) = change {
                     actions.push(transfer_action(src, &options, change, None));
                 } else {
                     actions.push(SyncAction::Skip {
@@ -168,7 +172,9 @@ fn compute_diff_inner(
             (Some(src), None) => {
                 actions.push(transfer_action(src, &options, ChangeKind::New, None))
             }
-            (None, Some(dst)) if options.delete && !protected => {
+            (None, Some(dst))
+                if options.delete && !protected && (!verify || dst.kind == SyncEntryKind::File) =>
+            {
                 actions.push(delete_action(dst, &options));
             }
             (None, Some(_dst)) => actions.push(SyncAction::Skip {
@@ -327,6 +333,7 @@ fn change_marker(change: ChangeKind) -> &'static str {
     match change {
         ChangeKind::New => ">f+++++++++",
         ChangeKind::SizeOrTime => ">f.st......",
+        ChangeKind::Verify => "?f.sha256..",
     }
 }
 
@@ -560,6 +567,42 @@ pub(crate) struct CloudSyncScan {
     items: Vec<FileEntry>,
     directories: BTreeMap<String, String>,
     protected: BTreeSet<String>,
+    pub(crate) files: BTreeMap<String, CloudSyncFile>,
+    pub(crate) host: String,
+}
+
+#[derive(PartialEq, Eq)]
+pub(crate) struct CloudSyncFile {
+    pub(crate) id: Option<String>,
+    pub(crate) size: Option<u64>,
+    pub(crate) sha256: Option<String>,
+}
+
+impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
+    fn from(item: &crate::models::PersonalFileItem) -> Self {
+        let id = item
+            .file_id
+            .as_ref()
+            .filter(|id| !id.is_empty() && *id != "/")
+            .cloned();
+        let size = item.size.and_then(|size| u64::try_from(size).ok());
+        let sha256 = item
+            .content_hash
+            .as_deref()
+            .map(str::trim)
+            .filter(|hash| {
+                item.content_hash_algorithm
+                    .as_deref()
+                    .is_some_and(|algorithm| {
+                        algorithm.trim().eq_ignore_ascii_case("SHA256")
+                            || algorithm.trim().eq_ignore_ascii_case("SHA-256")
+                    })
+                    && hash.len() == 64
+                    && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+            .map(str::to_ascii_lowercase);
+        Self { id, size, sha256 }
+    }
 }
 
 impl CloudSyncScan {
@@ -567,8 +610,21 @@ impl CloudSyncScan {
         &self,
         source: &[FileEntry],
         options: SyncDiffOptions,
+        verify: bool,
     ) -> Vec<SyncAction> {
-        compute_diff_inner(source, &self.items, options, Some(self))
+        compute_diff_inner(source, &self.items, options, Some(self), verify)
+    }
+
+    pub(crate) fn compute_download_diff(
+        &self,
+        target: &[FileEntry],
+        options: SyncDiffOptions,
+    ) -> Vec<SyncAction> {
+        compute_diff(&self.items, target, options)
+    }
+
+    pub(crate) fn directory_id(&self, rel_path: &str) -> Option<&str> {
+        self.directories.get(rel_path).map(String::as_str)
     }
 
     fn protect(&mut self, rel_path: &str) {
@@ -597,6 +653,14 @@ pub(crate) async fn scan_cloud_upload_target(
     scan_cloud_personal_inner(config, cloud_root, options, true).await
 }
 
+pub(crate) async fn scan_cloud_download_source(
+    config: &crate::config::Config,
+    cloud_root: &str,
+    options: SyncScanOptions,
+) -> Result<CloudSyncScan> {
+    scan_cloud_personal_inner(config, cloud_root, options, false).await
+}
+
 async fn scan_cloud_personal_inner(
     config: &crate::config::Config,
     cloud_root: &str,
@@ -613,7 +677,7 @@ async fn scan_cloud_personal_inner(
         "/".to_string()
     } else {
         crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-            crate::client::api::get_file_id_by_path(&config, cloud_root)
+            super::directory_service::directory(&config, cloud_root)
                 .await
                 .map_err(anyhow::Error::from)
         })
@@ -621,7 +685,11 @@ async fn scan_cloud_personal_inner(
     };
 
     let patterns = compile_exclude_patterns(&options.exclude)?;
-    let mut scan = CloudSyncScan::default();
+    let mut scan = CloudSyncScan {
+        directories: BTreeMap::from([(String::new(), root_id.clone())]),
+        ..CloudSyncScan::default()
+    };
+    let mut seen_directories = BTreeSet::from([root_id.clone()]);
     scan_cloud_personal_dir(
         &config,
         &host,
@@ -631,10 +699,12 @@ async fn scan_cloud_personal_inner(
         &patterns,
         upload_target,
         &mut scan,
+        &mut seen_directories,
     )
     .await?;
     scan.items
         .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
+    scan.host = host;
     Ok(scan)
 }
 
@@ -648,6 +718,7 @@ fn scan_cloud_personal_dir<'a>(
     patterns: &'a [Pattern],
     upload_target: bool,
     scan: &'a mut CloudSyncScan,
+    seen_directories: &'a mut BTreeSet<String>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let url = format!("{}/file/list", host);
@@ -701,16 +772,17 @@ fn scan_cloud_personal_dir<'a>(
                 .ok_or_else(|| anyhow!("获取云端文件列表失败: 无数据"))?;
 
             for item in data.items {
-                let name = item.name.clone().unwrap_or_default();
-                if name.is_empty() {
-                    continue;
-                }
+                let name = item
+                    .name
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("云端条目缺少名称"))?;
+                super::directory_service::validate_name(name)?;
                 let rel_path = if rel_parent.is_empty() {
-                    name.clone()
+                    name.to_owned()
                 } else {
                     format!("{}/{}", rel_parent, name)
                 };
-                if is_excluded(&rel_path, patterns) || (upload_target && is_recovery_name(&name)) {
+                if is_excluded(&rel_path, patterns) || (upload_target && is_recovery_name(name)) {
                     if upload_target {
                         scan.protect(&rel_path);
                     }
@@ -729,10 +801,21 @@ fn scan_cloud_personal_dir<'a>(
                         }
                         continue;
                     };
-                    if upload_target {
-                        scan.directories
-                            .insert(rel_path.clone(), child_id.to_owned());
+                    if let Some(previous) = scan.directories.get(&rel_path)
+                        && previous == child_id
+                    {
+                        continue;
                     }
+                    if scan.directories.contains_key(&rel_path)
+                        || scan.files.contains_key(&rel_path)
+                    {
+                        return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
+                    }
+                    if !seen_directories.insert(child_id.to_owned()) {
+                        return Err(anyhow!("云端扫描返回了重复的目录 ID: {rel_path}"));
+                    }
+                    scan.directories
+                        .insert(rel_path.clone(), child_id.to_owned());
                     scan.items.push(FileEntry {
                         rel_path: rel_path.clone(),
                         size: 0,
@@ -748,10 +831,22 @@ fn scan_cloud_personal_dir<'a>(
                         patterns,
                         upload_target,
                         scan,
+                        seen_directories,
                     )
                     .await?;
                 } else {
                     let entry = personal_item_to_file_entry(rel_parent, &item)?;
+                    let file = CloudSyncFile::from(&item);
+                    if let Some(previous) = scan.files.get(&rel_path) {
+                        if file.id.is_some() && previous == &file {
+                            continue;
+                        }
+                        return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
+                    }
+                    if scan.directories.contains_key(&rel_path) {
+                        return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
+                    }
+                    scan.files.insert(rel_path, file);
                     scan.items.push(entry);
                 }
             }

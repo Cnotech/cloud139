@@ -200,7 +200,7 @@ pub fn calc_file_hash(path: &str) -> Result<String, std::io::Error> {
     Ok(hex::encode(hasher.finalize()))
 }
 
-pub fn calc_file_sha256(path: &str) -> Result<String, std::io::Error> {
+pub fn calc_file_sha256(path: impl AsRef<std::path::Path>) -> Result<String, std::io::Error> {
     use std::fs::File;
     use std::io::Read;
 

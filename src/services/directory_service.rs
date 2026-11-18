@@ -114,7 +114,7 @@ pub(super) async fn ensure_personal_dir(
     Ok(parent_id)
 }
 
-async fn ensure_personal_child_dir(
+pub(super) async fn ensure_personal_child_dir(
     listing: &api::PersonalListing<'_>,
     parent_id: &str,
     name: &str,

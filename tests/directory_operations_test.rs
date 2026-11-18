@@ -34,6 +34,10 @@ struct State {
     cycle: bool,
     drop_list_cursor_once: Option<String>,
     close_delimited_payload: Option<&'static [u8]>,
+    file_payloads: HashMap<String, &'static [u8]>,
+    uploaded_content: Option<(&'static [u8], bool)>,
+    fail_download: Option<String>,
+    replace_extra_on_promotion: bool,
 }
 struct Server {
     host: String,
@@ -120,7 +124,18 @@ impl Server {
                                         &id
                                     };
                                     let parent = body["parentFileId"].as_str().unwrap().to_owned();
-                                    let item = json!({"fileId":staged_id,"name":body["name"],"type":body["type"],"size":body["size"]});
+                                    let mut item = json!({"fileId":staged_id,"name":body["name"],"type":body["type"],"size":body["size"]});
+                                    if body["type"] == "file"
+                                        && let Some((bytes, publish_hash)) = state.uploaded_content
+                                    {
+                                        state.file_payloads.insert(staged_id.to_owned(), bytes);
+                                        if publish_hash {
+                                            let hash = hash_bytes(bytes);
+                                            item["contentHash"] = json!(hash);
+                                            item["contentHashAlgorithm"] = json!("SHA256");
+                                        }
+                                        item["size"] = json!(bytes.len());
+                                    }
                                     state.children.entry(parent).or_default().push(item);
                                     // Fast-upload mock acknowledges by hash without a data transfer.
                                     if state.sync_mutations {
@@ -132,7 +147,26 @@ impl Server {
                                 }
                             }
                             "/file/getDownloadUrl" => {
-                                json!({"success":true,"data":{"url":format!("{base}/payload"),"fileName":"safe.bin"}})
+                                let id = body["fileId"].as_str().unwrap();
+                                if state.fail_download.as_deref() == Some(id) {
+                                    json!({"success":false,"message":"injected download failure","data":{}})
+                                } else if state.file_payloads.contains_key(id) {
+                                    json!({"success":true,"data":{"url":format!("{base}/payload/{id}"),"fileName":"safe.bin"}})
+                                } else {
+                                    json!({"success":true,"data":{"url":format!("{base}/payload"),"fileName":"safe.bin"}})
+                                }
+                            }
+                            path if path.starts_with("/payload/") => {
+                                let id = path.trim_start_matches("/payload/");
+                                let payload = state.file_payloads[id];
+                                drop(state);
+                                let _ = write!(
+                                    stream,
+                                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                    payload.len()
+                                );
+                                let _ = stream.write_all(payload);
+                                continue;
                             }
                             "/payload" => {
                                 let payload = state.close_delimited_payload;
@@ -159,6 +193,15 @@ impl Server {
                                                 if item["fileId"] == body["fileId"] {
                                                     item["name"] = body["name"].clone();
                                                 }
+                                            }
+                                        }
+                                    }
+                                    if state.replace_extra_on_promotion
+                                        && body["name"] == "movie.bin"
+                                    {
+                                        for item in state.children.get_mut("/").unwrap() {
+                                            if item["fileId"] == "extra" {
+                                                item["fileId"] = json!("different-extra");
                                             }
                                         }
                                     }
@@ -224,7 +267,7 @@ impl Server {
                 !matches!(
                     path.as_str(),
                     "/file/list" | "/file/getDownloadUrl" | "/payload"
-                )
+                ) && !path.starts_with("/payload/")
             })
             .cloned()
             .collect()
@@ -234,23 +277,391 @@ impl Server {
         let source = root.join("source");
         std::fs::create_dir_all(&source).unwrap();
         std::fs::write(source.join("movie.bin"), b"new content").unwrap();
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+        command
+            .arg("--config")
+            .arg(self.save_profile(root))
+            .arg("sync")
+            .arg(&source)
+            .arg("cloud:/");
+        isolate_cli(&mut command, root);
+        command
+    }
+
+    fn save_profile(&self, root: &std::path::Path) -> std::path::PathBuf {
         let config = root.join("profile.toml");
         let mut profile = self.config();
         profile.token_expire_time = Some(i64::MAX);
         profile.save_to(&config).unwrap();
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
-        command
-            .arg("--config")
-            .arg(&config)
-            .arg("sync")
-            .arg(&source)
-            .arg("cloud:/")
-            .current_dir(root)
-            .env("HOME", root)
-            .env("XDG_CONFIG_HOME", root)
-            .env("USERPROFILE", root);
-        command
+        config
     }
+}
+
+fn verified_report(output: std::process::Output, status: i32) -> Value {
+    let text = String::from_utf8(output.stdout).unwrap();
+    let logs = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(status), "{text}\n{logs}");
+    assert_eq!(text.lines().count(), 1, "{text}");
+    let report: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(report.as_object().unwrap().len(), 7);
+    assert!(report["seconds"].is_number());
+    report
+}
+
+fn verified_file(id: &str, name: &str, bytes: &[u8], publish_hash: bool) -> Value {
+    let mut item = file(id, name);
+    item["size"] = json!(bytes.len());
+    if publish_hash {
+        item["contentHash"] = json!(hash_bytes(bytes));
+        item["contentHashAlgorithm"] = json!("SHA-256");
+    }
+    item
+}
+
+#[test]
+fn verified_sync_streams_missing_hashes_and_repairs_equal_size_content_before_delete() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![
+            verified_file("old", "movie.bin", b"old content", false),
+            file("extra", "extra.txt"),
+            folder("dir", "extra-dir"),
+        ],
+    );
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.uploaded_content = Some((b"new content", false));
+        state.file_payloads.insert("old".into(), b"old content");
+    }
+    let report = verified_report(
+        server
+            .sync_command(root.path())
+            .args(["-r", "--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(report["objects"], 1);
+    assert_eq!(report["uploaded"], 1);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["deleted"], 1);
+    assert_eq!(report["hashMissing"], 1);
+    assert_eq!(report["failures"], json!([]));
+
+    let state = server.state.lock().unwrap();
+    let writes: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| {
+            ["/file/create", "/file/update", "/recyclebin/batchTrash"].contains(&path.as_str())
+        })
+        .map(|(path, body)| (path.as_str(), body))
+        .collect();
+    assert_eq!(writes.len(), 5);
+    assert_eq!(writes[0].0, "/file/create");
+    assert_eq!(writes[1].1["fileId"], "old");
+    assert_eq!(writes[2].1["name"], "movie.bin");
+    assert_eq!(writes[3].1["fileIds"], json!(["old"]));
+    assert_eq!(writes[4].1["fileIds"], json!(["extra"]));
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "dir")
+    );
+    let downloads: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/file/getDownloadUrl")
+        .map(|(_, body)| &body["fileId"])
+        .collect();
+    assert_eq!(downloads.len(), 2);
+    assert_eq!(downloads[0], "old");
+    assert_eq!(downloads[1], &writes[2].1["fileId"]);
+}
+
+#[test]
+fn verified_sync_reports_known_and_streamed_content_matches_without_writes() {
+    for publish_hash in [true, false] {
+        let server = Server::new();
+        let root = tempfile::tempdir().unwrap();
+        server.set(
+            "/",
+            vec![verified_file(
+                "old",
+                "movie.bin",
+                b"new content",
+                publish_hash,
+            )],
+        );
+        server
+            .state
+            .lock()
+            .unwrap()
+            .file_payloads
+            .insert("old".into(), b"new content");
+        let output = server
+            .sync_command(root.path())
+            .args(["--verify", "--json"])
+            .output()
+            .unwrap();
+        let report = verified_report(output, 0);
+        assert_eq!(report["uploaded"], 0);
+        assert_eq!(report["skipped"], 1);
+        assert_eq!(report["hashMissing"], usize::from(!publish_hash));
+        assert!(server.mutations().is_empty());
+        assert_eq!(
+            server
+                .state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|(path, _)| path == "/file/getDownloadUrl")
+                .count(),
+            usize::from(!publish_hash)
+        );
+    }
+}
+
+#[test]
+fn verified_sync_does_not_trust_hash_shaped_filenames_or_delete_on_inconclusive_verification() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let actual_name = hash_bytes(b"new content");
+    server.set(
+        "/",
+        vec![
+            verified_file("old", &actual_name, b"old content", false),
+            file("extra", "extra.txt"),
+        ],
+    );
+    server.state.lock().unwrap().fail_download = Some("old".into());
+    let mut command = server.sync_command(root.path());
+    let source = root.path().join("source");
+    std::fs::rename(source.join("movie.bin"), source.join(&actual_name)).unwrap();
+    let report = verified_report(
+        command
+            .args(["--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(report["hashMissing"], 1);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(report["failures"][0]["path"], actual_name);
+    assert_eq!(report["failures"][0]["retries"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("读取内容校验失败")
+    );
+    assert!(server.mutations().is_empty());
+}
+
+#[test]
+fn verified_sync_preserves_existing_target_and_extras_when_staged_hash_differs() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![
+            verified_file("old", "movie.bin", b"old content", true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.uploaded_content = Some((b"bad content", true));
+    }
+    let report = verified_report(
+        server
+            .sync_command(root.path())
+            .args(["--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(report["uploaded"], 0);
+    assert_eq!(report["deleted"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("SHA-256 不一致")
+    );
+    assert_eq!(
+        server
+            .mutations()
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        ["/file/create"]
+    );
+    let state = server.state.lock().unwrap();
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "old" && item["name"] == "movie.bin")
+    );
+    assert!(
+        state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "extra")
+    );
+}
+
+#[test]
+fn verified_sync_rechecks_frozen_delete_ids_before_any_extra_file_is_removed() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![file("another", "another.txt"), file("extra", "extra.txt")],
+    );
+    {
+        let mut state = server.state.lock().unwrap();
+        state.sync_mutations = true;
+        state.uploaded_content = Some((b"new content", true));
+        state.replace_extra_on_promotion = true;
+    }
+    let report = verified_report(
+        server
+            .sync_command(root.path())
+            .args(["--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(report["uploaded"], 1);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(report["failures"][0]["path"], "extra.txt");
+    assert!(
+        server
+            .mutations()
+            .iter()
+            .all(|(path, _)| path != "/recyclebin/batchTrash")
+    );
+}
+
+#[test]
+fn verified_sync_dry_run_has_no_content_reads_and_refuses_to_prune_an_empty_scope() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![
+            verified_file("old", "movie.bin", b"old content", false),
+            file("extra", "extra.txt"),
+        ],
+    );
+    let report = verified_report(
+        server
+            .sync_command(root.path())
+            .args(["--verify", "--json", "--delete", "-n"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(report["objects"], 1);
+    assert_eq!(report["uploaded"], 0);
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["deleted"], 1);
+    assert!(
+        server
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .all(|(path, _)| path == "/file/list")
+    );
+    server.state.lock().unwrap().requests.clear();
+    let output = server
+        .sync_command(root.path())
+        .args(["--verify", "--json", "--delete", "--exclude", "movie.bin"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(server.state.lock().unwrap().requests.is_empty());
+}
+
+#[test]
+fn recursive_sync_download_reuses_scanned_file_ids_and_validates_names() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("child-id", "child")]);
+    server.set(
+        "child-id",
+        vec![
+            file("first-id", "first.bin"),
+            file("second-id", "second.bin"),
+        ],
+    );
+    let destination = root.path().join("download");
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
+    command
+        .arg("--config")
+        .arg(server.save_profile(root.path()))
+        .args(["sync", "cloud:/backup"])
+        .arg(&destination)
+        .arg("-r");
+    isolate_cli(&mut command, root.path());
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for name in ["first.bin", "second.bin"] {
+        assert_eq!(
+            std::fs::read(destination.join("child").join(name)).unwrap(),
+            b"data"
+        );
+    }
+    {
+        let mut state = server.state.lock().unwrap();
+        let lists: Vec<_> = state
+            .requests
+            .iter()
+            .filter(|(path, _)| path == "/file/list")
+            .map(|(_, body)| body["parentFileId"].as_str().unwrap())
+            .collect();
+        assert_eq!(lists, ["/", "backup-id", "child-id"]);
+        state.requests.clear();
+    }
+    server.set("child-id", vec![file("unsafe", "..")]);
+    let output = command.output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        server
+            .state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .all(|(path, _)| path == "/file/list")
+    );
+}
+
+fn isolate_cli(command: &mut std::process::Command, root: &std::path::Path) {
+    command
+        .current_dir(root)
+        .env("HOME", root)
+        .env("XDG_CONFIG_HOME", root)
+        .env("USERPROFILE", root);
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -300,6 +711,11 @@ fn folder(id: &str, name: &str) -> Value {
 }
 fn file(id: &str, name: &str) -> Value {
     json!({"fileId":id,"name":name,"type":"file","size":4})
+}
+
+fn hash_bytes(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
 }
 
 #[test]

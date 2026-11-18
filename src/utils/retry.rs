@@ -13,6 +13,12 @@ use std::time::Duration;
 use crate::client::ClientError;
 use crate::warn;
 
+#[derive(Debug, thiserror::Error)]
+#[error("重试 {attempts} 次后仍失败")]
+pub(crate) struct RetryError {
+    pub(crate) attempts: u32,
+}
+
 /// 指数退避：base × 2^attempt，attempt 上限 10 次方（避免溢出）。
 #[must_use]
 pub fn backoff_delay(attempt: u32, base_secs: u64) -> Duration {
@@ -86,7 +92,7 @@ where
                     if attempt == 0 {
                         return Err(err);
                     }
-                    return Err(err.context(format!("重试 {attempt} 次后仍失败")));
+                    return Err(err.context(RetryError { attempts: attempt }));
                 }
                 let delay = backoff_delay(attempt, base_secs);
                 warn!("操作失败，{} 秒后重试: {err:#}", delay.as_secs());
@@ -233,6 +239,11 @@ mod tests {
         .await;
         let err = result.unwrap_err();
         assert_eq!(calls, 2, "首次断连 + 第二次业务错误");
+        assert_eq!(err.downcast_ref::<RetryError>().unwrap().attempts, 1);
+        assert!(matches!(
+            err.downcast_ref::<ClientError>(),
+            Some(ClientError::FileNotFound)
+        ));
         assert!(
             format!("{err:#}").contains("重试 1 次后仍失败"),
             "应报实际重试次数: {err:#}"

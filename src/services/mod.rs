@@ -9,6 +9,7 @@ pub mod move_service;
 pub mod rename_service;
 pub mod sync_executor;
 pub mod sync_service;
+pub(crate) mod sync_verify;
 pub mod upload;
 pub mod upload_service;
 

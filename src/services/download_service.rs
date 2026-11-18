@@ -4,7 +4,9 @@ use crate::debug;
 use crate::domain::StorageType;
 use crate::models::DownloadUrlResp;
 use anyhow::Result;
+use futures_util::StreamExt;
 use indicatif::ProgressBar;
+use sha2::{Digest, Sha256};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
@@ -114,35 +116,11 @@ async fn download_personal(
     }
     let listed_size = listed_size.or_else(|| child.and_then(|item| item.size));
 
-    let url = format!("{}/file/getDownloadUrl", host);
-
-    let body = serde_json::json!({
-        "fileId": file_id,
-    });
-
-    let resp: DownloadUrlResp =
-        crate::client::api::personal_api_request(&config, &url, body, StorageType::PersonalNew)
-            .await?;
-
-    if !resp.base.success {
-        return Err(ClientError::Api(format!(
-            "获取下载链接失败: {}",
-            resp.base.message.as_deref().unwrap_or("未知错误")
-        )));
-    }
-
-    let download_url = resp.data.cdn_url.or(resp.data.url).unwrap_or_default();
-    if download_url.is_empty() {
-        return Err(ClientError::Api("获取下载链接失败: URL为空".to_string()));
-    }
-    debug!(
-        "download_personal: 获取下载链接, url_len={}",
-        download_url.len()
-    );
+    let (download_url, reported_name) = personal_download_link(&config, &host, file_id).await?;
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
-        let file_name = resp.data.file_name.unwrap_or_else(|| {
+        let file_name = reported_name.unwrap_or_else(|| {
             remote_path
                 .trim_start_matches('/')
                 .rsplit('/')
@@ -158,6 +136,88 @@ async fn download_personal(
     }
 
     Ok(())
+}
+
+async fn personal_download_link(
+    config: &Config,
+    host: &str,
+    file_id: &str,
+) -> Result<(String, Option<String>), ClientError> {
+    let resp: DownloadUrlResp = crate::client::api::personal_api_request(
+        config,
+        &format!("{host}/file/getDownloadUrl"),
+        serde_json::json!({ "fileId": file_id }),
+        StorageType::PersonalNew,
+    )
+    .await?;
+    if !resp.base.success {
+        return Err(ClientError::Api(format!(
+            "获取下载链接失败: {}",
+            resp.base.message.as_deref().unwrap_or("未知错误")
+        )));
+    }
+    let download_url = resp
+        .data
+        .cdn_url
+        .or(resp.data.url)
+        .filter(|url| !url.is_empty())
+        .ok_or_else(|| ClientError::Api("获取下载链接失败: URL为空".into()))?;
+    Ok((download_url, resp.data.file_name))
+}
+
+pub(super) async fn download_scanned_personal(
+    config: &Config,
+    host: &str,
+    file_id: &str,
+    local_path: &Path,
+    pb: Option<ProgressBar>,
+    size: Option<u64>,
+) -> Result<(), ClientError> {
+    let (url, _) = personal_download_link(config, host, file_id).await?;
+    download_file(
+        &url,
+        local_path,
+        pb,
+        size.and_then(|size| i64::try_from(size).ok()),
+    )
+    .await
+}
+
+pub(super) async fn personal_content_sha256(
+    config: &Config,
+    host: &str,
+    file_id: &str,
+    expected_size: Option<u64>,
+) -> Result<String, ClientError> {
+    let (url, _) = personal_download_link(config, host, file_id).await?;
+    let client = reqwest::Client::builder()
+        .read_timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(reqwest::Error::without_url)?;
+    let mut body = response.bytes_stream();
+    let mut hasher = Sha256::new();
+    let mut bytes = 0;
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk.map_err(reqwest::Error::without_url)?;
+        bytes += chunk.len() as u64;
+        if expected_size.is_some_and(|size| bytes > size) {
+            return Err(ClientError::Api(
+                "读取校验内容时，远端文件大于预期大小".into(),
+            ));
+        }
+        hasher.update(&chunk);
+    }
+    if expected_size.is_some_and(|size| bytes != size) {
+        return Err(ClientError::Api(
+            "读取校验内容时，远端文件大小与列表不一致".into(),
+        ));
+    }
+    Ok(hex::encode(hasher.finalize()))
 }
 
 /// 下载文件到本地
@@ -202,7 +262,6 @@ async fn download_file(
     };
     let mut stream = response.bytes_stream();
 
-    use futures_util::StreamExt;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         file.write_all(&chunk)?;
