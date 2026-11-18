@@ -15,6 +15,7 @@ fn dry_run_upload_line_has_prefix() {
         remote_abs: "cloud:/docs/readme.md".to_string(),
         size: 100,
         change: ChangeKind::New,
+        replace_directory_id: None,
     };
     // format_action_line(action, dry_run=true) 应以 "(DRY RUN)" 开头
     let line = format_action_line(&action, true);

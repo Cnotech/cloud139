@@ -232,6 +232,10 @@ fn summary_for_success(action: &SyncAction) -> SyncSummary {
             skipped: 1,
             ..SyncSummary::default()
         },
+        SyncAction::Conflict { .. } => SyncSummary {
+            failed: 1,
+            ..SyncSummary::default()
+        },
     }
 }
 
@@ -276,6 +280,7 @@ fn action_rel_path(action: &SyncAction) -> String {
         | SyncAction::Download { rel_path, .. }
         | SyncAction::CreateDir { rel_path, .. }
         | SyncAction::Delete { rel_path, .. }
+        | SyncAction::Conflict { rel_path, .. }
         | SyncAction::Skip { rel_path } => rel_path.clone(),
     }
 }
@@ -291,9 +296,9 @@ async fn execute_one_action(
         SyncAction::Upload {
             local_abs,
             remote_abs,
+            replace_directory_id,
             ..
         } => {
-            let file_size = super::upload_service::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
@@ -304,7 +309,7 @@ async fn execute_one_action(
                 local_abs,
                 &remote_dir,
                 file_name,
-                file_size,
+                replace_directory_id.as_deref(),
                 pb,
             )
             .await?;
@@ -372,6 +377,7 @@ async fn execute_one_action(
                 tokio::fs::create_dir_all(path).await?;
             }
         },
+        SyncAction::Conflict { reason, .. } => anyhow::bail!("{reason}"),
         SyncAction::Skip { .. } => {}
     }
 
@@ -562,6 +568,7 @@ mod tests {
                 remote_abs: "/remote/c.txt".to_string(),
                 size: 10,
                 change: ChangeKind::New,
+                replace_directory_id: None,
             },
         ];
         assert_eq!(count_skips(&actions), 2);

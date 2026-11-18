@@ -221,6 +221,7 @@ async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
                 remote_abs: "/old.bin".into(),
                 size: 3,
                 change: ChangeKind::SizeOrTime,
+                replace_directory_id: None,
             }],
             SyncExecuteOptions {
                 dry_run: false,

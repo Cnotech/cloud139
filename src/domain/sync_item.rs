@@ -46,6 +46,7 @@ pub enum SyncAction {
         remote_abs: String,
         size: u64,
         change: ChangeKind,
+        replace_directory_id: Option<String>,
     },
     Download {
         rel_path: String,
@@ -67,6 +68,10 @@ pub enum SyncAction {
     },
     Skip {
         rel_path: String,
+    },
+    Conflict {
+        rel_path: String,
+        reason: &'static str,
     },
 }
 

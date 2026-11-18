@@ -17,6 +17,7 @@ async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {
             remote_abs: "/remote/new.txt".to_string(),
             size: 5,
             change: ChangeKind::New,
+            replace_directory_id: None,
         },
         SyncAction::Delete {
             rel_path: "old.txt".to_string(),
@@ -74,6 +75,7 @@ async fn missing_local_upload_preserves_cloud_objects_and_other_actions_continue
             remote_abs: "/existing/missing.bin".into(),
             size: 1,
             change: ChangeKind::SizeOrTime,
+            replace_directory_id: None,
         },
         SyncAction::CreateDir {
             rel_path: "empty".into(),

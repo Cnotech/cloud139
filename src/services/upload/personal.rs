@@ -1,6 +1,7 @@
 use crate::client::{ClientError, api};
 use crate::domain::StorageType;
-use crate::models::PersonalUploadResp;
+use crate::models::{PersonalFileItem, PersonalUploadResp};
+use crate::services::sync_service::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::utils::logger::{pb_debug, pb_error, pb_success, pb_warn};
 use indicatif::ProgressBar;
 use std::io::{Read, Seek};
@@ -58,9 +59,10 @@ pub(in crate::services) async fn upload_for_sync(
     local_path: &std::path::Path,
     remote_path: &str,
     file_name: &str,
-    file_size: i64,
+    replace_directory_id: Option<&str>,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
+    let file_size = super::super::upload_service::checked_upload_size(local_path)?;
     super::super::directory_service::validate_name(file_name)?;
     let mut config = config.clone();
     let host = api::get_personal_cloud_host(&mut config).await?;
@@ -70,7 +72,7 @@ pub(in crate::services) async fn upload_for_sync(
         api::get_file_id_by_path(&config, remote_path).await?
     };
     let temporary_name = format!(
-        ".cloud139-upload-{}",
+        "{SYNC_UPLOAD_PREFIX}{}",
         crate::utils::crypto::generate_random_string(24)
     );
     let before = api::list_personal_files(&config, &parent_id).await?;
@@ -80,7 +82,7 @@ pub(in crate::services) async fn upload_for_sync(
     {
         return Err(ClientError::Api("临时上传名称冲突，旧条目未替换".into()));
     }
-    let saved_name = upload_to_parent(
+    let uploaded = transfer_to_parent(
         &config,
         &host,
         local_path,
@@ -95,51 +97,34 @@ pub(in crate::services) async fn upload_for_sync(
             "同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}: {error}"
         ))
     })?;
+    let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
     let promote = async {
-        let mut uploaded_id = None;
-        for attempt in 0..5 {
-            let files = api::list_personal_files(&config, &parent_id).await?;
-            let mut candidates = files
-                .iter()
-                .filter(|item| item.name.as_deref() == Some(&saved_name));
-            if let Some(file) = candidates.next() {
-                let id = file
-                    .file_id
-                    .as_deref()
-                    .filter(|id| !id.is_empty() && *id != "/")
-                    .ok_or(ClientError::InvalidFilePath)?;
-                if file.is_folder()
-                    || candidates.next().is_some()
-                    || before
-                        .iter()
-                        .any(|item| item.file_id.as_deref() == Some(id))
-                {
-                    return Err(ClientError::Api("临时文件身份不明确，旧条目未替换".into()));
-                }
-                uploaded_id = Some(id.to_owned());
-                break;
-            }
-            if attempt < 4 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            }
+        let id = uploaded
+            .id
+            .as_deref()
+            .ok_or_else(|| ClientError::Api("服务端未返回临时文件 ID".into()))?;
+        if before
+            .iter()
+            .any(|item| item.file_id.as_deref() == Some(id))
+        {
+            return Err(ClientError::Api("临时文件 ID 已存在，旧条目未替换".into()));
         }
-        let id = uploaded_id
-            .ok_or_else(|| ClientError::Api("无法确认已上传的临时文件，旧条目未替换".into()))?;
-        handle_name_conflict(
+        let files = confirm_uploaded_name(&config, &parent_id, id, saved_name).await?;
+        install_uploaded_file(
             &config,
             &host,
             &parent_id,
-            &id,
+            id,
             file_name,
-            Some(&saved_name),
-            true,
+            &files,
+            replace_directory_id,
         )
         .await
     }
     .await
     .map_err(|error| {
         ClientError::Api(format!(
-            "临时文件 {saved_name} 已上传，替换 {file_name} 未完成: {error}"
+            "临时名称 {saved_name}，替换 {file_name} 未完成: {error}"
         ))
     })?;
     finish_upload(&promote, &pb);
@@ -155,6 +140,47 @@ pub(in crate::services) async fn upload_to_parent(
     file_size: i64,
     pb: Option<ProgressBar>,
 ) -> Result<String, ClientError> {
+    let uploaded = transfer_to_parent(
+        config,
+        host,
+        local_path,
+        parent_file_id,
+        file_name,
+        file_size,
+        pb,
+    )
+    .await?;
+    if uploaded.multipart {
+        let id = uploaded.id.as_deref().ok_or(ClientError::InvalidFilePath)?;
+        return handle_name_conflict(
+            config,
+            host,
+            parent_file_id,
+            id,
+            file_name,
+            uploaded.name.as_deref(),
+        )
+        .await;
+    }
+    Ok(uploaded.name.unwrap_or_else(|| file_name.to_owned()))
+}
+
+#[derive(Default)]
+struct UploadReceipt {
+    name: Option<String>,
+    id: Option<String>,
+    multipart: bool,
+}
+
+async fn transfer_to_parent(
+    config: &crate::config::Config,
+    host: &str,
+    local_path: &std::path::Path,
+    parent_file_id: &str,
+    file_name: &str,
+    file_size: i64,
+    pb: Option<ProgressBar>,
+) -> Result<UploadReceipt, ClientError> {
     if file_size < 0 {
         return Err(ClientError::InvalidFilePath);
     }
@@ -177,22 +203,20 @@ pub(in crate::services) async fn upload_to_parent(
     )
     .await?;
     let Some(data) = response.data else {
-        return Ok(file_name.to_owned());
+        return Ok(UploadReceipt::default());
     };
     if data.exist.unwrap_or(false) {
         pb_debug("服务器复用已有文件内容", &pb);
     }
-    if data
-        .part_infos
-        .as_ref()
-        .is_none_or(|parts| parts.is_empty())
-    {
-        return Ok(data.file_name.unwrap_or_else(|| file_name.to_owned()));
-    }
-    let file_id = data
-        .file_id
-        .filter(|id| !id.is_empty() && id != "/")
-        .ok_or(ClientError::InvalidFilePath)?;
+    let file_id = data.file_id.filter(|id| !id.is_empty() && id != "/");
+    let Some(parts) = data.part_infos.as_deref().filter(|parts| !parts.is_empty()) else {
+        return Ok(UploadReceipt {
+            name: data.file_name,
+            id: file_id,
+            multipart: false,
+        });
+    };
+    let file_id = file_id.ok_or(ClientError::InvalidFilePath)?;
     let upload_id = data
         .upload_id
         .filter(|id| !id.is_empty())
@@ -210,20 +234,15 @@ pub(in crate::services) async fn upload_to_parent(
             file_size,
             config.custom_upload_part_size,
         ),
-        initial_parts: data.part_infos.as_deref().unwrap_or_default(),
+        initial_parts: parts,
         pb,
     })
     .await?;
-    handle_name_conflict(
-        config,
-        host,
-        parent_file_id,
-        &file_id,
-        file_name,
-        data.file_name.as_deref(),
-        false,
-    )
-    .await
+    Ok(UploadReceipt {
+        name: data.file_name,
+        id: Some(file_id),
+        multipart: true,
+    })
 }
 
 async fn check_file_exists(
@@ -441,16 +460,36 @@ async fn handle_name_conflict(
     file_id: &str,
     file_name: &str,
     reported_name: Option<&str>,
-    replace_directory: bool,
 ) -> Result<String, ClientError> {
     if reported_name == Some(file_name) {
         return Ok(file_name.to_owned());
     }
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     let files = api::list_personal_files(config, parent_file_id).await?;
+    install_uploaded_file(
+        config,
+        host,
+        parent_file_id,
+        file_id,
+        file_name,
+        &files,
+        None,
+    )
+    .await
+}
+
+async fn install_uploaded_file(
+    config: &crate::config::Config,
+    host: &str,
+    parent_file_id: &str,
+    file_id: &str,
+    file_name: &str,
+    files: &[PersonalFileItem],
+    replace_directory_id: Option<&str>,
+) -> Result<String, ClientError> {
     let saved_name = files
         .iter()
-        .find(|item| item.file_id.as_deref() == Some(file_id))
+        .find(|item| item.file_id.as_deref() == Some(file_id) && !item.is_folder())
         .and_then(|item| item.name.as_deref())
         .filter(|name| !name.is_empty())
         .ok_or_else(|| ClientError::Api("分片上传已提交，但无法确认新文件名称".into()))?;
@@ -463,18 +502,19 @@ async fn handle_name_conflict(
         .filter(|item| item.name.as_deref() == Some(file_name));
     let old_file = conflicts.next();
     if let Some(item) = old_file {
-        if conflicts.next().is_some() || (item.is_folder() && !replace_directory) {
-            return Err(ClientError::Api(format!(
-                "同名条目无法安全替换，新文件保存在 {saved_name}"
-            )));
-        }
         let old_id = item
             .file_id
             .as_deref()
             .filter(|id| !id.is_empty() && *id != "/" && *id != file_id)
             .ok_or(ClientError::InvalidFilePath)?;
+        if conflicts.next().is_some() || item.is_folder().then_some(old_id) != replace_directory_id
+        {
+            return Err(ClientError::Api(format!(
+                "同名条目无法安全替换，新文件保存在 {saved_name}"
+            )));
+        }
         let backup_name = format!(
-            ".cloud139-backup-{}",
+            "{UPLOAD_BACKUP_PREFIX}{}",
             crate::utils::crypto::generate_random_string(20)
         );
         rename_uploaded_file(config, host, old_id, &backup_name)
@@ -511,7 +551,7 @@ async fn confirm_uploaded_name(
     parent_id: &str,
     file_id: &str,
     name: &str,
-) -> Result<(), ClientError> {
+) -> Result<Vec<PersonalFileItem>, ClientError> {
     for attempt in 0..5 {
         let files = api::list_personal_files(config, parent_id).await?;
         let mut matches = files
@@ -519,16 +559,18 @@ async fn confirm_uploaded_name(
             .filter(|item| item.name.as_deref() == Some(name));
         if matches
             .next()
-            .is_some_and(|item| item.file_id.as_deref() == Some(file_id))
+            .is_some_and(|item| item.file_id.as_deref() == Some(file_id) && !item.is_folder())
             && matches.next().is_none()
         {
-            return Ok(());
+            return Ok(files);
         }
         if attempt < 4 {
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
         }
     }
-    Err(ClientError::Api(format!("无法在云端列表确认新文件 {name}")))
+    Err(ClientError::Api(format!(
+        "无法在云端列表确认新文件 {name} 的身份"
+    )))
 }
 
 async fn rename_uploaded_file(
@@ -812,7 +854,6 @@ mod tests {
             "new",
             "report.txt",
             Some("temporary.txt"),
-            true,
         )
         .await
         .unwrap_err();
@@ -863,7 +904,6 @@ mod tests {
                 "new",
                 "report.txt",
                 Some("report-copy.txt"),
-                false,
             )
             .await;
             let message = result.unwrap_err().to_string();
