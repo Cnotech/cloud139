@@ -68,16 +68,17 @@ fn parse_token(token: &str) -> Result<(String, String, i64), ClientError> {
     Ok((account, token_info, expire_time))
 }
 
+/// 使用官方续期接口和默认请求超时刷新 Token。
 pub async fn refresh_token(config: &Config) -> Result<Config, ClientError> {
-    refresh_token_at(config, AUTH_TOKEN_REFRESH_URL).await
+    request_token_refresh(config, AUTH_TOKEN_REFRESH_URL, REFRESH_REQUEST_TIMEOUT).await
 }
 
 /// 向指定的接口地址发起 Token 续期，使用默认请求超时。
 pub async fn refresh_token_at(config: &Config, url: &str) -> Result<Config, ClientError> {
-    refresh_token_with_timeout(config, url, REFRESH_REQUEST_TIMEOUT).await
+    request_token_refresh(config, url, REFRESH_REQUEST_TIMEOUT).await
 }
 
-async fn refresh_token_with_timeout(
+async fn request_token_refresh(
     config: &Config,
     url: &str,
     timeout: Duration,
@@ -184,19 +185,26 @@ const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
 
 /// 按需续期：需要续期时返回新配置，不需要时返回 None。
 pub async fn refresh_if_needed(config: &Config) -> Result<Option<Config>, ClientError> {
-    refresh_if_needed_at(config, AUTH_TOKEN_REFRESH_URL).await
+    refresh_if_needed_with(config, refresh_token).await
 }
 
-/// 与 refresh_if_needed 相同，但可以指定接口地址（测试用）。
+/// 需要续期时向指定的接口地址发起请求。
 pub async fn refresh_if_needed_at(
     config: &Config,
     url: &str,
+) -> Result<Option<Config>, ClientError> {
+    refresh_if_needed_with(config, async |config| refresh_token_at(config, url).await).await
+}
+
+async fn refresh_if_needed_with(
+    config: &Config,
+    refresh: impl AsyncFnOnce(&Config) -> Result<Config, ClientError>,
 ) -> Result<Option<Config>, ClientError> {
     config.require_personal()?;
     if !config.needs_refresh() {
         return Ok(None);
     }
-    refresh_token_at(config, url).await.map(Some)
+    refresh(config).await.map(Some)
 }
 
 /// 命令启动时按需续期并落盘。
@@ -204,18 +212,12 @@ pub async fn refresh_if_needed_at(
 /// 失败只告警、不阻断：此刻的 authorization 可能仍然可用，
 /// 而续期失败最常见的原因是网络；真正过期后由命令自己报 401。
 pub async fn maybe_refresh_config() -> Result<(), ClientError> {
-    maybe_refresh_config_at(
-        &config_load_candidates(),
-        AUTH_TOKEN_REFRESH_URL,
-        REFRESH_REQUEST_TIMEOUT,
-    )
-    .await
+    refresh_config_if_needed(&config_load_candidates(), refresh_token).await
 }
 
-async fn maybe_refresh_config_at(
+async fn refresh_config_if_needed(
     candidates: &[PathBuf],
-    url: &str,
-    timeout: Duration,
+    refresh: impl AsyncFnOnce(&Config) -> Result<Config, ClientError>,
 ) -> Result<(), ClientError> {
     let (config, path) = match Config::load_from_candidates(candidates) {
         Ok(loaded) => loaded,
@@ -236,17 +238,15 @@ async fn maybe_refresh_config_at(
         }
     };
     // 等待锁之前可能已有进程完成了续期，必须使用锁内重新读取的配置判断。
-    update.config.require_personal()?;
-    if !update.config.needs_refresh() {
-        return Ok(());
-    }
-    match refresh_token_with_timeout(&update.config, url, timeout).await {
-        Ok(new_config) => {
+    match refresh_if_needed_with(&update.config, refresh).await {
+        Ok(Some(new_config)) => {
             update
                 .save(&new_config)
                 .map_err(|err| ClientError::Other(format!("保存配置失败: {}", err)))?;
             debug!("Token 已自动续期并写回配置: {}", path.display());
         }
+        Ok(None) => {}
+        Err(ClientError::UnsupportedStorage) => return Err(ClientError::UnsupportedStorage),
         Err(err) => {
             warn!("自动续期失败（继续使用现有 token）: {}", err);
         }
