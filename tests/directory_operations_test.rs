@@ -332,13 +332,12 @@ impl Server {
     }
 }
 
-fn verified_report(output: std::process::Output, status: i32) -> Value {
+fn sync_report(output: std::process::Output, status: i32) -> Value {
     let text = String::from_utf8(output.stdout).unwrap();
     let logs = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(status), "{text}\n{logs}");
     assert_eq!(text.lines().count(), 1, "{text}");
     let report: Value = serde_json::from_str(&text).unwrap();
-    assert_eq!(report.as_object().unwrap().len(), 7);
     assert!(report["seconds"].is_number());
     report
 }
@@ -371,7 +370,7 @@ fn verified_sync_streams_missing_hashes_and_repairs_equal_size_content_before_de
         state.uploaded_content = Some((b"new content", false));
         state.file_payloads.insert("old".into(), b"old content");
     }
-    let report = verified_report(
+    let report = sync_report(
         server
             .sync_command(root.path())
             .args(["-r", "--verify", "--json", "--delete"])
@@ -385,6 +384,15 @@ fn verified_sync_streams_missing_hashes_and_repairs_equal_size_content_before_de
     assert_eq!(report["deleted"], 1);
     assert_eq!(report["hashMissing"], 1);
     assert_eq!(report["failures"], json!([]));
+    assert_eq!(
+        report["changes"],
+        json!([
+            {"path": "extra.txt", "action": "delete"},
+            {"path": "movie.bin", "action": "upload"}
+        ])
+    );
+    assert_eq!(report["plan"], json!([]));
+    assert_eq!(report["dryRun"], false);
 
     let state = server.state.lock().unwrap();
     let writes: Vec<_> = state
@@ -442,10 +450,11 @@ fn verified_sync_reports_known_and_streamed_content_matches_without_writes() {
             .args(["--verify", "--json"])
             .output()
             .unwrap();
-        let report = verified_report(output, 0);
+        let report = sync_report(output, 0);
         assert_eq!(report["uploaded"], 0);
         assert_eq!(report["skipped"], 1);
         assert_eq!(report["hashMissing"], usize::from(!publish_hash));
+        assert_eq!(report["changes"], json!([]));
         assert!(server.mutations().is_empty());
         assert_eq!(
             server
@@ -477,7 +486,7 @@ fn verified_sync_does_not_trust_hash_shaped_filenames_or_delete_on_inconclusive_
     let mut command = server.sync_command(root.path());
     let source = root.path().join("source");
     std::fs::rename(source.join("movie.bin"), source.join(&actual_name)).unwrap();
-    let report = verified_report(
+    let report = sync_report(
         command
             .args(["--verify", "--json", "--delete"])
             .output()
@@ -514,7 +523,7 @@ fn verified_sync_preserves_existing_target_and_extras_when_staged_hash_differs()
         state.sync_mutations = true;
         state.uploaded_content = Some((b"bad content", true));
     }
-    let report = verified_report(
+    let report = sync_report(
         server
             .sync_command(root.path())
             .args(["--verify", "--json", "--delete"])
@@ -565,7 +574,7 @@ fn verified_sync_rechecks_frozen_delete_ids_before_any_extra_file_is_removed() {
         state.uploaded_content = Some((b"new content", true));
         state.replace_extra_on_promotion = true;
     }
-    let report = verified_report(
+    let report = sync_report(
         server
             .sync_command(root.path())
             .args(["--verify", "--json", "--delete"])
@@ -636,7 +645,7 @@ fn verified_sync_stops_pruning_if_a_later_extra_changes_after_preflight() {
         state.sync_mutations = true;
         state.replace_extra_after_trash = true;
     }
-    let report = verified_report(
+    let report = sync_report(
         server
             .sync_command(root.path())
             .args(["--verify", "--json", "--delete"])
@@ -647,6 +656,10 @@ fn verified_sync_stops_pruning_if_a_later_extra_changes_after_preflight() {
     assert_eq!(report["skipped"], 1);
     assert_eq!(report["deleted"], 1);
     assert_eq!(report["failures"][0]["path"], "extra.txt");
+    assert_eq!(
+        report["changes"],
+        json!([{"path": "another.txt", "action": "delete"}])
+    );
     let writes = server.mutations();
     assert_eq!(writes.len(), 1);
     assert_eq!(writes[0].1["fileIds"], json!(["another"]));
@@ -669,7 +682,7 @@ fn verified_sync_dry_run_has_no_content_reads_and_refuses_to_prune_an_empty_scop
             file("extra", "extra.txt"),
         ],
     );
-    let report = verified_report(
+    let report = sync_report(
         server
             .sync_command(root.path())
             .args(["--verify", "--json", "--delete", "-n"])
@@ -681,6 +694,15 @@ fn verified_sync_dry_run_has_no_content_reads_and_refuses_to_prune_an_empty_scop
     assert_eq!(report["uploaded"], 0);
     assert_eq!(report["skipped"], 0);
     assert_eq!(report["deleted"], 1);
+    assert_eq!(report["dryRun"], true);
+    assert_eq!(report["changes"], json!([]));
+    assert_eq!(
+        report["plan"],
+        json!([
+            {"path": "extra.txt", "action": "delete"},
+            {"path": "movie.bin", "action": "verify"}
+        ])
+    );
     assert!(
         server
             .state
@@ -762,6 +784,86 @@ fn recursive_sync_download_reuses_scanned_file_ids_and_validates_names() {
             .requests
             .iter()
             .all(|(path, _)| path == "/file/list")
+    );
+}
+
+#[test]
+fn sync_json_reports_planned_and_completed_downloads_and_deletions() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let mut unchanged = file("unchanged", "same.bin");
+    unchanged["lastModified"] = json!("2024-01-01T00:00:00Z");
+    server.set("/", vec![file("download", "new.bin"), unchanged]);
+    let destination = root.path().join("destination");
+    std::fs::create_dir_all(destination.join("empty")).unwrap();
+    std::fs::write(destination.join("old.bin"), b"old").unwrap();
+    let same = destination.join("same.bin");
+    std::fs::write(&same, b"data").unwrap();
+    filetime::set_file_mtime(&same, filetime::FileTime::from_unix_time(1_704_067_200, 0)).unwrap();
+    let changes = json!([
+        {"path": "new.bin", "action": "download"},
+        {"path": "old.bin", "action": "delete"}
+    ]);
+    for dry_run in [true, false] {
+        let mut command = server.cli(root.path());
+        command.args(["sync", "cloud:/", "destination", "-r", "--delete", "--json"]);
+        if dry_run {
+            command.arg("-n");
+        }
+        let report = sync_report(command.output().unwrap(), 0);
+        assert_eq!(report["source"], "cloud:/");
+        assert_eq!(report["destination"], "destination");
+        assert_eq!(report["objects"], 2);
+        assert_eq!(report["downloaded"], 1);
+        assert_eq!(report["deleted"], 1);
+        assert_eq!(report["skipped"], 1);
+        assert_eq!(report["failures"], json!([]));
+        assert_eq!(report["dryRun"], dry_run);
+        if dry_run {
+            assert_eq!(report["plan"], changes);
+            assert_eq!(report["changes"], json!([]));
+            assert!(!destination.join("new.bin").exists());
+            assert!(destination.join("old.bin").is_file());
+        } else {
+            assert_eq!(report["plan"], json!([]));
+            assert_eq!(report["changes"], changes);
+            assert_eq!(std::fs::read(destination.join("new.bin")).unwrap(), b"data");
+            assert!(!destination.join("old.bin").exists());
+            assert!(!destination.join("empty").exists());
+        }
+    }
+}
+
+#[test]
+fn sync_json_reports_successful_downloads_when_a_peer_fails_and_pruning_is_blocked() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    server.set(
+        "/",
+        vec![file("success", "good.bin"), file("failure", "bad.bin")],
+    );
+    server.state.lock().unwrap().fail_download = Some("failure".into());
+    let destination = root.path().join("destination");
+    std::fs::create_dir(&destination).unwrap();
+    std::fs::write(destination.join("extra.bin"), b"keep").unwrap();
+    let report = sync_report(
+        server
+            .cli(root.path())
+            .args(["sync", "cloud:/", "destination", "--delete", "--json"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(
+        report["changes"],
+        json!([{"path": "good.bin", "action": "download"}])
+    );
+    assert_eq!(report["failures"][0]["path"], "bad.bin");
+    assert_eq!(report["downloaded"], 1);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(
+        std::fs::read(destination.join("extra.bin")).unwrap(),
+        b"keep"
     );
 }
 
@@ -1188,21 +1290,17 @@ async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload(
             state.staged_visibility_delay = if !dry_run && !fail_upload { 2 } else { 0 };
         }
         let mut command = server.sync_command(tmp.path());
-        command.args(["-r", "--delete"]);
+        command.args(["-r", "--delete", "--json"]);
         if dry_run {
             command.arg("-n");
         }
         let output = command.output().unwrap();
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert_eq!(
-            output.status.code(),
-            Some(if dry_run || !fail_upload { 0 } else { 1 }),
-            "{text}"
-        );
+        let text = String::from_utf8_lossy(&output.stderr).into_owned();
+        let report = sync_report(output, i32::from(!dry_run && fail_upload));
+        let replacement = json!([
+            {"path": "movie.bin", "action": "upload"},
+            {"path": "movie.bin/keep.txt", "action": "delete"}
+        ]);
         let state = server.state.lock().unwrap();
         let old_present = state.children["/"]
             .iter()
@@ -1216,11 +1314,14 @@ async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload(
                     .any(|(p, _)| p == "/file/update" || p == "/recyclebin/batchTrash")
             );
             if dry_run {
-                assert!(text.contains("同步计划"));
+                assert_eq!(report["plan"], replacement);
+                assert_eq!(report["changes"], json!([]));
             } else {
+                assert_eq!(report["changes"], json!([]));
                 assert!(text.contains("04010319"), "{text}");
             }
         } else {
+            assert_eq!(report["changes"], replacement);
             assert!(!old_present);
             assert_eq!(state.staged_visibility_delay, 0);
             assert!(
@@ -1242,6 +1343,38 @@ async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload(
             assert_eq!(writes[3].0, "/recyclebin/batchTrash");
             assert!(!text.contains(".cloud139-upload-"), "{text}");
         }
+    }
+}
+
+#[test]
+fn sync_json_reports_a_published_file_even_if_backup_cleanup_fails() {
+    for verify in [false, true] {
+        let server = Server::new();
+        let root = tempfile::tempdir().unwrap();
+        server.set("/", vec![verified_file("old", "movie.bin", b"old", true)]);
+        {
+            let mut state = server.state.lock().unwrap();
+            state.sync_mutations = true;
+            state.fail_trash_item = true;
+            state.uploaded_content = Some((b"new content", true));
+        }
+        let mut command = server.sync_command(root.path());
+        command.arg("--json");
+        if verify {
+            command.arg("--verify");
+        }
+        let report = sync_report(command.output().unwrap(), 1);
+        assert_eq!(
+            report["changes"],
+            json!([{"path": "movie.bin", "action": "upload"}])
+        );
+        assert_eq!(report["failures"][0]["path"], "movie.bin");
+        assert!(
+            report["failures"][0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("回收站")
+        );
     }
 }
 
@@ -1980,7 +2113,7 @@ fn verified_sync_rechecks_matches_even_without_delete() {
         .args(["--verify", "--json"])
         .output()
         .unwrap();
-    let report = verified_report(output, 1);
+    let report = sync_report(output, 1);
     assert_eq!(report["skipped"], 0);
     assert_eq!(report["failures"][0]["path"], "movie.bin");
     assert!(server.mutations().is_empty());

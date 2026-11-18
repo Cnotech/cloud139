@@ -10,6 +10,7 @@ pub mod rename_service;
 pub mod sync_executor;
 mod sync_local;
 mod sync_remote;
+pub(crate) mod sync_report;
 pub mod sync_service;
 pub(crate) mod sync_verify;
 pub mod upload;

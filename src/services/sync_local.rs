@@ -47,6 +47,10 @@ pub(crate) struct LocalSyncScan {
 }
 
 impl LocalSyncScan {
+    pub(super) fn contains_file(&self, rel_path: &str) -> bool {
+        self.paths.get(rel_path).is_some_and(fs::Metadata::is_file)
+    }
+
     pub(super) fn confirm(&self, rel_path: &str, path: &Path) -> Result<fs::Metadata> {
         super::directory_service::safe_local(path)?;
         let original = self

@@ -1,4 +1,5 @@
 use super::sync_remote::SyncCloud;
+use super::sync_report::SyncReport;
 use crate::config::Config;
 use crate::domain::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
@@ -6,46 +7,11 @@ use crate::services::sync_service::{
     CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES, cloud_child_path,
 };
 use crate::services::upload::personal::{SyncUploadPlan, upload_sync_to_parent};
-use crate::utils::retry::{RetryError, with_retries};
+use crate::utils::retry::with_retries;
 use anyhow::{Context, Result, anyhow, ensure};
 use indicatif::MultiProgress;
-use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
-
-#[derive(Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SyncVerifyReport {
-    pub(crate) objects: usize,
-    pub(crate) uploaded: usize,
-    pub(crate) skipped: usize,
-    pub(crate) deleted: usize,
-    pub(crate) hash_missing: usize,
-    pub(crate) seconds: f64,
-    pub(crate) failures: Vec<SyncFailure>,
-}
-
-#[derive(Serialize)]
-pub(crate) struct SyncFailure {
-    path: String,
-    error: String,
-    retries: u32,
-}
-
-impl SyncVerifyReport {
-    fn fail(&mut self, path: &str, error: anyhow::Error) {
-        let message = format!("{error:#}");
-        crate::error!("同步失败: {path}: {message}");
-        let retries = error
-            .downcast_ref::<RetryError>()
-            .map_or(0, |error| error.attempts);
-        self.failures.push(SyncFailure {
-            path: path.into(),
-            error: message,
-            retries,
-        });
-    }
-}
 
 pub(super) async fn remote_sha256(
     config: &Config,
@@ -78,12 +44,11 @@ pub(crate) async fn execute_verified_sync(
     actions: &[SyncAction],
     objects: usize,
     options: SyncExecuteOptions,
-) -> SyncVerifyReport {
+    track_paths: bool,
+) -> SyncReport {
     let started = Instant::now();
-    let mut report = SyncVerifyReport {
-        objects,
-        ..Default::default()
-    };
+    let mut report = SyncReport::new(options.dry_run, track_paths);
+    report.objects = objects;
     let mut deletes = Vec::new();
     let mut retained_files = BTreeMap::new();
     let sync = VerifiedSync {
@@ -95,34 +60,39 @@ pub(crate) async fn execute_verified_sync(
     if !options.dry_run
         && let Err(error) = sync.confirm_root().await
     {
-        report.fail(cloud_root, error);
+        report.log_failure(cloud_root, error);
         report.seconds = started.elapsed().as_secs_f64();
         return report;
     }
     let progress = MultiProgress::new();
     for action in actions {
         match action {
-            SyncAction::Conflict { rel_path, reason } => report.fail(rel_path, anyhow!("{reason}")),
-            SyncAction::Upload { change, .. } if options.dry_run => {
-                report.uploaded += usize::from(*change != ChangeKind::Verify);
+            SyncAction::Conflict { rel_path, reason } => {
+                report.log_failure(rel_path, anyhow!("{reason}"));
+            }
+            SyncAction::Upload { .. } if options.dry_run => {
+                report.record_file_action(action, Some(cloud));
             }
             SyncAction::Upload { rel_path, .. } => {
                 let bar = make_action_progress(&progress, action, options.progress);
                 let mut hash_missing = false;
+                let mut file_changed = false;
                 let result = sync
-                    .upload_or_verify(action, bar.clone(), &mut hash_missing)
+                    .upload_or_verify(action, bar.clone(), &mut hash_missing, &mut file_changed)
                     .await;
                 if let Some(bar) = bar {
                     bar.finish_and_clear();
                 }
                 report.hash_missing += usize::from(hash_missing);
+                if file_changed {
+                    report.record_file_action(action, Some(cloud));
+                }
                 match result {
-                    Ok((id, uploaded)) => {
-                        report.uploaded += usize::from(uploaded);
-                        report.skipped += usize::from(!uploaded);
+                    Ok(id) => {
+                        report.skipped += usize::from(!file_changed);
                         retained_files.insert(rel_path.as_str(), id);
                     }
-                    Err(error) => report.fail(rel_path, error),
+                    Err(error) => report.log_failure(rel_path, error),
                 }
             }
             SyncAction::CreateDir {
@@ -135,7 +105,7 @@ pub(crate) async fn execute_verified_sync(
                     .ensure_directory(&cloud_child_path(cloud_root, rel_path))
                     .await
                 {
-                    report.fail(rel_path, error);
+                    report.log_failure(rel_path, error);
                 }
             }
             SyncAction::Delete {
@@ -151,12 +121,14 @@ pub(crate) async fn execute_verified_sync(
 
     if report.failures.is_empty() && !deletes.is_empty() {
         if options.dry_run {
-            report.deleted = deletes.len();
+            for path in deletes {
+                report.record_deleted(path);
+            }
         } else if let Err((path, error)) = sync
             .delete_verified_extras(&retained_files, &deletes, &mut report)
             .await
         {
-            report.fail(path, error);
+            report.log_failure(path, error);
         }
     }
     report.seconds = started.elapsed().as_secs_f64();
@@ -181,7 +153,8 @@ impl VerifiedSync<'_> {
         action: &SyncAction,
         pb: Option<indicatif::ProgressBar>,
         hash_missing: &mut bool,
-    ) -> Result<(String, bool)> {
+        file_changed: &mut bool,
+    ) -> Result<String> {
         let SyncAction::Upload {
             rel_path,
             local_abs,
@@ -228,12 +201,12 @@ impl VerifiedSync<'_> {
                         .current_file(&parent_id, name, expected_id)
                         .await?;
                     ensure!(file == latest, "云端文件在校验期间发生变化");
-                    return Ok((expected_id.to_owned(), false));
+                    return Ok(expected_id.to_owned());
                 }
             }
         }
 
-        let id = upload_sync_to_parent(
+        upload_sync_to_parent(
             self.config,
             local_abs,
             SyncUploadPlan {
@@ -245,18 +218,18 @@ impl VerifiedSync<'_> {
                 scan: Some(self.cloud),
                 rel_path,
                 hash_missing: Some(hash_missing),
+                file_changed,
             },
             pb,
         )
-        .await?;
-        Ok((id, true))
+        .await
     }
 
     async fn delete_verified_extras<'a>(
         &self,
         retained: &BTreeMap<&'a str, String>,
         deletes: &[&'a str],
-        report: &mut SyncVerifyReport,
+        report: &mut SyncReport,
     ) -> std::result::Result<(), (&'a str, anyhow::Error)> {
         let mut by_parent = BTreeMap::<&str, Vec<(&str, &str)>>::new();
         for (&path, id) in retained {
@@ -326,7 +299,7 @@ impl VerifiedSync<'_> {
                 .delete_extra(path)
                 .await
                 .map_err(|error| (path, error))?;
-            report.deleted += 1;
+            report.record_deleted(path);
         }
         Ok(())
     }

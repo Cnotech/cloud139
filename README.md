@@ -413,7 +413,12 @@ cloud139 rename /folder/old newname
 
 `--verify --delete` 只清理初始扫描中目标端多余的文件。所有校验和更新通过后，同步会复核保留文件和待删除文件的 ID，再开始清理。空源、被排除规则筛空的源会拒绝执行。清理开始后如果服务端拒绝某次删除，已完成的删除保留，剩余删除停止。
 
-`--verify --json` 在标准输出写一行 JSON，日志走标准错误。字段包括 `objects`、`uploaded`、`skipped`、`deleted`、`hashMissing`、`seconds`、`failures`。前五项按文件计数，`hashMissing` 计入至少一次需要读取远端内容的文件。`failures` 每项包含 `path`、`error`、`retries`。加 `-n` 时仅扫描和展示已知计划，同大小文件标记为待校验，计划上传和删除计数不代表已执行。
+`--json` 在执行或预览结束后向标准输出写一行同步报告，日志写到标准错误。普通同步和 `--verify` 都支持这个选项。
+
+- `source` 和 `destination` 是命令中的源路径和目标路径。`changes` 列出目标端已确认的文件变更，包含相对路径 `path` 和操作 `action`（`upload`、`download` 或 `delete`）。用文件替换云端同名目录时，原目录下移出目标路径的文件也计入删除。
+- `-n` 将 `dryRun` 设为 `true`，预览操作写在 `plan` 中，`changes` 为空。待内容校验的文件用 `verify` 标记，上传、下载和删除的计数表示计划中的文件数。
+- `objects` 是源文件数，`uploaded`、`downloaded`、`deleted` 和 `skipped` 按文件计数。`hashMissing` 记录因缺少可比哈希而需要读取云端内容的文件数，`seconds` 是执行或预览用时。
+- `failures` 每项包含 `path`、`error` 和 `retries`。执行中有失败时仍会报告已确认的变更，并返回退出码 1。参数、配置或初始扫描报错时，通过标准错误和退出码查看原因。
 
 ```bash
 cloud139 sync <源路径> <目标路径> [选项]
@@ -438,7 +443,7 @@ cloud139 sync <源路径> <目标路径> [选项]
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
 | --jobs | -j | 否 | 同时传输的文件数，范围 1 到 32。默认 4，校验模式固定为 1 |
 | --verify | - | 否 | 校验内容并修复不一致的文件，仅支持本地到个人盘 |
-| --json | - | 否 | 输出一行 JSON 校验汇总，需配合 `--verify` |
+| --json | - | 否 | 以 JSON 报告本次同步的文件变更 |
 
 **示例：**
 
@@ -447,7 +452,10 @@ cloud139 sync <源路径> <目标路径> [选项]
 cloud139 sync ./backup cloud:/backup -r --delete -j 8
 
 # 校验备份内容，确认全部更新成功后清理多余文件
-cloud139 sync ./backup cloud:/backup -r --verify --delete --json
+cloud139 sync ./backup cloud:/backup -r --verify --delete
+
+# 同步并保存文件变更报告
+cloud139 sync ./backup cloud:/backup -r --json > sync-report.json
 
 # 预览云端到本地的同步计划
 cloud139 sync cloud:/photos ./photos -r -n

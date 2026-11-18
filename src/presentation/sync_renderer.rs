@@ -1,5 +1,32 @@
 use crate::domain::SyncSummary;
+use crate::services::sync_report::SyncReport;
 use crate::{success, warn};
+use serde::Serialize;
+
+pub(crate) fn print_json_report(
+    source: &str,
+    destination: &str,
+    report: &mut SyncReport,
+) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    struct Output<'a> {
+        source: &'a str,
+        destination: &'a str,
+        #[serde(flatten)]
+        report: &'a SyncReport,
+    }
+
+    report.sort_paths();
+    crate::print!(
+        "{}",
+        serde_json::to_string(&Output {
+            source,
+            destination,
+            report,
+        })?
+    );
+    Ok(())
+}
 
 /// 打印同步结果摘要。
 pub fn print_summary(summary: &SyncSummary, dry_run: bool) {

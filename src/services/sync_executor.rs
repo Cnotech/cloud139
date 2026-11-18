@@ -1,4 +1,5 @@
 use super::sync_remote::SyncCloud;
+use super::sync_report::SyncReport;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::sync_service::{CloudSyncScan, LocalSyncScan, format_action_line};
 use crate::utils::logger::{mp_error, mp_step};
@@ -23,7 +24,7 @@ pub async fn execute_sync_actions(
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
-    execute_scanned_sync(config, actions, options, None, None).await
+    execute_scanned_sync(config, actions, options, None, None, None).await
 }
 
 pub(crate) async fn execute_scanned_sync(
@@ -32,6 +33,7 @@ pub(crate) async fn execute_scanned_sync(
     options: SyncExecuteOptions,
     cloud: Option<&CloudSyncScan>,
     local: Option<&LocalSyncScan>,
+    mut report: Option<&mut SyncReport>,
 ) -> Result<SyncSummary> {
     config.require_personal()?;
     ensure!(
@@ -39,6 +41,9 @@ pub(crate) async fn execute_scanned_sync(
         "同步并发数量必须介于 1 和 {MAX_JOBS} 之间"
     );
     if options.dry_run {
+        if let Some(report) = report {
+            record_plan(report, &actions, cloud, local);
+        }
         return Ok(summarize_actions(&actions));
     }
 
@@ -53,12 +58,21 @@ pub(crate) async fn execute_scanned_sync(
         let remote = &remote;
         async move {
             let bar = make_action_progress(progress, action, options.progress);
-            let outcome =
-                execute_one_action(config, action, bar.clone(), remote, cloud, local).await;
+            let mut file_changed = false;
+            let outcome = execute_one_action(
+                config,
+                action,
+                bar.clone(),
+                remote,
+                cloud,
+                local,
+                &mut file_changed,
+            )
+            .await;
             if let Some(bar) = bar {
                 bar.finish_and_clear();
             }
-            (action, outcome)
+            (action, file_changed, outcome)
         }
     };
 
@@ -72,20 +86,38 @@ pub(crate) async fn execute_scanned_sync(
         .into_iter()
         .partition(|action| matches!(action, SyncAction::Delete { .. }));
     for action in directories {
-        let (action, outcome) = run(action).await;
-        record_result(&mut summary, action, outcome, options, &progress);
+        record_result(
+            &mut summary,
+            report.as_deref_mut(),
+            run(action).await,
+            options,
+            &progress,
+            cloud,
+        );
     }
     let mut pending =
         futures_util::stream::iter(transfers.into_iter().map(run)).buffer_unordered(options.jobs);
-    while let Some((action, outcome)) = pending.next().await {
-        record_result(&mut summary, action, outcome, options, &progress);
+    while let Some(result) = pending.next().await {
+        record_result(
+            &mut summary,
+            report.as_deref_mut(),
+            result,
+            options,
+            &progress,
+            cloud,
+        );
     }
     if summary.failed == 0 {
         for action in deletes {
-            let (action, outcome) = run(action).await;
-            let failed = outcome.is_err();
-            record_result(&mut summary, action, outcome, options, &progress);
-            if failed {
+            record_result(
+                &mut summary,
+                report.as_deref_mut(),
+                run(action).await,
+                options,
+                &progress,
+                cloud,
+            );
+            if summary.failed > 0 {
                 break;
             }
         }
@@ -95,17 +127,26 @@ pub(crate) async fn execute_scanned_sync(
 
 fn record_result(
     summary: &mut SyncSummary,
-    action: &SyncAction,
-    outcome: Result<()>,
+    mut report: Option<&mut SyncReport>,
+    (action, file_changed, outcome): (&SyncAction, bool, Result<()>),
     options: SyncExecuteOptions,
     progress: &MultiProgress,
+    cloud: Option<&CloudSyncScan>,
 ) {
+    if file_changed && let Some(report) = report.as_deref_mut() {
+        report.record_file_action(action, cloud);
+    }
     if let Err(error) = outcome {
-        let message = format!("同步失败: {}: {error:#}", action_rel_path(action));
+        let path = action_rel_path(action);
+        let detail = format!("{error:#}");
+        let message = format!("同步失败: {path}: {detail}");
         if options.progress {
             mp_error(&message, progress);
         } else {
             crate::error!("{message}");
+        }
+        if let Some(report) = report {
+            report.record_failure(path, &error, detail);
         }
         summary.failed += 1;
         return;
@@ -119,6 +160,38 @@ fn record_result(
         }
     }
     merge_summary(summary, summary_for_success(action));
+}
+
+fn record_plan(
+    report: &mut SyncReport,
+    actions: &[SyncAction],
+    cloud: Option<&CloudSyncScan>,
+    local: Option<&LocalSyncScan>,
+) {
+    let can_delete = !actions
+        .iter()
+        .any(|action| matches!(action, SyncAction::Conflict { .. }));
+    for action in actions {
+        match action {
+            SyncAction::Conflict { rel_path, reason } => {
+                report.record_failure(rel_path, &anyhow::anyhow!("{reason}"), (*reason).into());
+            }
+            SyncAction::Delete {
+                rel_path, target, ..
+            } => {
+                let file = match target {
+                    SyncTarget::Cloud => {
+                        cloud.is_some_and(|scan| scan.files.contains_key(rel_path))
+                    }
+                    SyncTarget::Local => local.is_some_and(|scan| scan.contains_file(rel_path)),
+                };
+                if can_delete && file {
+                    report.record_deleted(rel_path);
+                }
+            }
+            _ => report.record_file_action(action, cloud),
+        }
+    }
 }
 
 fn count_skips(actions: &[SyncAction]) -> usize {
@@ -196,21 +269,21 @@ pub(super) fn make_action_progress(
     )
     .unwrap_or_else(|_| ProgressStyle::default_bar());
     pb.set_style(style);
-    pb.set_message(action_rel_path(action));
+    pb.set_message(action_rel_path(action).to_owned());
     // 启动后台定时重绘，确保进度条在 HTTP 请求等待期间也能平滑更新，
     // 避免因 indicatif 节流机制导致进度条看起来从 0% 跳到完成。
     pb.enable_steady_tick(Duration::from_millis(100));
     Some(pb)
 }
 
-fn action_rel_path(action: &SyncAction) -> String {
+fn action_rel_path(action: &SyncAction) -> &str {
     match action {
         SyncAction::Upload { rel_path, .. }
         | SyncAction::Download { rel_path, .. }
         | SyncAction::CreateDir { rel_path, .. }
         | SyncAction::Delete { rel_path, .. }
         | SyncAction::Conflict { rel_path, .. }
-        | SyncAction::Skip { rel_path } => rel_path.clone(),
+        | SyncAction::Skip { rel_path } => rel_path,
     }
 }
 
@@ -221,6 +294,7 @@ async fn execute_one_action(
     remote: &SyncCloud<'_>,
     cloud: Option<&CloudSyncScan>,
     local: Option<&LocalSyncScan>,
+    file_changed: &mut bool,
 ) -> Result<()> {
     match action {
         SyncAction::Upload {
@@ -252,6 +326,7 @@ async fn execute_one_action(
                     file_name,
                     replace_directory_id: replace_directory_id.as_deref(),
                     hash_missing: None,
+                    file_changed,
                 },
                 pb,
             )
@@ -302,6 +377,7 @@ async fn execute_one_action(
                 }
             })
             .await?;
+            *file_changed = true;
             if let Some(mtime) = cloud_mtime {
                 let file_time = filetime::FileTime::from_unix_time(*mtime, 0);
                 filetime::set_file_mtime(local_abs, file_time)?;
@@ -319,11 +395,15 @@ async fn execute_one_action(
                     .confirm(rel_path, path)?;
                 if metadata.is_file() {
                     tokio::fs::remove_file(path).await?;
+                    *file_changed = true;
                 } else {
                     tokio::fs::remove_dir(path).await?;
                 }
             }
-            SyncTarget::Cloud => remote.delete_extra(rel_path).await?,
+            SyncTarget::Cloud => {
+                remote.delete_extra(rel_path).await?;
+                *file_changed = cloud.is_some_and(|scan| scan.files.contains_key(rel_path));
+            }
         },
         SyncAction::CreateDir {
             target, target_abs, ..

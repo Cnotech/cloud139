@@ -1,6 +1,8 @@
 use crate::commands::CommandExit;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
+use crate::presentation::sync_renderer::{print_json_report, print_summary};
 use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions, execute_scanned_sync};
+use crate::services::sync_report::SyncReport;
 use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, format_action_line, parse_sync_endpoint, scan_cloud,
     scan_local_target, scan_upload_source, sync_direction,
@@ -9,6 +11,7 @@ use crate::services::sync_verify::execute_verified_sync;
 use crate::step;
 use clap::Parser;
 use std::io::IsTerminal;
+use std::time::Instant;
 
 fn parse_jobs(value: &str) -> Result<usize, String> {
     let jobs = value
@@ -47,7 +50,7 @@ pub struct SyncArgs {
     #[arg(long, help = "校验内容并修复不一致的文件（仅本地到个人盘）")]
     pub verify: bool,
 
-    #[arg(long, requires = "verify", help = "输出一行 JSON 校验汇总")]
+    #[arg(long, help = "以 JSON 报告本次同步的文件变更")]
     pub json: bool,
 }
 
@@ -87,6 +90,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         local_root,
         cloud_root,
     };
+    let mut report = (args.json && !args.verify).then(|| SyncReport::new(args.dry_run, true));
     let (actions, cloud, local) = match (src, dest) {
         (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
             let (local_root, source) = scan_upload_source(local_root, &scan_options, args.delete)
@@ -115,17 +119,18 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             );
             print_plan(&actions, args.dry_run);
             if args.verify {
-                let report = execute_verified_sync(
+                let mut report = execute_verified_sync(
                     &config,
                     &target,
                     &cloud_root,
                     &actions,
                     objects,
                     execution,
+                    args.json,
                 )
                 .await;
                 if args.json {
-                    crate::print!("{}", serde_json::to_string(&report)?);
+                    print_json_report(&args.src, &args.dest, &mut report)?;
                 } else {
                     let label = if args.dry_run {
                         "校验计划"
@@ -144,6 +149,9 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
                 }
                 return finish(args.dry_run, report.failures.len());
             }
+            if let Some(report) = &mut report {
+                report.count_source_files(&source, &actions);
+            }
             (actions, Some(target), None)
         }
         (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
@@ -159,15 +167,31 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             step!("正在计算同步差异...");
             let actions =
                 source.compute_download_diff(&target, diff_options(local_root, cloud_root));
+            if let Some(report) = &mut report {
+                report.count_source_files(&source.items, &actions);
+            }
             print_plan(&actions, args.dry_run);
             (actions, Some(source), Some(target))
         }
         _ => return Err(CommandExit::new(2, "无效的同步方向").into()),
     };
 
-    let summary =
-        execute_scanned_sync(&config, actions, execution, cloud.as_ref(), local.as_ref()).await?;
-    crate::presentation::sync_renderer::print_summary(&summary, args.dry_run);
+    let started = Instant::now();
+    let summary = execute_scanned_sync(
+        &config,
+        actions,
+        execution,
+        cloud.as_ref(),
+        local.as_ref(),
+        report.as_mut(),
+    )
+    .await?;
+    if let Some(mut report) = report {
+        report.seconds = started.elapsed().as_secs_f64();
+        print_json_report(&args.src, &args.dest, &mut report)?;
+    } else {
+        print_summary(&summary, args.dry_run);
+    }
     finish(args.dry_run, summary.failed)
 }
 

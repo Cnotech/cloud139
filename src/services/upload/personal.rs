@@ -26,6 +26,7 @@ pub(in crate::services) struct SyncUploadPlan<'a> {
     pub file_name: &'a str,
     pub replace_directory_id: Option<&'a str>,
     pub hash_missing: Option<&'a mut bool>,
+    pub file_changed: &'a mut bool,
 }
 
 /// Upload a unique sibling before replacing the destination.
@@ -44,6 +45,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         hash_missing,
         scan,
         rel_path,
+        file_changed,
     } = plan;
     let file_size = super::super::upload_service::checked_upload_size(local_path)?;
     super::super::directory_service::validate_name(file_name)?;
@@ -148,6 +150,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
             file_name,
             &files,
             replace_directory_id,
+            file_changed,
         )
         .await?;
         finish_upload(&installed, &pb);
@@ -359,6 +362,7 @@ async fn install_uploaded_file(
     file_name: &str,
     files: &[PersonalFileItem],
     replace_directory_id: Option<&str>,
+    file_changed: &mut bool,
 ) -> Result<String, ClientError> {
     let saved_name = files
         .iter()
@@ -367,6 +371,7 @@ async fn install_uploaded_file(
         .filter(|name| !name.is_empty())
         .ok_or_else(|| ClientError::Api("分片上传已提交，但无法确认新文件名称".into()))?;
     if saved_name == file_name {
+        *file_changed = true;
         return Ok(saved_name.to_owned());
     }
 
@@ -410,6 +415,7 @@ async fn install_uploaded_file(
                     "无法确认新文件名称；旧文件备份 {backup_name} 未删除: {error}"
                 ))
             })?;
+        *file_changed = true;
         if !published.iter().any(|entry| {
             entry.name.as_deref() == Some(&backup_name) && entry.file_id.as_deref() == Some(old_id)
         }) {
@@ -425,6 +431,7 @@ async fn install_uploaded_file(
     } else {
         personal.rename(file_id, file_name).await?;
         confirm_uploaded_name(personal, parent_file_id, file_id, file_name).await?;
+        *file_changed = true;
     }
     Ok(file_name.to_owned())
 }
@@ -752,9 +759,19 @@ mod tests {
             api::ListingRetry::None,
         );
         let files = personal.list_files("/").await.unwrap();
-        let error = install_uploaded_file(&personal, "/", "new", "report.txt", &files, None)
-            .await
-            .unwrap_err();
+        let mut file_changed = false;
+        let error = install_uploaded_file(
+            &personal,
+            "/",
+            "new",
+            "report.txt",
+            &files,
+            None,
+            &mut file_changed,
+        )
+        .await
+        .unwrap_err();
+        assert!(!file_changed);
         assert!(error.to_string().contains("未删除"));
         assert!(error.to_string().contains(".cloud139-backup-"));
         list.assert_calls(6);
@@ -803,8 +820,18 @@ mod tests {
                 api::ListingRetry::None,
             );
             let files = personal.list_files("/").await.unwrap();
-            let result =
-                install_uploaded_file(&personal, "/", "new", "report.txt", &files, None).await;
+            let mut file_changed = false;
+            let result = install_uploaded_file(
+                &personal,
+                "/",
+                "new",
+                "report.txt",
+                &files,
+                None,
+                &mut file_changed,
+            )
+            .await;
+            assert!(!file_changed);
             let message = result.unwrap_err().to_string();
             assert!(message.contains("report-copy.txt"));
             if !fail_backup {

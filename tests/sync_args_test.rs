@@ -153,12 +153,14 @@ fn test_sync_args_can_be_constructed_for_command_layer() {
 }
 
 #[test]
-fn test_verify_defaults_to_one_job_and_json_requires_verify() {
+fn test_json_is_available_with_or_without_verify() {
     let verified =
         SyncArgs::try_parse_from(["sync", ".", "cloud:/backup", "--verify", "--json"]).unwrap();
     assert_eq!(verified.jobs, 1);
     assert!(verified.verify && verified.json);
-    assert!(SyncArgs::try_parse_from(["sync", ".", "cloud:/backup", "--json"]).is_err());
+    let ordinary = SyncArgs::try_parse_from(["sync", "cloud:/backup", ".", "--json"]).unwrap();
+    assert_eq!(ordinary.jobs, 4);
+    assert!(!ordinary.verify && ordinary.json);
 }
 
 #[test]

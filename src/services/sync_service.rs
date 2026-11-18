@@ -535,6 +535,14 @@ impl CloudSyncScan {
         Ok(self.directory_id(rel_path))
     }
 
+    pub(super) fn descendant_file_paths(&self, root_path: &str) -> impl Iterator<Item = &str> {
+        let prefix = format!("{root_path}/");
+        self.files
+            .range(prefix.clone()..)
+            .map(|(path, _)| path.as_str())
+            .take_while(move |path| path.starts_with(&prefix))
+    }
+
     pub(super) async fn confirm_subtree(
         &self,
         listing: &crate::client::api::PersonalClient<'_>,
@@ -542,11 +550,7 @@ impl CloudSyncScan {
         root_id: &str,
     ) -> Result<()> {
         let prefix = format!("{root_path}/");
-        let files = self
-            .files
-            .range(prefix.clone()..)
-            .map(|(path, _)| path.as_str())
-            .take_while(|path| path.starts_with(&prefix));
+        let files = self.descendant_file_paths(root_path);
         let directories = self
             .directories
             .range(prefix.clone()..)
