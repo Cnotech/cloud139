@@ -178,6 +178,20 @@ fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientE
     }
 }
 
+pub(crate) async fn download_path(
+    config: &Config,
+    remote: &str,
+    local: &Option<String>,
+    recursive: bool,
+) -> Result<()> {
+    config.require_personal()?;
+    let remote = super::directory_service::normalize(remote)?;
+    let local = crate::utils::resolve_local_path(&remote, local);
+    crate::debug!("准备下载文件 remote={} local={}", remote, local);
+    crate::step!("开始下载到: {:?}", local);
+    download_normalized(config, remote, &local, None, recursive).await
+}
+
 /// Recursive download retains empty directories and rejects unsafe names and local symlinks.
 pub async fn download(
     config: &Config,
@@ -186,9 +200,19 @@ pub async fn download(
     pb: Option<ProgressBar>,
     recursive: bool,
 ) -> Result<()> {
-    use super::directory_service as dirs;
     config.require_personal()?;
-    let remote = dirs::normalize(remote)?;
+    let remote = super::directory_service::normalize(remote)?;
+    download_normalized(config, remote, local, pb, recursive).await
+}
+
+async fn download_normalized(
+    config: &Config,
+    remote: String,
+    local: &str,
+    pb: Option<ProgressBar>,
+    recursive: bool,
+) -> Result<()> {
+    use super::directory_service as dirs;
     dirs::safe_local(Path::new(local))?;
     if remote == "/" && !recursive {
         return Err(ClientError::UnsupportedDownloadDirectory.into());

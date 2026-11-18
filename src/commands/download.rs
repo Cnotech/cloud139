@@ -1,5 +1,6 @@
 use crate::config::Config;
-use crate::{debug, step, success};
+use crate::services::download_service::download_path;
+use crate::success;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -19,15 +20,7 @@ pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
 }
 
 pub(super) async fn execute_with_config(args: DownloadArgs, config: &Config) -> anyhow::Result<()> {
-    let normalized = crate::services::directory_service::normalize(&args.remote_path)?;
-    let remote_path = &normalized;
-    let local_path = crate::utils::resolve_local_path(remote_path, &args.local_path);
-
-    debug!("准备下载文件 remote={} local={}", remote_path, local_path);
-    step!("开始下载到: {:?}", local_path);
-
-    crate::services::download(config, remote_path, &local_path, None, args.recursive).await?;
-
+    download_path(config, &args.remote_path, &args.local_path, args.recursive).await?;
     success!("下载完成!");
     Ok(())
 }

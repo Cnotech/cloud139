@@ -1,5 +1,4 @@
 use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
-use crate::commands::list::ListArgs as CliListArgs;
 use crate::debug;
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::utils::parse_personal_time;
@@ -13,15 +12,22 @@ pub struct ListResult {
     pub items: Vec<FileItem>,
 }
 
-pub async fn list(
+pub struct ListOptions<'a> {
+    pub path: &'a str,
+    pub page: i32,
+    pub page_size: i32,
+}
+
+pub async fn list<'a>(
     config: &crate::config::Config,
-    args: &CliListArgs,
+    options: impl Into<ListOptions<'a>>,
 ) -> anyhow::Result<ListResult> {
+    let args = options.into();
     config.require_personal()?;
     if args.page < 1 || args.page_size < 1 {
         anyhow::bail!("页码和每页数量必须大于 0");
     }
-    let path = super::directory_service::normalize(&args.path)?;
+    let path = super::directory_service::normalize(args.path)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let parent = super::directory_service::directory_with_listing(&listing, &path).await?;

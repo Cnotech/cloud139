@@ -1,9 +1,51 @@
-use crate::domain::SyncSummary;
+use crate::domain::{SyncAction, SyncSummary};
 use crate::services::sync_report::SyncReport;
+use crate::services::sync_service::{SyncOutcome, format_action_line};
 use crate::{success, warn};
 use serde::Serialize;
 
-pub(crate) fn print_json_report(
+pub(crate) fn print_plan(actions: &[SyncAction]) {
+    for action in actions
+        .iter()
+        .filter(|action| !matches!(action, SyncAction::Skip { .. }))
+    {
+        crate::step!("{}", format_action_line(action, true));
+    }
+}
+
+pub(crate) fn print_outcome(
+    outcome: SyncOutcome,
+    source: &str,
+    destination: &str,
+    dry_run: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    match outcome {
+        SyncOutcome::Summary(summary) => print_summary(&summary, dry_run),
+        SyncOutcome::Report(mut report) if json => {
+            print_json_report(source, destination, &mut report)?;
+        }
+        SyncOutcome::Report(report) => {
+            let label = if dry_run {
+                "校验计划"
+            } else {
+                "校验汇总"
+            };
+            crate::info!(
+                "{label}: {} 个源文件，{} 个上传，{} 个跳过，{} 个删除，{} 个缺少可比哈希，{} 个失败",
+                report.objects,
+                report.uploaded,
+                report.skipped,
+                report.deleted,
+                report.hash_missing,
+                report.failures.len(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn print_json_report(
     source: &str,
     destination: &str,
     report: &mut SyncReport,

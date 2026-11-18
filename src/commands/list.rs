@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::debug;
 use crate::presentation::list_renderer;
+use crate::services::list_service::ListOptions;
 use clap::Parser;
 use std::fs;
 
@@ -20,6 +21,16 @@ pub struct ListArgs {
 
     #[arg(short, long, help = "将JSON输出到指定文件")]
     pub output: Option<String>,
+}
+
+impl<'a> From<&'a ListArgs> for ListOptions<'a> {
+    fn from(args: &'a ListArgs) -> Self {
+        Self {
+            path: &args.path,
+            page: args.page,
+            page_size: args.page_size,
+        }
+    }
 }
 
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {

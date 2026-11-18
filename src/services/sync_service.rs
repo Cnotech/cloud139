@@ -6,11 +6,14 @@ use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
 use anyhow::{Result, anyhow};
+pub(crate) use execution::{SyncOutcome, SyncRequest};
 use futures_util::TryStreamExt;
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::pin::pin;
+
+mod execution;
 
 #[derive(Debug, Clone)]
 pub struct SyncDiffOptions {

@@ -6,6 +6,71 @@ use std::path::Path;
 
 use super::directory_service as dirs;
 
+pub(crate) async fn upload_path(
+    config: &crate::config::Config,
+    local: &str,
+    remote: &str,
+    force: bool,
+    make_progress: impl FnOnce(&str, u64) -> Option<ProgressBar>,
+) -> anyhow::Result<()> {
+    let local_path = Path::new(local);
+    if !local_path.exists() {
+        crate::error!("文件不存在: {}", local);
+        return Err(ClientError::FileNotFound.into());
+    }
+
+    dirs::safe_local(local_path)?;
+    if local_path.is_dir() {
+        return upload_directory(
+            config,
+            local_path,
+            remote,
+            local.ends_with('/') || local.ends_with('\\'),
+            force,
+        )
+        .await;
+    }
+    if !local_path.is_file() {
+        anyhow::bail!("只支持普通文件或目录");
+    }
+    let file_name = local_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown");
+
+    let file_size = checked_upload_size(local_path)
+        .map_err(|error| anyhow::anyhow!("无法上传 {}: {}", local, error))?;
+
+    let remote_dir = if remote == "/" {
+        "".to_string()
+    } else {
+        remote.trim_end_matches('/').to_string()
+    };
+
+    crate::debug!(
+        "准备上传文件 local={} remote={}/{}",
+        local,
+        remote_dir,
+        file_name
+    );
+    crate::debug!("已读取本地文件大小 size_bytes={}", file_size);
+
+    let pb = make_progress(file_name, file_size as u64);
+
+    upload(
+        config,
+        local_path,
+        &remote_dir,
+        file_name,
+        file_size,
+        force,
+        pb,
+    )
+    .await?;
+
+    Ok(())
+}
+
 /// Re-read metadata before hashing or any destructive sync operation.
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     dirs::safe_local(path)?;
