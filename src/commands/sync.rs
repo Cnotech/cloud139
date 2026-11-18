@@ -47,7 +47,7 @@ pub struct SyncArgs {
         value_parser = parse_jobs, help = format!("同时传输的文件数，范围 1 到 {MAX_JOBS}。默认 4，--verify 固定为 1"))]
     pub jobs: usize,
 
-    #[arg(long, help = "校验内容并修复不一致的文件（仅本地到个人盘）")]
+    #[arg(long, help = "校验内容并修复不一致的文件")]
     pub verify: bool,
 
     #[arg(long, help = "以 JSON 报告本次同步的文件变更")]
