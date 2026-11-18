@@ -46,6 +46,13 @@ pub struct PersonalFileItem {
 }
 
 impl PersonalFileItem {
+    pub(crate) fn modified_time(&self) -> Option<&str> {
+        self.updated_at
+            .as_deref()
+            .or(self.update_date.as_deref())
+            .or(self.last_modified.as_deref())
+    }
+
     pub fn is_folder(&self) -> bool {
         matches!(
             self.file_type.as_deref(),

@@ -1,8 +1,6 @@
 //! Shared path validation, directory traversal, and mutation preflight.
 use crate::client::{ClientError, api};
 use crate::config::Config;
-use crate::domain::StorageType;
-use crate::services::sync_service::should_treat_personal_item_as_folder as is_folder;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -26,74 +24,68 @@ pub(super) async fn resolve_with_size(
 ) -> Result<(RemoteEntry, Option<i64>), ClientError> {
     config.require_personal()?;
     let path = normalize(path)?;
-    let mut cached = config.clone();
-    let http_client = api::HttpClientWrapper::new();
-    let host = if path == "/" {
-        String::new()
-    } else {
-        api::get_personal_cloud_host_with_client(&mut cached, &http_client).await?
-    };
-    let listing = api::PersonalListing {
-        config: &cached,
-        host: &host,
-        http_client: &http_client,
-        retry_transient: false,
-    };
+    if path == "/" {
+        return Ok(remote_root());
+    }
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
     resolve_entry(&listing, &path).await
 }
 
-async fn resolve_entry(
-    listing: &api::PersonalListing<'_>,
+fn remote_root() -> (RemoteEntry, Option<i64>) {
+    (
+        RemoteEntry {
+            id: "/".into(),
+            folder: true,
+        },
+        None,
+    )
+}
+
+pub(super) async fn resolve_entry(
+    listing: &api::PersonalClient<'_>,
     path: &str,
 ) -> Result<(RemoteEntry, Option<i64>), ClientError> {
-    let mut current = RemoteEntry {
-        id: "/".into(),
-        folder: true,
-    };
-    if path.split('/').count() > 258 {
-        return Err(invalid("目录层级过深"));
-    }
-    let mut seen_ids = HashSet::from(["/".to_owned()]);
-    let mut size = None;
-    for part in path.split('/').filter(|p| !p.is_empty()) {
-        if !current.folder {
-            return Err(invalid("父路径不是目录"));
+    match listing.resolve_path(path).await? {
+        Some(item) => {
+            let folder = item.is_folder();
+            let id = item.file_id.ok_or(ClientError::InvalidFilePath)?;
+            Ok((RemoteEntry { id, folder }, item.size))
         }
-        let item = listing
-            .find_child(&current.id, part)
-            .await?
-            .ok_or(ClientError::FileNotFound)?;
-        let folder = is_folder(&item);
-        let id = item
-            .file_id
-            .filter(|s| !s.is_empty())
-            .ok_or(ClientError::InvalidFilePath)?;
-        if !seen_ids.insert(id.clone()) {
-            return Err(invalid("路径解析返回根目录别名或目录循环"));
-        }
-        current = RemoteEntry { id, folder };
-        size = item.size;
+        None => Ok(remote_root()),
     }
-    Ok((current, size))
+}
+
+fn require_directory(entry: RemoteEntry) -> Result<String, ClientError> {
+    if !entry.folder {
+        return Err(invalid("目标路径不是目录"));
+    }
+    Ok(entry.id)
 }
 
 pub async fn directory(config: &Config, path: &str) -> Result<String, ClientError> {
-    let entry = resolve(config, path).await?;
-    if !entry.folder {
-        return Err(invalid("目标路径不是目录"));
-    }
-    Ok(entry.id)
+    require_directory(resolve(config, path).await?)
 }
 
 pub(super) async fn directory_with_listing(
-    listing: &api::PersonalListing<'_>,
+    listing: &api::PersonalClient<'_>,
     path: &str,
 ) -> Result<String, ClientError> {
     let (entry, _) = resolve_entry(listing, path).await?;
-    if !entry.folder {
-        return Err(invalid("目标路径不是目录"));
-    }
-    Ok(entry.id)
+    require_directory(entry)
+}
+
+pub(super) async fn confirm_directory(
+    listing: &api::PersonalClient<'_>,
+    path: &str,
+    expected_id: &str,
+) -> anyhow::Result<()> {
+    use anyhow::Context;
+    let current = directory_with_listing(listing, path)
+        .await
+        .with_context(|| format!("无法复核云端目录 {path}"))?;
+    anyhow::ensure!(current == expected_id, "云端目录 {path} 的 ID 已变更");
+    Ok(())
 }
 
 pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<(), ClientError> {
@@ -106,21 +98,14 @@ pub async fn ensure_dir(config: &Config, path: &str, parents: bool) -> Result<()
             Err(ClientError::CannotOperateOnRoot)
         };
     }
-    let mut cached = config.clone();
-    let host = api::get_personal_cloud_host(&mut cached).await?;
-    let http_client = api::HttpClientWrapper::new();
-    let listing = api::PersonalListing {
-        config: &cached,
-        host: &host,
-        http_client: &http_client,
-        retry_transient: false,
-    };
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
     ensure_personal_dir(&listing, &path, parents).await?;
     Ok(())
 }
 
 pub(super) async fn ensure_personal_dir(
-    listing: &api::PersonalListing<'_>,
+    listing: &api::PersonalClient<'_>,
     path: &str,
     parents: bool,
 ) -> Result<String, ClientError> {
@@ -139,14 +124,14 @@ pub(super) async fn ensure_personal_dir(
 }
 
 pub(super) async fn ensure_personal_child_dir(
-    listing: &api::PersonalListing<'_>,
+    listing: &api::PersonalClient<'_>,
     parent_id: &str,
     name: &str,
     parents: bool,
     last: bool,
 ) -> Result<String, ClientError> {
     let item = if let Some(item) = listing.find_child(parent_id, name).await? {
-        if !is_folder(&item) {
+        if !item.is_folder() {
             return Err(invalid(format!("已有同名文件: {name}")));
         }
         if last && !parents {
@@ -157,15 +142,14 @@ pub(super) async fn ensure_personal_child_dir(
         if !parents && !last {
             return Err(ClientError::FileNotFound);
         }
-        let response: crate::models::PersonalUploadResp = api::personal_api_request(
-            listing.config,
-            &format!("{}/file/create", listing.host),
-            serde_json::json!({
-                "parentFileId": parent_id, "name": name, "description": "", "type": "folder"
-            }),
-            StorageType::PersonalNew,
-        )
-        .await?;
+        let response: crate::models::PersonalUploadResp = listing
+            .request(
+                "/file/create",
+                serde_json::json!({
+                    "parentFileId": parent_id, "name": name, "description": "", "type": "folder"
+                }),
+            )
+            .await?;
         if !response.base.success {
             return Err(ClientError::Api(
                 response
@@ -179,7 +163,7 @@ pub(super) async fn ensure_personal_child_dir(
             .find_child(parent_id, name)
             .await?
             .ok_or_else(|| invalid("创建后无法确认目录名称"))?;
-        if !is_folder(&item) {
+        if !item.is_folder() {
             return Err(invalid("创建后目录类型冲突"));
         }
         item
@@ -285,12 +269,25 @@ pub async fn children(
     config: &Config,
     path: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
-    let id = directory(config, path).await?;
-    api::list_personal_files(config, &id)
+    let path = normalize(path)?;
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let id = directory_with_listing(&listing, &path).await?;
+    children_by_id(&listing, &id).await
+}
+
+async fn children_by_id(
+    listing: &api::PersonalClient<'_>,
+    id: &str,
+) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
+    listing
+        .list_files(id)
         .await?
         .into_iter()
         .map(|item| {
-            let folder = is_folder(&item);
+            let folder = item.is_folder();
+            let modified =
+                crate::utils::parse_personal_time(item.modified_time().unwrap_or_default());
             Ok((
                 item.name.ok_or(ClientError::InvalidFilePath)?,
                 RemoteEntry {
@@ -301,7 +298,7 @@ pub async fn children(
                     folder,
                 },
                 item.size,
-                crate::utils::parse_personal_time(item.updated_at.as_deref().unwrap_or_default()),
+                modified,
             ))
         })
         .collect()
@@ -309,36 +306,53 @@ pub async fn children(
 
 pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientError> {
     let root = normalize(root)?;
-    let root_id = directory(config, &root).await?;
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let root_id = directory_with_listing(&listing, &root).await?;
+    Ok(tree_with_listing(&listing, root, root_id)
+        .await?
+        .into_iter()
+        .map(|(entry, _)| entry)
+        .collect())
+}
+
+pub(super) async fn tree_with_listing(
+    listing: &api::PersonalClient<'_>,
+    root: String,
+    root_id: String,
+) -> Result<Vec<(TreeEntry, String)>, ClientError> {
     let mut pending = vec![(root, root_id, 0usize)];
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
     while let Some((path, id, depth)) = pending.pop() {
-        if depth > 256 || !seen.insert(id) {
+        if depth > 256 || !seen.insert(id.clone()) {
             return Err(invalid("目录循环或层级过深"));
         }
         let mut names = HashSet::new();
-        for (name, item, size, modified) in children(config, &path).await? {
+        for (name, item, size, modified) in children_by_id(listing, &id).await? {
             validate_name(&name)?;
             if !names.insert(name.clone()) {
                 return Err(invalid("服务端返回重复名称"));
             }
             let child = format!("{}/{name}", path.trim_end_matches('/'));
             if item.folder {
-                pending.push((child.clone(), item.id, depth + 1));
+                pending.push((child.clone(), item.id.clone(), depth + 1));
             }
-            entries.push(TreeEntry {
-                path: child,
-                folder: item.folder,
-                size,
-                modified,
-            });
+            entries.push((
+                TreeEntry {
+                    path: child,
+                    folder: item.folder,
+                    size,
+                    modified,
+                },
+                item.id,
+            ));
             if entries.len() > 100_000 {
                 return Err(invalid("目录条目超过安全上限 100000"));
             }
         }
     }
-    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    entries.sort_by(|(a, _), (b, _)| a.path.cmp(&b.path));
     Ok(entries)
 }
 
@@ -363,12 +377,14 @@ pub async fn transfer(
             return Err(invalid("不能复制或移动到自身或子目录"));
         }
     }
-    let target_id = directory(config, &target).await?;
-    let existing = api::list_personal_files(config, &target_id).await?;
+    let client = api::HttpClientWrapper::new();
+    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let target_id = directory_with_listing(&listing, &target).await?;
+    let existing = listing.list_files(&target_id).await?;
     let mut names = HashSet::new();
     let mut ids = Vec::new();
     for source in &sources {
-        let entry = resolve(config, source).await?;
+        let (entry, _) = resolve_entry(&listing, source).await?;
         let name = source.rsplit('/').next().unwrap();
         if !names.insert(name.to_owned()) {
             return Err(invalid("多个源条目同名"));
@@ -385,22 +401,19 @@ pub async fn transfer(
             return Err(invalid("源目录和目标目录相同"));
         }
         if let Some(conflict) = existing.iter().find(|i| i.name.as_deref() == Some(name))
-            && (entry.folder || is_folder(conflict) || !force)
+            && (entry.folder || conflict.is_folder() || !force)
         {
             return Err(ClientError::ForceRequired);
         }
         ids.push(entry.id);
     }
-    let mut cached = config.clone();
-    let host = api::get_personal_cloud_host(&mut cached).await?;
     let endpoint = if moving { "batchMove" } else { "batchCopy" };
-    let resp: serde_json::Value = api::personal_api_request(
-        &cached,
-        &format!("{host}/file/{endpoint}"),
-        serde_json::json!({ "fileIds": ids, "toParentFileId": target_id }),
-        StorageType::PersonalNew,
-    )
-    .await?;
+    let resp: serde_json::Value = listing
+        .request(
+            &format!("/file/{endpoint}"),
+            serde_json::json!({ "fileIds": ids, "toParentFileId": target_id }),
+        )
+        .await?;
     if !mutation_succeeded(&resp) {
         return Err(ClientError::Api(
             "批量操作失败（可能部分完成），请检查云端状态".into(),

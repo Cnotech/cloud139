@@ -69,6 +69,16 @@ pub fn to_json_with_pagination(
     page: Option<i32>,
     page_size: Option<i32>,
 ) -> anyhow::Result<String> {
+    Ok(serde_json::to_string_pretty(&json_output(
+        result, page, page_size,
+    ))?)
+}
+
+pub(crate) fn json_output(
+    result: &ListResult,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> JsonListOutput {
     let items = result
         .items
         .iter()
@@ -85,13 +95,11 @@ pub fn to_json_with_pagination(
         })
         .collect::<Vec<_>>();
 
-    let output = JsonListOutput {
+    JsonListOutput {
         path: result.path.clone(),
         page,
         page_size,
         total: result.total,
         items,
-    };
-
-    Ok(serde_json::to_string_pretty(&output)?)
+    }
 }

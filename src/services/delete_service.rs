@@ -2,7 +2,6 @@ use super::directory_service as dirs;
 use crate::{
     client::{ClientError, api},
     config::Config,
-    domain::StorageType,
 };
 pub async fn delete(config: &Config, path: &str, permanent: bool) -> anyhow::Result<()> {
     delete_recursive(config, path, permanent, false).await
@@ -18,28 +17,26 @@ pub async fn delete_recursive(
     if permanent {
         return Err(dirs::invalid("尚无可靠的永久删除协议，已拒绝操作；未移动到回收站").into());
     }
-    let entry = dirs::resolve(config, &path).await?;
+    let client = api::HttpClientWrapper::new();
+    let personal = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let (entry, _) = dirs::resolve_entry(&personal, &path).await?;
     if entry.folder && !recursive {
         return Err(dirs::invalid("删除目录需要显式指定 -r / --recursive").into());
     }
-    let mut cached = config.clone();
-    let host = api::get_personal_cloud_host(&mut cached).await?;
-    trash_personal_file_id(&cached, &host, &entry.id).await?;
+    trash_personal_file_id(&personal, &entry.id).await?;
     Ok(())
 }
 
 pub(super) async fn trash_personal_file_id(
-    config: &Config,
-    host: &str,
+    personal: &api::PersonalClient<'_>,
     file_id: &str,
 ) -> Result<(), ClientError> {
-    let response: serde_json::Value = api::personal_api_request(
-        config,
-        &format!("{host}/recyclebin/batchTrash"),
-        serde_json::json!({ "fileIds": [file_id] }),
-        StorageType::PersonalNew,
-    )
-    .await?;
+    let response: serde_json::Value = personal
+        .request(
+            "/recyclebin/batchTrash",
+            serde_json::json!({ "fileIds": [file_id] }),
+        )
+        .await?;
     if !dirs::mutation_succeeded(&response) {
         return Err(ClientError::Api(
             response["message"]

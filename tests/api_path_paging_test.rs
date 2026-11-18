@@ -90,3 +90,68 @@ async fn resolves_target_on_first_page_without_reading_later_pages() {
     first.assert_calls(1);
     second.assert_calls(0);
 }
+
+#[tokio::test]
+async fn all_path_lookup_entries_reject_the_root_id_as_a_child() {
+    let server = MockServer::start();
+    let config = config_for(&server);
+    let root = server.mock(|when, then| {
+        when.method(POST).path("/file/list");
+        then.body(page(vec![folder("/", "alias")], ""));
+    });
+    let client_error = get_file_id_by_path(&config, "/alias").await.unwrap_err();
+    let service_error = cloud139::services::directory_service::resolve(&config, "/alias")
+        .await
+        .unwrap_err();
+    assert!(client_error.to_string().contains("根目录别名"));
+    assert_eq!(client_error.to_string(), service_error.to_string());
+    root.assert_calls(2);
+}
+
+#[tokio::test]
+async fn listing_preserves_page_size_and_thumbnails_across_partial_wire_pages() {
+    use cloud139::commands::list::ListArgs;
+    let server = MockServer::start();
+    let mut config = config_for(&server);
+    config.use_large_thumbnail = true;
+    let mock_page = |cursor: &str, names: &[&str], next: &str| {
+        server.mock(|when, then| {
+            when.method(POST).path("/file/list").json_body_includes(
+                json!({
+                    "imageThumbnailStyleList": ["Small", "Large", "Original"],
+                    "pageInfo": {"pageCursor": cursor, "pageSize": 2},
+                })
+                .to_string(),
+            );
+            let items = names.iter().map(|name| folder(name, name)).collect();
+            then.body(page(items, next));
+        })
+    };
+    let first = mock_page("", &["a"], "next");
+    let second = mock_page("next", &["b", "c"], "last");
+    let last = mock_page("last", &["d", "e"], "");
+    let result = cloud139::services::list(
+        &config,
+        &ListArgs {
+            recursive: false,
+            path: "/".into(),
+            page: 2,
+            page_size: 2,
+            output: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.total, 5);
+    assert_eq!(
+        result
+            .items
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<Vec<_>>(),
+        ["c", "d"]
+    );
+    first.assert_calls(1);
+    second.assert_calls(1);
+    last.assert_calls(1);
+}

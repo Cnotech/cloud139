@@ -112,23 +112,16 @@ impl Default for Config {
     }
 }
 
-/// 统一解析配置文件路径。
-/// 优先级：--config override > 当前目录已存在 > 全局配置目录。
-/// 当 `for_write` 为 true 时，若本地不存在，回退到全局（用于写入）。
-/// 当 `for_write` 为 false 时，同样遵循此优先级（用于读取单个路径）。
+/// 写入默认使用当前目录。读取优先尝试当前目录，再回退到全局目录。
+/// 显式指定配置时，读写都使用该路径。
 pub fn resolve_config_path(for_write: bool) -> PathBuf {
-    if let Some(p) = config_override() {
-        return p.to_path_buf();
+    let mut candidates = config_load_candidates().into_iter();
+    let primary = candidates.next().expect("配置至少有一个候选路径");
+    if for_write || primary.exists() {
+        primary
+    } else {
+        candidates.next().unwrap_or(primary)
     }
-    let local = local_config_path();
-    if local.exists() {
-        return local;
-    }
-    // 当用于写入且本地不存在时，仍返回本地路径（在终端首次登录时写本地）
-    if for_write {
-        return local;
-    }
-    global_config_path()
 }
 
 /// 返回用于读取的配置文件候选路径列表。
@@ -176,7 +169,7 @@ impl Config {
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        self.save_to(&resolve_config_path(true))
+        self.save_to(&Self::save_path())
     }
 
     /// 同目录临时文件完整写入并同步后原子替换。写入期间不会暴露空文件。
@@ -257,11 +250,7 @@ impl Config {
     }
 
     pub fn storage_type(&self) -> StorageType {
-        match self.storage_type.as_str() {
-            "family" => StorageType::Family,
-            "group" => StorageType::Group,
-            _ => StorageType::PersonalNew,
-        }
+        StorageType::from_str_raw(&self.storage_type)
     }
 
     /// 下一次命令启动时是否需要续期（唯一判断）。

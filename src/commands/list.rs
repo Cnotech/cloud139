@@ -33,14 +33,10 @@ pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
             list_renderer::render_terminal(result);
         }
         if let Some(output) = &args.output {
-            let values = results
+            let values: Vec<_> = results
                 .iter()
-                .map(|result| {
-                    list_renderer::to_json_with_pagination(result, None, None).and_then(|json| {
-                        serde_json::from_str::<serde_json::Value>(&json).map_err(Into::into)
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
+                .map(|result| list_renderer::json_output(result, None, None))
+                .collect();
             fs::write(output, serde_json::to_string_pretty(&values)?)?;
         }
         return Ok(());

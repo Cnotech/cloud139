@@ -3,8 +3,8 @@ use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
 use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_service::{
     SyncDiffOptions, SyncScanOptions, format_action_line, parse_sync_endpoint,
-    resolve_sync_direction, scan_cloud_download_source, scan_cloud_upload_target,
-    scan_local_target, scan_upload_source,
+    scan_cloud_download_source, scan_cloud_upload_target, scan_local_target, scan_upload_source,
+    sync_direction,
 };
 use crate::services::sync_verify::execute_verified_sync;
 use crate::step;
@@ -56,8 +56,10 @@ pub struct SyncArgs {
 }
 
 pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
-    let direction = resolve_sync_direction(&args.src, &args.dest)
-        .map_err(|err| CommandExit::new(2, err.to_string()))?;
+    let src = parse_sync_endpoint(&args.src);
+    let dest = parse_sync_endpoint(&args.dest);
+    let direction =
+        sync_direction(&src, &dest).map_err(|err| CommandExit::new(2, err.to_string()))?;
     if args.verify && direction != SyncDirection::LocalToCloud {
         return Err(CommandExit::new(2, "--verify 仅支持本地到个人盘").into());
     }
@@ -70,8 +72,6 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         _ => CommandExit::new(2, error.to_string()).into(),
     })?;
 
-    let src = parse_sync_endpoint(&args.src);
-    let dest = parse_sync_endpoint(&args.dest);
     let scan_options = SyncScanOptions {
         recursive: args.recursive,
         exclude: args.exclude.clone(),
@@ -91,12 +91,8 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
         local_root,
         cloud_root,
     };
-    let (actions, cloud, local) = match (direction, src, dest) {
-        (
-            SyncDirection::LocalToCloud,
-            SyncEndpoint::Local(local_root),
-            SyncEndpoint::Cloud(cloud_root),
-        ) => {
+    let (actions, cloud, local) = match (src, dest) {
+        (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
             let (local_root, source) = scan_upload_source(local_root, &scan_options, args.delete)
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;
             let objects = source
@@ -154,11 +150,7 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
             }
             (actions, Some(target), None)
         }
-        (
-            SyncDirection::CloudToLocal,
-            SyncEndpoint::Cloud(cloud_root),
-            SyncEndpoint::Local(local_root),
-        ) => {
+        (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
             let source = scan_cloud_download_source(&config, &cloud_root, scan_options.clone())
                 .await
                 .map_err(|err| CommandExit::new(2, err.to_string()))?;

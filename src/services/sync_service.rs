@@ -1,13 +1,16 @@
 pub use super::sync_local::scan_local;
 pub(crate) use super::sync_local::{LocalSyncScan, scan_local_target, scan_upload_source};
+use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
 use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
 use anyhow::{Result, anyhow};
+use futures_util::TryStreamExt;
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::pin::pin;
 
 #[derive(Debug, Clone)]
 pub struct SyncDiffOptions {
@@ -25,7 +28,11 @@ pub fn parse_sync_endpoint(value: &str) -> SyncEndpoint {
 }
 
 pub fn resolve_sync_direction(src: &str, dest: &str) -> Result<SyncDirection> {
-    match (parse_sync_endpoint(src), parse_sync_endpoint(dest)) {
+    sync_direction(&parse_sync_endpoint(src), &parse_sync_endpoint(dest))
+}
+
+pub(crate) fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDirection> {
+    match (src, dest) {
         (SyncEndpoint::Local(_), SyncEndpoint::Cloud(_)) => Ok(SyncDirection::LocalToCloud),
         (SyncEndpoint::Cloud(_), SyncEndpoint::Local(_)) => Ok(SyncDirection::CloudToLocal),
         (SyncEndpoint::Local(_), SyncEndpoint::Local(_)) => {
@@ -43,18 +50,6 @@ pub fn normalize_cloud_path(path: &str) -> String {
         return "/".to_string();
     }
     format!("/{}", trimmed.trim_start_matches('/').trim_end_matches('/'))
-}
-
-fn join_cloud_path(root: &str, rel_path: &str) -> String {
-    if root == "/" {
-        format!("/{}", rel_path.trim_start_matches('/'))
-    } else {
-        format!(
-            "{}/{}",
-            root.trim_end_matches('/'),
-            rel_path.trim_start_matches('/')
-        )
-    }
 }
 
 fn rel_to_local(root: &Path, rel_path: &str) -> PathBuf {
@@ -274,14 +269,14 @@ fn transfer_action(
         SyncDirection::LocalToCloud => SyncAction::Upload {
             rel_path: entry.rel_path.clone(),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
-            remote_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
+            remote_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
             size: entry.size,
             change,
             replace_directory_id,
         },
         SyncDirection::CloudToLocal => SyncAction::Download {
             rel_path: entry.rel_path.clone(),
-            remote_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
+            remote_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
             size: entry.size,
             change,
@@ -295,7 +290,7 @@ fn delete_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction {
         SyncDirection::LocalToCloud => SyncAction::Delete {
             rel_path: entry.rel_path.clone(),
             target: SyncTarget::Cloud,
-            target_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
+            target_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
         },
         SyncDirection::CloudToLocal => SyncAction::Delete {
             rel_path: entry.rel_path.clone(),
@@ -312,7 +307,7 @@ fn create_dir_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction
         SyncDirection::LocalToCloud => SyncAction::CreateDir {
             rel_path: entry.rel_path.clone(),
             target: SyncTarget::Cloud,
-            target_abs: join_cloud_path(&options.cloud_root, &entry.rel_path),
+            target_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
         },
         SyncDirection::CloudToLocal => SyncAction::CreateDir {
             rel_path: entry.rel_path.clone(),
@@ -395,15 +390,11 @@ pub fn should_treat_personal_item_as_folder(item: &crate::models::PersonalFileIt
 }
 
 pub fn cloud_child_path(parent: &str, name: &str) -> String {
-    if parent == "/" || parent.is_empty() {
-        format!("/{}", name.trim_matches('/'))
-    } else {
-        format!(
-            "{}/{}",
-            parent.trim_end_matches('/'),
-            name.trim_matches('/')
-        )
-    }
+    format!(
+        "{}/{}",
+        parent.trim_end_matches('/'),
+        name.trim_matches('/')
+    )
 }
 
 pub fn personal_item_to_file_entry(
@@ -429,11 +420,7 @@ pub fn personal_item_to_file_entry(
 }
 
 fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
-    let raw = item
-        .updated_at
-        .as_deref()
-        .or(item.update_date.as_deref())
-        .or(item.last_modified.as_deref())?;
+    let raw = item.modified_time()?;
 
     chrono::DateTime::parse_from_rfc3339(raw)
         .map(|time| time.timestamp())
@@ -446,22 +433,11 @@ fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
 pub(crate) const SYNC_RETRIES: u32 = 4;
 pub(crate) const SYNC_BACKOFF_SECS: u64 = 2;
 
-pub(super) async fn confirm_cloud_directory(
-    config: &crate::config::Config,
-    path: &str,
-    expected_id: &str,
-) -> Result<()> {
-    use anyhow::Context;
-    let current = crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-        super::directory_service::directory(config, path)
-            .await
-            .map_err(Into::into)
-    })
-    .await
-    .with_context(|| format!("无法复核云端目录 {path}"))?;
-    anyhow::ensure!(current == expected_id, "云端目录 {path} 的 ID 已变更");
-    Ok(())
-}
+pub(super) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
+    retries: SYNC_RETRIES,
+    backoff_secs: SYNC_BACKOFF_SECS,
+    timeout: None,
+};
 
 pub(crate) const SYNC_UPLOAD_PREFIX: &str = ".cloud139-upload-";
 pub(crate) const UPLOAD_BACKUP_PREFIX: &str = ".cloud139-backup-";
@@ -525,12 +501,7 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
             id,
             size,
             sha256,
-            modified: item
-                .updated_at
-                .as_ref()
-                .or(item.update_date.as_ref())
-                .or(item.last_modified.as_ref())
-                .cloned(),
+            modified: item.modified_time().map(str::to_owned),
         }
     }
 }
@@ -574,7 +545,7 @@ impl CloudSyncScan {
 
     pub(super) async fn confirm_subtree(
         &self,
-        listing: &crate::client::api::PersonalListing<'_>,
+        listing: &crate::client::api::PersonalClient<'_>,
         root_path: &str,
         root_id: &str,
     ) -> Result<()> {
@@ -676,112 +647,53 @@ async fn scan_cloud_personal_inner(
 ) -> Result<CloudSyncScan> {
     config.require_personal()?;
     let cloud_root = super::directory_service::normalize(cloud_root)?;
-    let mut config = config.clone();
-    let host = match &config.personal_cloud_host {
-        Some(host) => host.clone(),
-        None => crate::client::api::get_personal_cloud_host(&mut config).await?,
-    };
-
-    let root_id = if cloud_root == "/" {
-        "/".to_string()
-    } else {
-        crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-            super::directory_service::directory(&config, &cloud_root)
-                .await
-                .map_err(anyhow::Error::from)
-        })
-        .await?
-    };
-
-    let patterns = compile_exclude_patterns(&options.exclude)?;
-    let mut scan = CloudSyncScan {
-        directories: BTreeMap::from([(String::new(), root_id.clone())]),
-        ..CloudSyncScan::default()
-    };
-    let mut seen_objects = BTreeSet::from([root_id.clone()]);
-    scan_cloud_personal_dir(
-        &config,
-        &host,
-        "",
-        &root_id,
-        &options,
-        &patterns,
+    let client = HttpClientWrapper::new();
+    let listing = PersonalClient::connect(config, &client, SYNC_LIST_RETRY).await?;
+    let root_id = super::directory_service::directory_with_listing(&listing, &cloud_root).await?;
+    let mut scanner = CloudScanner {
+        scan: CloudSyncScan {
+            directories: BTreeMap::from([(String::new(), root_id.clone())]),
+            host: listing.host.to_string(),
+            root: cloud_root,
+            ..CloudSyncScan::default()
+        },
+        seen_objects: BTreeSet::from([root_id.clone()]),
+        recursive: options.recursive,
         upload_target,
-        &mut scan,
-        &mut seen_objects,
-    )
-    .await?;
-    scan.items
+        patterns: compile_exclude_patterns(&options.exclude)?,
+    };
+    scanner.scan_directory(&listing, "", &root_id).await?;
+    scanner
+        .scan
+        .items
         .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
-    scan.host = host;
-    scan.root = cloud_root;
-    Ok(scan)
+    Ok(scanner.scan)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn scan_cloud_personal_dir<'a>(
-    config: &'a crate::config::Config,
-    host: &'a str,
-    rel_parent: &'a str,
-    parent_file_id: &'a str,
-    options: &'a SyncScanOptions,
-    patterns: &'a [Pattern],
+struct CloudScanner {
+    scan: CloudSyncScan,
+    seen_objects: BTreeSet<String>,
+    recursive: bool,
     upload_target: bool,
-    scan: &'a mut CloudSyncScan,
-    seen_objects: &'a mut BTreeSet<String>,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-    Box::pin(async move {
-        let url = format!("{}/file/list", host);
-        let mut next_cursor = String::new();
-        let mut seen_cursors = std::collections::HashSet::new();
+    patterns: Vec<Pattern>,
+}
 
-        loop {
-            // Keep the guard per directory, outside request retries. Retrying the
-            // current page is valid; revisiting it as a new page is not.
-            if !seen_cursors.insert(next_cursor.clone()) {
-                return Err(crate::client::ClientError::Api(
-                    "分页游标重复，已停止列目录".to_string(),
-                )
-                .into());
+impl CloudScanner {
+    async fn scan_directory(
+        &mut self,
+        listing: &PersonalClient<'_>,
+        rel_parent: &str,
+        parent_file_id: &str,
+    ) -> Result<()> {
+        let mut pages = pin!(listing.pages(
+            parent_file_id,
+            ListPageOptions {
+                thumbnails: None,
+                ..ListPageOptions::default()
             }
-            let body = serde_json::json!({
-                "parentFileId": parent_file_id,
-                "pageInfo": {
-                    "pageCursor": next_cursor,
-                    "pageSize": 100
-                },
-                "orderBy": "updated_at",
-                "orderDirection": "DESC"
-            });
-
-            // 每个分页请求单独重试：断连就地重试，不惊动上层、不让整条命令失败。
-            let resp: crate::models::PersonalListResp =
-                crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-                    crate::client::api::personal_api_request(
-                        config,
-                        &url,
-                        body.clone(),
-                        crate::domain::StorageType::PersonalNew,
-                    )
-                    .await
-                    .map_err(anyhow::Error::from)
-                })
-                .await?;
-
-            if !resp.base.success {
-                return Err(crate::client::ClientError::Api(
-                    resp.base
-                        .message
-                        .unwrap_or_else(|| "获取云端文件列表失败".to_string()),
-                )
-                .into());
-            }
-
-            let data = resp
-                .data
-                .ok_or_else(|| anyhow!("获取云端文件列表失败: 无数据"))?;
-
-            for item in data.items {
+        ));
+        while let Some(items) = pages.try_next().await? {
+            for item in items {
                 let name = item
                     .name
                     .as_deref()
@@ -792,9 +704,11 @@ fn scan_cloud_personal_dir<'a>(
                 } else {
                     format!("{}/{}", rel_parent, name)
                 };
-                if is_excluded(&rel_path, patterns) || (upload_target && is_recovery_name(name)) {
-                    if upload_target {
-                        scan.protect(&rel_path);
+                if is_excluded(&rel_path, &self.patterns)
+                    || (self.upload_target && is_recovery_name(name))
+                {
+                    if self.upload_target {
+                        self.scan.protect(&rel_path);
                     }
                     continue;
                 }
@@ -804,79 +718,63 @@ fn scan_cloud_personal_dir<'a>(
                         .file_id
                         .as_deref()
                         .filter(|id| !id.is_empty() && *id != "/");
-                    if !upload_target && options.recursive && child_id.is_none() {
+                    if !self.upload_target && self.recursive && child_id.is_none() {
                         return Err(anyhow!("云端目录缺少有效 ID: {rel_path}"));
                     }
-                    let Some(child_id) = child_id.filter(|_| options.recursive) else {
-                        if upload_target {
+                    let Some(child_id) = child_id.filter(|_| self.recursive) else {
+                        if self.upload_target {
                             // Ordinary non-recursive scans encounter only top-level folders.
-                            scan.protect(&rel_path);
+                            self.scan.protect(&rel_path);
                         }
                         continue;
                     };
-                    if let Some(previous) = scan.directories.get(&rel_path)
+                    if let Some(previous) = self.scan.directories.get(&rel_path)
                         && previous == child_id
                     {
                         continue;
                     }
-                    if scan.directories.contains_key(&rel_path)
-                        || scan.files.contains_key(&rel_path)
+                    if self.scan.directories.contains_key(&rel_path)
+                        || self.scan.files.contains_key(&rel_path)
                     {
                         return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
                     }
-                    if !seen_objects.insert(child_id.to_owned()) {
+                    if !self.seen_objects.insert(child_id.to_owned()) {
                         return Err(anyhow!("云端扫描返回了重复的目录 ID: {rel_path}"));
                     }
-                    scan.directories
+                    self.scan
+                        .directories
                         .insert(rel_path.clone(), child_id.to_owned());
-                    scan.items.push(FileEntry {
+                    self.scan.items.push(FileEntry {
                         rel_path: rel_path.clone(),
                         size: 0,
                         mtime: parse_cloud_mtime(&item),
                         kind: SyncEntryKind::Directory,
                     });
-                    scan_cloud_personal_dir(
-                        config,
-                        host,
-                        &rel_path,
-                        child_id,
-                        options,
-                        patterns,
-                        upload_target,
-                        scan,
-                        seen_objects,
-                    )
-                    .await?;
+                    Box::pin(self.scan_directory(listing, &rel_path, child_id)).await?;
                 } else {
                     let entry = personal_item_to_file_entry(rel_parent, &item)?;
                     let file = CloudSyncFile::from(&item);
-                    if let Some(previous) = scan.files.get(&rel_path) {
+                    if let Some(previous) = self.scan.files.get(&rel_path) {
                         if file.id.is_some() && previous == &file {
                             continue;
                         }
                         return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
                     }
-                    if scan.directories.contains_key(&rel_path) {
+                    if self.scan.directories.contains_key(&rel_path) {
                         return Err(anyhow!("云端扫描返回了冲突的路径: {rel_path}"));
                     }
                     if let Some(id) = &file.id
-                        && !seen_objects.insert(id.to_owned())
+                        && !self.seen_objects.insert(id.to_owned())
                     {
                         return Err(anyhow!("云端扫描返回了重复的条目 ID: {rel_path}"));
                     }
-                    scan.files.insert(rel_path, file);
-                    scan.items.push(entry);
+                    self.scan.files.insert(rel_path, file);
+                    self.scan.items.push(entry);
                 }
             }
-
-            next_cursor = data.next_page_cursor.unwrap_or_default();
-            if next_cursor.is_empty() {
-                break;
-            }
         }
-
         Ok(())
-    })
+    }
 }
 
 #[cfg(test)]

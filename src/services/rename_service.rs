@@ -2,7 +2,6 @@ use super::directory_service as dirs;
 use crate::{
     client::{ClientError, api},
     config::Config,
-    domain::StorageType,
 };
 pub async fn rename(
     config: &Config,
@@ -13,31 +12,37 @@ pub async fn rename(
     config.require_personal()?;
     let source = dirs::non_root(source)?;
     dirs::validate_name(target)?;
-    let entry = dirs::resolve(config, &source).await?;
+    let client = api::HttpClientWrapper::new();
+    let personal = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let (entry, _) = dirs::resolve_entry(&personal, &source).await?;
     let (parent, name) = source.rsplit_once('/').unwrap();
     if name == target {
         return Ok(());
     }
-    let parent_id = dirs::directory(config, parent).await?;
-    if let Some(conflict) = api::list_personal_files(config, &parent_id)
+    let parent_id = dirs::directory_with_listing(&personal, parent).await?;
+    if let Some(conflict) = personal
+        .list_files(&parent_id)
         .await?
         .iter()
-        .find(|i| i.name.as_deref() == Some(target))
-        && (entry.folder
-            || super::sync_service::should_treat_personal_item_as_folder(conflict)
-            || !force)
+        .find(|item| item.name.as_deref() == Some(target))
+        && (entry.folder || conflict.is_folder() || !force)
     {
         return Err(ClientError::ForceRequired);
     }
-    let mut cached = config.clone();
-    let host = api::get_personal_cloud_host(&mut cached).await?;
-    let resp: crate::models::PersonalUploadResp = api::personal_api_request(
-        &cached,
-        &format!("{host}/file/update"),
-        serde_json::json!({ "fileId": entry.id, "name": target, "description": "" }),
-        StorageType::PersonalNew,
-    )
-    .await?;
+    rename_personal_id(&personal, &entry.id, target).await
+}
+
+pub(super) async fn rename_personal_id(
+    personal: &api::PersonalClient<'_>,
+    id: &str,
+    name: &str,
+) -> Result<(), ClientError> {
+    let resp: crate::models::PersonalUploadResp = personal
+        .request(
+            "/file/update",
+            serde_json::json!({ "fileId": id, "name": name, "description": "" }),
+        )
+        .await?;
     if !resp.base.success {
         return Err(ClientError::Api(
             resp.base.message.unwrap_or_else(|| "重命名失败".into()),

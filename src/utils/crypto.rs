@@ -182,30 +182,19 @@ pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
 }
 
 pub fn calc_file_hash(path: &str) -> Result<String, std::io::Error> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let mut file = File::open(path)?;
-    let mut hasher = sha1::Sha1::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    Ok(hex::encode(hasher.finalize()))
+    hash_file::<sha1::Sha1>(path.as_ref())
 }
 
 pub fn calc_file_sha256(path: impl AsRef<std::path::Path>) -> Result<String, std::io::Error> {
+    hash_file::<sha2::Sha256>(path.as_ref())
+}
+
+fn hash_file<D: Digest>(path: &std::path::Path) -> Result<String, std::io::Error> {
     use std::fs::File;
     use std::io::Read;
 
     let mut file = File::open(path)?;
-    let mut hasher = sha2::Sha256::new();
+    let mut hasher = D::new();
     let mut buffer = [0u8; 8192];
 
     loop {
@@ -219,14 +208,4 @@ pub fn calc_file_sha256(path: impl AsRef<std::path::Path>) -> Result<String, std
     Ok(hex::encode(hasher.finalize()))
 }
 
-pub fn generate_random_string(len: usize) -> String {
-    use rand::Rng;
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::thread_rng();
-    (0..len)
-        .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
-            CHARSET[idx] as char
-        })
-        .collect()
-}
+pub use crate::utils::rand::generate_rand_str as generate_random_string;

@@ -31,7 +31,7 @@ pub struct Client {
 
 impl Client {
     pub fn new(config: crate::config::Config) -> Self {
-        let http_client = reqwest::Client::builder()
+        let http_client = api::http_client_builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
             .build()
             .expect("Failed to build HTTP client");
@@ -58,35 +58,14 @@ impl Client {
         url: &str,
         body: serde_json::Value,
     ) -> Result<T, ClientError> {
-        self.config.require_personal()?;
-        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let rand_str = generate_rand_str(16);
-        let body_str = body.to_string();
-        let sign = crate::utils::crypto::calc_sign(&body_str, &ts, &rand_str);
-
-        let headers = self.build_headers(&ts, &rand_str, &sign)?;
-
-        debug!("api_request_post: POST {}", url);
-        let resp = self
-            .http_client
-            .post(url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let result: T = resp.json().await?;
-        Ok(result)
-    }
-
-    fn build_headers(
-        &self,
-        ts: &str,
-        rand_str: &str,
-        sign: &str,
-    ) -> Result<reqwest::header::HeaderMap, ClientError> {
-        headers::build_signed_headers(&self.config.authorization, ts, rand_str, sign, "1")
+        api::personal_post(
+            &self.config,
+            url,
+            &body,
+            crate::domain::StorageType::PersonalNew,
+            &self.http_client,
+        )
+        .await
     }
 
     pub async fn and_album_request<T: for<'de> Deserialize<'de>>(

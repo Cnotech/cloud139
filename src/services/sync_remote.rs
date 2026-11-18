@@ -27,7 +27,7 @@ impl<'a> SyncCloud<'a> {
         }
     }
 
-    pub(super) async fn listing(&self) -> Result<api::PersonalListing<'_>> {
+    pub(super) async fn listing(&self) -> Result<api::PersonalClient<'_>> {
         let host = self
             .host
             .get_or_try_init(|| async {
@@ -38,12 +38,12 @@ impl<'a> SyncCloud<'a> {
                     .await
             })
             .await?;
-        Ok(api::PersonalListing {
-            config: self.config,
-            host,
-            http_client: &self.client,
-            retry_transient: true,
-        })
+        Ok(api::PersonalClient::with_host(
+            self.config,
+            host.as_str(),
+            &self.client,
+            api::ListingRetry::DIRECTORY,
+        ))
     }
 
     pub(super) async fn ensure_directory(&self, absolute: &str) -> Result<String> {
@@ -125,9 +125,7 @@ impl<'a> SyncCloud<'a> {
 
     pub(super) async fn confirm_directory(&self, path: &str, id: &str) -> Result<()> {
         let listing = self.listing().await?;
-        let current = dirs::directory_with_listing(&listing, path).await?;
-        ensure!(current == id, "云端目录 {path} 的 ID 已变更");
-        Ok(())
+        dirs::confirm_directory(&listing, path, id).await
     }
 
     pub(super) async fn current_file(
@@ -183,7 +181,7 @@ impl<'a> SyncCloud<'a> {
                     || current.map(CloudSyncFile::from).as_ref() == scan.files.get(rel_path)),
             "提交删除前发现云端条目 {path} 已变更"
         );
-        trash_personal_file_id(self.config, listing.host, expected_id).await?;
+        trash_personal_file_id(&listing, expected_id).await?;
         Ok(())
     }
 }

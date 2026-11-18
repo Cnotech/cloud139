@@ -243,7 +243,7 @@ async fn execute_one_action(
                 config,
                 local_abs,
                 SyncUploadPlan {
-                    host: listing.host,
+                    host: &listing.host,
                     scan: cloud,
                     rel_path,
                     parent_id: &parent_id,

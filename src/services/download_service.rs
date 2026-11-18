@@ -1,7 +1,6 @@
 use crate::client::ClientError;
+use crate::client::api::{HttpClientWrapper, ListingRetry, PersonalClient};
 use crate::config::Config;
-use crate::domain::StorageType;
-use crate::models::DownloadUrlResp;
 use anyhow::Result;
 use futures_util::StreamExt;
 use indicatif::ProgressBar;
@@ -16,47 +15,19 @@ pub async fn download(
     local_path: &str,
     pb: Option<ProgressBar>,
 ) -> Result<()> {
-    download_with_size(config, remote_path, local_path, pb, None).await
+    download_path(config, remote_path, local_path, pb, false).await
 }
 
-async fn download_with_size(
-    config: &Config,
-    remote_path: &str,
-    local_path: &str,
-    pb: Option<ProgressBar>,
-    listed_size: Option<i64>,
-) -> Result<()> {
-    let normalized = super::directory_service::normalize(remote_path)?;
-    let remote_path = normalized.as_str();
-    let (file, size) = super::directory_service::resolve_with_size(config, remote_path).await?;
-    if file.folder {
-        return Err(ClientError::UnsupportedDownloadDirectory.into());
-    }
-    download_personal(
-        config,
-        remote_path,
-        &file.id,
-        local_path,
-        pb,
-        listed_size.or(size),
-    )
-    .await?;
-    Ok(())
-}
-
-/// 下载个人云文件
 async fn download_personal(
-    config: &Config,
+    personal: &PersonalClient<'_>,
     remote_path: &str,
     file_id: &str,
     local_path: &str,
     pb: Option<ProgressBar>,
     listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
-    let mut config = config.clone();
-    let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
-
-    let (download_url, reported_name) = personal_download_link(&config, &host, file_id).await?;
+    let (download_url, reported_name) = personal.download_link(file_id).await?;
+    let http = &personal.http_client.client;
 
     let local_path_obj = Path::new(local_path);
     if local_path_obj.is_dir() {
@@ -70,39 +41,12 @@ async fn download_personal(
         });
         super::directory_service::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
-        download_file(&download_url, &file_path, pb, listed_size).await?;
+        write_download(http, &download_url, &file_path, pb, listed_size).await?;
     } else {
-        download_file(&download_url, local_path_obj, pb, listed_size).await?;
+        write_download(http, &download_url, local_path_obj, pb, listed_size).await?;
     }
 
     Ok(())
-}
-
-async fn personal_download_link(
-    config: &Config,
-    host: &str,
-    file_id: &str,
-) -> Result<(String, Option<String>), ClientError> {
-    let resp: DownloadUrlResp = crate::client::api::personal_api_request(
-        config,
-        &format!("{host}/file/getDownloadUrl"),
-        serde_json::json!({ "fileId": file_id }),
-        StorageType::PersonalNew,
-    )
-    .await?;
-    if !resp.base.success {
-        return Err(ClientError::Api(format!(
-            "获取下载链接失败: {}",
-            resp.base.message.as_deref().unwrap_or("未知错误")
-        )));
-    }
-    let download_url = resp
-        .data
-        .cdn_url
-        .or(resp.data.url)
-        .filter(|url| !url.is_empty())
-        .ok_or_else(|| ClientError::Api("获取下载链接失败: URL为空".into()))?;
-    Ok((download_url, resp.data.file_name))
 }
 
 pub(super) async fn download_scanned_personal(
@@ -113,14 +57,27 @@ pub(super) async fn download_scanned_personal(
     pb: Option<ProgressBar>,
     size: Option<u64>,
 ) -> Result<(), ClientError> {
-    let (url, _) = personal_download_link(config, host, file_id).await?;
-    download_file(
-        &url,
+    let client = HttpClientWrapper::new();
+    let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
+    download_to_path(
+        &personal,
+        file_id,
         local_path,
         pb,
         size.and_then(|size| i64::try_from(size).ok()),
     )
     .await
+}
+
+async fn download_to_path(
+    personal: &PersonalClient<'_>,
+    file_id: &str,
+    destination: &Path,
+    pb: Option<ProgressBar>,
+    size: Option<i64>,
+) -> Result<(), ClientError> {
+    let (url, _) = personal.download_link(file_id).await?;
+    write_download(&personal.http_client.client, &url, destination, pb, size).await
 }
 
 pub(super) async fn personal_content_sha256(
@@ -129,16 +86,10 @@ pub(super) async fn personal_content_sha256(
     file_id: &str,
     expected_size: Option<u64>,
 ) -> Result<String, ClientError> {
-    let (url, _) = personal_download_link(config, host, file_id).await?;
-    let client = reqwest::Client::builder()
-        .read_timeout(std::time::Duration::from_secs(30))
-        .build()?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(reqwest::Error::without_url)?;
+    let client = HttpClientWrapper::new();
+    let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
+    let (url, _) = personal.download_link(file_id).await?;
+    let response = request_download_content(&client.client, &url).await?;
     let mut body = response.bytes_stream();
     let mut hasher = Sha256::new();
     let mut bytes = 0;
@@ -160,8 +111,22 @@ pub(super) async fn personal_content_sha256(
     Ok(hex::encode(hasher.finalize()))
 }
 
+async fn request_download_content(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<reqwest::Response, ClientError> {
+    // Errors for signed download URLs must omit the URL.
+    Ok(client
+        .get(url)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(reqwest::Error::without_url)?)
+}
+
 /// 下载文件到本地
-async fn download_file(
+async fn write_download(
+    client: &reqwest::Client,
     url: &str,
     local_path: &Path,
     pb: Option<ProgressBar>,
@@ -175,15 +140,7 @@ async fn download_file(
         pb.reset_eta();
     }
 
-    let client = crate::client::api::HttpClientWrapper::new();
-    // Reject HTTP error pages before creating or truncating the destination.
-    let response = client
-        .client
-        .get(url)
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(reqwest::Error::without_url)?;
+    let response = request_download_content(client, url).await?;
 
     let parent = super::directory_service::local_parent_directory(local_path);
     std::fs::create_dir_all(parent)?;
@@ -258,22 +215,37 @@ pub async fn download_recursive(
     local: &str,
     recursive: bool,
 ) -> Result<()> {
+    download_path(config, remote, local, None, recursive).await
+}
+
+async fn download_path(
+    config: &Config,
+    remote: &str,
+    local: &str,
+    pb: Option<ProgressBar>,
+    recursive: bool,
+) -> Result<()> {
     use super::directory_service as dirs;
     config.require_personal()?;
     let remote = dirs::normalize(remote)?;
     dirs::safe_local(Path::new(local))?;
-    let (entry, size) = dirs::resolve_with_size(config, &remote).await?;
+    if remote == "/" && !recursive {
+        return Err(ClientError::UnsupportedDownloadDirectory.into());
+    }
+    let client = HttpClientWrapper::new();
+    let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
+    let (entry, size) = dirs::resolve_entry(&personal, &remote).await?;
     if !entry.folder {
-        return Ok(download_personal(config, &remote, &entry.id, local, None, size).await?);
+        return Ok(download_personal(&personal, &remote, &entry.id, local, pb, size).await?);
     }
     if !recursive {
         return Err(ClientError::UnsupportedDownloadDirectory.into());
     }
-    let entries = dirs::tree(config, &remote).await?;
+    let entries = dirs::tree_with_listing(&personal, remote.clone(), entry.id).await?;
     let destination_root = Path::new(local);
     let mut plan = Vec::with_capacity(entries.len());
     // Check all destinations before writing any file.
-    for entry in entries {
+    for (entry, id) in entries {
         let rel = entry
             .path
             .strip_prefix(remote.trim_end_matches('/'))
@@ -290,10 +262,10 @@ pub async fn download_recursive(
                 local_file_metadata(&dest)?;
             }
         }
-        plan.push((entry, dest));
+        plan.push((entry, id, dest));
     }
     if !plan.is_empty() {
-        let paths = plan.iter().map(|(entry, destination)| {
+        let paths = plan.iter().map(|(entry, _, destination)| {
             (
                 destination
                     .strip_prefix(destination_root)
@@ -304,20 +276,16 @@ pub async fn download_recursive(
         dirs::check_destination_collisions(destination_root, paths)?;
     }
     std::fs::create_dir_all(destination_root)?;
-    for (entry, dest) in plan {
+    for (entry, id, dest) in plan {
         dirs::safe_local(&dest)?;
         if entry.folder {
             std::fs::create_dir_all(&dest)?;
         } else {
-            download_with_size(
-                config,
-                &entry.path,
-                dest.to_str().ok_or(ClientError::InvalidFilePath)?,
-                None,
-                entry.size,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e))?;
+            download_to_path(&personal, &id, &dest, None, entry.size)
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("下载 {} 失败；此前条目可能已完成: {}", entry.path, e)
+                })?;
         }
     }
     Ok(())
@@ -331,6 +299,15 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
+
+    async fn test_download_file(
+        url: &str,
+        path: &Path,
+        pb: Option<ProgressBar>,
+        size: Option<i64>,
+    ) -> Result<(), ClientError> {
+        write_download(&HttpClientWrapper::new().client, url, path, pb, size).await
+    }
 
     /// 第一个连接只发一半的 body（触发不完整响应），其余连接完整发送。
     fn spawn_server(partial_first: bool, body: &'static [u8]) -> (String, Arc<AtomicUsize>) {
@@ -367,12 +344,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tmp");
         let pb = ProgressBar::new(0);
 
-        download_file(&url, &dir.path().join("a"), Some(pb.clone()), None)
+        test_download_file(&url, &dir.path().join("a"), Some(pb.clone()), None)
             .await
             .expect("first download");
         assert_eq!(pb.position(), 10);
 
-        download_file(&url, &dir.path().join("b"), Some(pb.clone()), None)
+        test_download_file(&url, &dir.path().join("b"), Some(pb.clone()), None)
             .await
             .expect("second download");
         assert_eq!(pb.position(), 10, "第二次应从头累加，不是 20");
@@ -387,13 +364,13 @@ mod tests {
 
         let target = dir.path().join("a");
         std::fs::write(&target, b"existing").unwrap();
-        let first = download_file(&url, &target, Some(pb.clone()), None).await;
+        let first = test_download_file(&url, &target, Some(pb.clone()), None).await;
         assert!(first.is_err(), "半包应当报错");
         assert_eq!(std::fs::read(&target).unwrap(), b"existing");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         let after_first = pb.position();
 
-        download_file(&url, &target, Some(pb.clone()), None)
+        test_download_file(&url, &target, Some(pb.clone()), None)
             .await
             .expect("retry download");
         assert_eq!(std::fs::read(&target).unwrap(), b"0123456789");
@@ -413,7 +390,8 @@ mod tests {
         let pb = ProgressBar::new(10);
         pb.set_position(7);
 
-        let result = download_file(&url, &dir.path().join("out"), Some(pb.clone()), None).await;
+        let result =
+            test_download_file(&url, &dir.path().join("out"), Some(pb.clone()), None).await;
         assert!(result.is_err(), "incomplete body must fail");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
         assert!(
@@ -437,7 +415,7 @@ mod tests {
         let missing = dir.path().join("missing");
 
         for path in [&existing, &missing] {
-            let err = download_file(&server.url("/download"), path, None, None)
+            let err = test_download_file(&server.url("/download"), path, None, None)
                 .await
                 .expect_err("HTTP error must not be treated as a file");
             match err {

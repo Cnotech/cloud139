@@ -1,6 +1,8 @@
+use super::personal_parts::{PART_BATCH_SIZE, part_infos, part_offset_and_size};
 use crate::client::{ClientError, api};
 use crate::domain::StorageType;
 use crate::models::{PersonalFileItem, PersonalUploadResp};
+use crate::services::rename_service::rename_personal_id;
 use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::utils::logger::{pb_debug, pb_success};
 use anyhow::Context;
@@ -69,7 +71,9 @@ pub(in crate::services) async fn upload_sync_to_parent(
         "{SYNC_UPLOAD_PREFIX}{}",
         crate::utils::crypto::generate_random_string(24)
     );
-    let before = api::list_personal_files(config, parent_id).await?;
+    let client = api::HttpClientWrapper::new();
+    let personal = api::PersonalClient::with_host(config, host, &client, api::ListingRetry::None);
+    let before = personal.list_files(parent_id).await?;
     if before
         .iter()
         .any(|item| item.name.as_deref() == Some(&temporary_name))
@@ -122,7 +126,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         {
             anyhow::bail!("临时文件 ID 已存在，旧条目未替换");
         }
-        let mut files = confirm_uploaded_name(config, parent_id, id, saved_name).await?;
+        let mut files = confirm_uploaded_name(&personal, parent_id, id, saved_name).await?;
         check_destination(&files, file_name, expected_id, expected_file)?;
         if let Some(hash_missing) = hash_missing {
             let item = files
@@ -147,29 +151,27 @@ pub(in crate::services) async fn upload_sync_to_parent(
                 anyhow::bail!("上传后校验失败：临时文件 SHA-256 不一致");
             }
             if remote.sha256.is_none() {
-                files = confirm_uploaded_name(config, parent_id, id, saved_name).await?;
+                files = confirm_uploaded_name(&personal, parent_id, id, saved_name).await?;
                 check_destination(&files, file_name, expected_id, expected_file)?;
             }
         }
+        let listing = api::PersonalClient::with_host(
+            config,
+            host,
+            &client,
+            super::super::sync_service::SYNC_LIST_RETRY,
+        );
         if let Some(dir_id) = replace_directory_id {
-            let client = api::HttpClientWrapper::new();
-            let listing = api::PersonalListing {
-                config,
-                host,
-                http_client: &client,
-                retry_transient: true,
-            };
             scan.context("替换目录需要扫描记录")?
                 .confirm_subtree(&listing, rel_path, dir_id)
                 .await?;
-            files = confirm_uploaded_name(config, parent_id, id, saved_name).await?;
+            files = confirm_uploaded_name(&personal, parent_id, id, saved_name).await?;
             check_destination(&files, file_name, expected_id, expected_file)?;
         }
-        super::super::sync_service::confirm_cloud_directory(config, remote_parent, parent_id)
+        super::super::directory_service::confirm_directory(&listing, remote_parent, parent_id)
             .await?;
         let installed = install_uploaded_file(
-            config,
-            host,
+            &personal,
             parent_id,
             id,
             file_name,
@@ -354,24 +356,6 @@ pub async fn init_upload(
         crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size);
     let part_count = checked_part_count(file_size, part_size)?;
 
-    let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100))
-        .map(|i| {
-            let start = i * part_size;
-            let byte_size = if file_size - start > part_size {
-                part_size
-            } else {
-                file_size - start
-            };
-            serde_json::json!({
-                "partNumber": (i + 1) as i32,
-                "partSize": byte_size,
-                "parallelHashCtx": {
-                    "partOffset": start
-                }
-            })
-        })
-        .collect();
-
     let content_type = get_content_type(local_path);
 
     let body = serde_json::json!({
@@ -379,7 +363,7 @@ pub async fn init_upload(
         "contentHashAlgorithm": "SHA256",
         "contentType": content_type,
         "parallelUpload": false,
-        "partInfos": first_part_infos,
+        "partInfos": part_infos(0..part_count.min(PART_BATCH_SIZE), part_size, file_size),
         "size": file_size,
         "parentFileId": parent_file_id,
         "name": file_name,
@@ -471,8 +455,8 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     }
     let part_count = checked_part_count(file_size, part_size)?;
 
-    for batch_start in (0..part_count).step_by(100) {
-        let batch_end = (batch_start + 100).min(part_count);
+    for batch_start in (0..part_count).step_by(PART_BATCH_SIZE as usize) {
+        let batch_end = (batch_start + PART_BATCH_SIZE).min(part_count);
         let upload_urls = if batch_start == 0 {
             params
                 .initial_parts
@@ -492,10 +476,9 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
             .await?
         };
         for i in batch_start..batch_end {
-            let offset = (i * part_size) as u64;
-            let read_size = part_size.min(file_size - i * part_size) as u64;
+            let (offset, read_size) = part_offset_and_size(i, part_size, file_size);
             let mut part = file.try_clone().await?;
-            part.seek(SeekFrom::Start(offset)).await?;
+            part.seek(SeekFrom::Start(offset as u64)).await?;
             let part_number = (i + 1) as i32;
             pb_debug(
                 &format!("上传分片 {}/{}", part_number, part_count),
@@ -506,7 +489,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
                 &upload_urls,
                 part_number,
                 part,
-                read_size,
+                read_size as u64,
                 params.pb.clone(),
             )
             .await?;
@@ -524,8 +507,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
 }
 
 async fn install_uploaded_file(
-    config: &crate::config::Config,
-    host: &str,
+    personal: &api::PersonalClient<'_>,
     parent_file_id: &str,
     file_id: &str,
     file_name: &str,
@@ -562,17 +544,17 @@ async fn install_uploaded_file(
             "{UPLOAD_BACKUP_PREFIX}{}",
             crate::utils::crypto::generate_random_string(20)
         );
-        rename_uploaded_file(config, host, old_id, &backup_name)
+        rename_personal_id(personal, old_id, &backup_name)
             .await
             .map_err(|error| {
                 ClientError::Api(format!(
                     "无法为旧文件保留备份，新文件保存在 {saved_name}: {error}"
                 ))
             })?;
-        rename_uploaded_file(config, host, file_id, file_name).await.map_err(|error| {
+        rename_personal_id(personal, file_id, file_name).await.map_err(|error| {
             ClientError::Api(format!("无法重命名新文件；旧文件保留为 {backup_name}，请检查新文件 {saved_name}: {error}"))
         })?;
-        let published = confirm_uploaded_name(config, parent_file_id, file_id, file_name)
+        let published = confirm_uploaded_name(personal, parent_file_id, file_id, file_name)
             .await
             .map_err(|error| {
                 ClientError::Api(format!(
@@ -586,26 +568,26 @@ async fn install_uploaded_file(
                 "旧文件备份 {backup_name} 已变更，停止回收"
             )));
         }
-        super::super::delete_service::trash_personal_file_id(config, host, old_id)
+        super::super::delete_service::trash_personal_file_id(personal, old_id)
             .await
             .map_err(|error| ClientError::Api(format!(
                 "新文件已重命名为 {file_name}，但旧文件备份 {backup_name} 未确认移到回收站: {error}"
             )))?;
     } else {
-        rename_uploaded_file(config, host, file_id, file_name).await?;
-        confirm_uploaded_name(config, parent_file_id, file_id, file_name).await?;
+        rename_personal_id(personal, file_id, file_name).await?;
+        confirm_uploaded_name(personal, parent_file_id, file_id, file_name).await?;
     }
     Ok(file_name.to_owned())
 }
 
 async fn confirm_uploaded_name(
-    config: &crate::config::Config,
+    personal: &api::PersonalClient<'_>,
     parent_id: &str,
     file_id: &str,
     name: &str,
 ) -> Result<Vec<PersonalFileItem>, ClientError> {
     for attempt in 0..5 {
-        let files = api::list_personal_files(config, parent_id).await?;
+        let files = personal.list_files(parent_id).await?;
         let mut matches = files
             .iter()
             .filter(|item| item.name.as_deref() == Some(name));
@@ -628,27 +610,6 @@ async fn confirm_uploaded_name(
     Err(ClientError::Api(format!(
         "无法在云端列表确认新文件 {name} 的身份"
     )))
-}
-
-async fn rename_uploaded_file(
-    config: &crate::config::Config,
-    host: &str,
-    file_id: &str,
-    name: &str,
-) -> Result<(), ClientError> {
-    let response: PersonalUploadResp = api::personal_api_request(
-        config,
-        &format!("{host}/file/update"),
-        serde_json::json!({ "fileId": file_id, "name": name, "description": "" }),
-        StorageType::PersonalNew,
-    )
-    .await?;
-    if !response.base.success {
-        return Err(ClientError::Api(
-            response.base.message.unwrap_or_else(|| "重命名失败".into()),
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -904,18 +865,17 @@ mod tests {
             when.path("/recyclebin/batchTrash");
             then.json_body(json!({"success":true}));
         });
-        let files = api::list_personal_files(&config, "/").await.unwrap();
-        let error = install_uploaded_file(
+        let client = api::HttpClientWrapper::new();
+        let personal = api::PersonalClient::with_host(
             &config,
-            &server.base_url(),
-            "/",
-            "new",
-            "report.txt",
-            &files,
-            None,
-        )
-        .await
-        .unwrap_err();
+            server.base_url(),
+            &client,
+            api::ListingRetry::None,
+        );
+        let files = personal.list_files("/").await.unwrap();
+        let error = install_uploaded_file(&personal, "/", "new", "report.txt", &files, None)
+            .await
+            .unwrap_err();
         assert!(error.to_string().contains("未删除"));
         assert!(error.to_string().contains(".cloud139-backup-"));
         list.assert_calls(6);
@@ -956,17 +916,16 @@ mod tests {
                 when.method(POST).path("/recyclebin/batchTrash");
                 then.json_body(json!({"success":true}));
             });
-            let files = api::list_personal_files(&config, "/").await.unwrap();
-            let result = install_uploaded_file(
+            let client = api::HttpClientWrapper::new();
+            let personal = api::PersonalClient::with_host(
                 &config,
-                &server.base_url(),
-                "/",
-                "new",
-                "report.txt",
-                &files,
-                None,
-            )
-            .await;
+                server.base_url(),
+                &client,
+                api::ListingRetry::None,
+            );
+            let files = personal.list_files("/").await.unwrap();
+            let result =
+                install_uploaded_file(&personal, "/", "new", "report.txt", &files, None).await;
             let message = result.unwrap_err().to_string();
             assert!(message.contains("report-copy.txt"));
             if !fail_backup {

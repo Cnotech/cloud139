@@ -1,6 +1,30 @@
 use crate::client::ClientError;
 use crate::domain::StorageType;
 
+pub(super) const PART_BATCH_SIZE: i64 = 100;
+
+pub(super) fn part_offset_and_size(index: i64, part_size: i64, file_size: i64) -> (i64, i64) {
+    let offset = index * part_size;
+    (offset, part_size.min(file_size - offset))
+}
+
+pub(super) fn part_infos(
+    parts: std::ops::Range<i64>,
+    part_size: i64,
+    file_size: i64,
+) -> Vec<serde_json::Value> {
+    parts
+        .map(|index| {
+            let (offset, size) = part_offset_and_size(index, part_size, file_size);
+            serde_json::json!({
+                "partNumber": (index + 1) as i32,
+                "partSize": size,
+                "parallelHashCtx": { "partOffset": offset },
+            })
+        })
+        .collect()
+}
+
 pub async fn get_upload_urls(
     config: &crate::config::Config,
     host: &str,
@@ -14,15 +38,15 @@ pub async fn get_upload_urls(
 
     let mut upload_urls: HashMap<i32, String> = HashMap::new();
 
-    for batch_start in (0..part_count as usize).step_by(100) {
-        let batch_end = std::cmp::min(batch_start + 100, part_count as usize);
+    for batch_start in (0..part_count).step_by(PART_BATCH_SIZE as usize) {
+        let batch_end = (batch_start + PART_BATCH_SIZE).min(part_count);
         upload_urls.extend(
             get_upload_url_batch(
                 config,
                 host,
                 file_id,
                 upload_id,
-                batch_start as i64..batch_end as i64,
+                batch_start..batch_end,
                 part_size,
                 file_size,
             )
@@ -45,26 +69,10 @@ pub(super) async fn get_upload_url_batch(
 
     let url = format!("{}/file/getUploadUrl", host);
 
-    let part_infos: Vec<serde_json::Value> = parts
-        .map(|i| {
-            let start = i * part_size;
-            let byte_size = if file_size - start > part_size {
-                part_size
-            } else {
-                file_size - start
-            };
-            serde_json::json!({
-                "partNumber": (i + 1) as i32,
-                "partSize": byte_size,
-                "parallelHashCtx": { "partOffset": start }
-            })
-        })
-        .collect();
-
     let body = serde_json::json!({
         "fileId": file_id,
         "uploadId": upload_id,
-        "partInfos": part_infos,
+        "partInfos": part_infos(parts, part_size, file_size),
         "commonAccountInfo": {
             "account": config.account,
             "accountType": 1

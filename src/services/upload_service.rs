@@ -42,15 +42,9 @@ pub async fn upload(
     }
     checked_upload_size(local_path)?;
     let remote_path = dirs::normalize(remote_path)?;
-    let mut config = config.clone();
     let http_client = api::HttpClientWrapper::new();
-    let host = api::get_personal_cloud_host_with_client(&mut config, &http_client).await?;
-    let listing = api::PersonalListing {
-        config: &config,
-        host: &host,
-        http_client: &http_client,
-        retry_transient: true,
-    };
+    let listing =
+        api::PersonalClient::connect(config, &http_client, api::ListingRetry::DIRECTORY).await?;
     let parent = dirs::directory_with_listing(&listing, &remote_path).await?;
     upload_file(&listing, local_path, &parent, file_name, force, pb).await
 }
@@ -107,15 +101,9 @@ async fn upload_personal_directory(
     if root == "/" && entries.is_empty() {
         return Ok(());
     }
-    let mut config = config.clone();
     let http_client = api::HttpClientWrapper::new();
-    let host = api::get_personal_cloud_host_with_client(&mut config, &http_client).await?;
-    let listing = api::PersonalListing {
-        config: &config,
-        host: &host,
-        http_client: &http_client,
-        retry_transient: true,
-    };
+    let listing =
+        api::PersonalClient::connect(config, &http_client, api::ListingRetry::DIRECTORY).await?;
     let root_id = dirs::ensure_personal_dir(&listing, root, true).await?;
     let mut directories = HashMap::from([(root.to_owned(), root_id)]);
     let mut uploaded = 0;
@@ -167,7 +155,7 @@ async fn upload_personal_directory(
 }
 
 async fn upload_file(
-    listing: &api::PersonalListing<'_>,
+    listing: &api::PersonalClient<'_>,
     path: &Path,
     parent_id: &str,
     name: &str,
@@ -189,7 +177,7 @@ async fn upload_file(
     }
     let saved_name = super::upload::personal::upload_to_parent(
         listing.config,
-        listing.host,
+        &listing.host,
         path,
         parent_id,
         name,
