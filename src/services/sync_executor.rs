@@ -1,7 +1,7 @@
 use crate::debug;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::sync_service::format_action_line;
-use crate::utils::logger::{mp_error, mp_step, mp_warn};
+use crate::utils::logger::{mp_error, mp_step};
 use anyhow::Result;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -11,12 +11,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, Semaphore};
-
-/// 只有已存在的文件（SizeOrTime / Checksum 变更）才需要先删后传。
-/// 新文件（New）目标端不存在，pre-delete 是多余的 API 调用。
-pub fn should_pre_delete(change: crate::domain::ChangeKind) -> bool {
-    !matches!(change, crate::domain::ChangeKind::New)
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct SyncExecuteOptions {
@@ -49,18 +43,8 @@ pub async fn execute_sync_actions(
     let multiprogress = Arc::new(MultiProgress::new());
     let skip_count = count_skips(&actions);
     let mut futures = FuturesUnordered::new();
-    let mut oversized = 0;
 
     for action in actions.iter() {
-        if matches!(action, SyncAction::UploadBlocked { .. }) {
-            if options.progress {
-                mp_warn(&format_action_line(action, false), &multiprogress);
-            } else {
-                crate::warn!("{}", format_action_line(action, false));
-            }
-            oversized += 1;
-            continue;
-        }
         if matches!(action, SyncAction::Skip { .. }) {
             continue;
         }
@@ -76,10 +60,7 @@ pub async fn execute_sync_actions(
             // Validate current metadata before ensuring parents (which can replace
             // cloud files) or deleting an existing destination.
             if let SyncAction::Upload { local_abs, .. } = &action
-                && let Err(error) = super::upload_service::checked_upload_size(
-                    crate::domain::StorageType::PersonalNew,
-                    local_abs,
-                )
+                && let Err(error) = super::upload_service::checked_upload_size(local_abs)
             {
                 if let Some(pb) = pb {
                     pb.finish_and_clear();
@@ -94,7 +75,12 @@ pub async fn execute_sync_actions(
             }
 
             let result =
-                execute_one_action(&config, &action, pb, Some(&dir_cache), Some(&mp)).await;
+                execute_one_action(&config, &action, pb.clone(), Some(&dir_cache), Some(&mp)).await;
+            if result.is_err()
+                && let Some(pb) = pb
+            {
+                pb.finish_and_clear();
+            }
             drop(permit);
             (action, result)
         }));
@@ -102,7 +88,6 @@ pub async fn execute_sync_actions(
 
     let mut summary = SyncSummary {
         skipped: skip_count,
-        oversized,
         ..SyncSummary::default()
     };
 
@@ -125,14 +110,7 @@ pub async fn execute_sync_actions(
                 } else {
                     crate::error!("{}", message);
                 }
-                if matches!(
-                    err.downcast_ref::<crate::client::ClientError>(),
-                    Some(crate::client::ClientError::UploadTooLarge { .. })
-                ) {
-                    summary.oversized += 1;
-                } else {
-                    summary.failed += 1;
-                }
+                summary.failed += 1;
             }
             Err(e) if e.is_panic() => {
                 mp_error("同步任务异常终止", &multiprogress);
@@ -237,10 +215,6 @@ fn summarize_actions(actions: &[SyncAction]) -> SyncSummary {
 
 fn summary_for_success(action: &SyncAction) -> SyncSummary {
     match action {
-        SyncAction::UploadBlocked { .. } => SyncSummary {
-            oversized: 1,
-            ..SyncSummary::default()
-        },
         SyncAction::Upload { size, .. } | SyncAction::Download { size, .. } => SyncSummary {
             transferred: 1,
             bytes: *size,
@@ -267,7 +241,6 @@ fn merge_summary(total: &mut SyncSummary, next: SyncSummary) {
     total.deleted += next.deleted;
     total.created_dirs += next.created_dirs;
     total.failed += next.failed;
-    total.oversized += next.oversized;
     total.bytes += next.bytes;
 }
 
@@ -303,7 +276,6 @@ fn action_rel_path(action: &SyncAction) -> String {
         | SyncAction::Download { rel_path, .. }
         | SyncAction::CreateDir { rel_path, .. }
         | SyncAction::Delete { rel_path, .. }
-        | SyncAction::UploadBlocked { rel_path, .. }
         | SyncAction::Skip { rel_path } => rel_path.clone(),
     }
 }
@@ -319,29 +291,20 @@ async fn execute_one_action(
         SyncAction::Upload {
             local_abs,
             remote_abs,
-            change,
             ..
         } => {
-            let file_size = super::upload_service::checked_upload_size(
-                crate::domain::StorageType::PersonalNew,
-                local_abs,
-            )?;
+            let file_size = super::upload_service::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
                 .and_then(|name| name.to_str())
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
-            if should_pre_delete(*change) {
-                crate::services::delete_service::delete_recursive(config, remote_abs, false, true)
-                    .await?;
-            }
-            crate::services::upload::personal::upload(
+            crate::services::upload::personal::upload_for_sync(
                 config,
                 local_abs,
                 &remote_dir,
                 file_name,
                 file_size,
-                true,
                 pb,
             )
             .await?;
@@ -409,7 +372,7 @@ async fn execute_one_action(
                 tokio::fs::create_dir_all(path).await?;
             }
         },
-        SyncAction::Skip { .. } | SyncAction::UploadBlocked { .. } => {}
+        SyncAction::Skip { .. } => {}
     }
 
     Ok(())

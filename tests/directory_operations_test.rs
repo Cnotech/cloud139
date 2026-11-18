@@ -22,6 +22,8 @@ struct State {
     children: HashMap<String, Vec<Value>>,
     requests: Vec<(String, Value)>,
     fail_name: Option<String>,
+    fail_upload: bool,
+    sync_mutations: bool,
     fail_batch: bool,
     fail_trash_item: bool,
     page_size: usize,
@@ -84,19 +86,24 @@ impl Server {
                                 json!({"success":true,"data":{"items":items.get(offset..end).unwrap_or_default(),"nextPageCursor":next}})
                             }
                             "/file/create" => {
-                                if state
-                                    .fail_name
-                                    .as_deref()
-                                    .is_some_and(|name| body["name"] == name)
+                                if (state.fail_upload && body["type"] == "file")
+                                    || state
+                                        .fail_name
+                                        .as_deref()
+                                        .is_some_and(|name| body["name"] == name)
                                 {
-                                    json!({"success":false,"message":"injected failure"})
+                                    json!({"success":false,"code":"04010319","message":"injected failure"})
                                 } else {
                                     let id = format!("id-{}", state.requests.len());
                                     let parent = body["parentFileId"].as_str().unwrap().to_owned();
                                     let item = json!({"fileId":id,"name":body["name"],"type":body["type"],"size":body["size"]});
                                     state.children.entry(parent).or_default().push(item);
                                     // Fast-upload mock acknowledges by hash without a data transfer.
-                                    json!({"success":true})
+                                    if state.sync_mutations {
+                                        json!({"success":true,"data":{"fileId":id,"fileName":body["name"],"exist":true,"partInfos":[]}})
+                                    } else {
+                                        json!({"success":true})
+                                    }
                                 }
                             }
                             "/file/getDownloadUrl" => {
@@ -117,8 +124,25 @@ impl Server {
                             "/file/batchCopy" | "/file/batchMove" => {
                                 json!({"success":!state.fail_batch,"message":"injected batch failure"})
                             }
-                            "/file/update" => json!({"success":true}),
+                            "/file/update" => {
+                                if state.sync_mutations {
+                                    for items in state.children.values_mut() {
+                                        for item in items.iter_mut() {
+                                            if item["fileId"] == body["fileId"] {
+                                                item["name"] = body["name"].clone();
+                                            }
+                                        }
+                                    }
+                                }
+                                json!({"success":true})
+                            }
                             "/recyclebin/batchTrash" => {
+                                if state.sync_mutations && !state.fail_trash_item {
+                                    let ids = body["fileIds"].as_array().unwrap();
+                                    for items in state.children.values_mut() {
+                                        items.retain(|item| !ids.contains(&item["fileId"]));
+                                    }
+                                }
                                 json!({"success":true,"data":{"results":[{"success":!state.fail_trash_item}]}})
                             }
                             _ => json!({"success":false,"message":"unknown mock endpoint"}),
@@ -561,46 +585,30 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn oversized_uploads_continue_and_sync_delete_preserves_cloud_directory() {
+async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload() {
     let server = Server::new();
     let tmp = tempfile::tempdir().unwrap();
     let source = tmp.path().join("source");
-    std::fs::create_dir_all(&source).unwrap();
-    std::fs::File::create(source.join("a-large.bin"))
-        .unwrap()
-        .set_len(cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES + 1)
-        .unwrap();
-    std::fs::write(source.join("z-small.bin"), b"small").unwrap();
-    let error =
-        services::upload_service::upload_directory(&server.config(), &source, "/", true, false)
-            .await
-            .unwrap_err();
-    let message = error.to_string();
-    assert!(message.contains("成功 1 个，超限未传 1 个"), "{message}");
-    assert!(
-        !server
-            .mutations()
-            .iter()
-            .any(|(_, b)| b["name"] == "a-large.bin")
-    );
-    assert!(
-        server
-            .mutations()
-            .iter()
-            .any(|(_, b)| b["name"] == "z-small.bin")
-    );
-
-    // --delete must preserve the cloud directory corresponding to a blocked file.
-    server.set("/", vec![folder("old", "a-large.bin")]);
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("movie.bin"), b"new content").unwrap();
+    server.set("/", vec![folder("old", "movie.bin")]);
     server.set("old", vec![file("keep", "keep.txt")]);
-    server.state.lock().unwrap().requests.clear();
+    {
+        let mut state = server.state.lock().unwrap();
+        state.fail_upload = true;
+        state.sync_mutations = true;
+    }
     let config = tmp.path().join("profile.toml");
     let mut profile = server.config();
     profile.token_expire_time = Some(i64::MAX);
     profile.save_to(&config).unwrap();
-    for dry_run in [true, false] {
+    for (dry_run, fail_upload) in [(true, true), (false, true), (false, false)] {
+        {
+            let mut state = server.state.lock().unwrap();
+            state.requests.clear();
+            state.fail_upload = fail_upload;
+        }
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
         command
             .arg("--config")
@@ -615,24 +623,53 @@ async fn oversized_uploads_continue_and_sync_delete_preserves_cloud_directory() 
             command.arg("-n");
         }
         let output = command.output().unwrap();
-        assert_eq!(output.status.code(), Some(if dry_run { 0 } else { 1 }));
         let text = format!(
             "{}{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        assert!(
-            text.contains("a-large.bin") && text.contains("5 GiB"),
+        assert_eq!(
+            output.status.code(),
+            Some(if dry_run || !fail_upload { 0 } else { 1 }),
             "{text}"
         );
-        let mutations = server.mutations();
-        assert!(!mutations.iter().any(|(p, _)| p == "/recyclebin/batchTrash"));
-        if dry_run {
-            assert!(mutations.is_empty());
-            assert!(text.contains("同步计划"), "{text}");
+        let state = server.state.lock().unwrap();
+        let old_present = state.children["/"]
+            .iter()
+            .any(|item| item["fileId"] == "old" && item["name"] == "movie.bin");
+        if dry_run || fail_upload {
+            assert!(old_present);
+            assert!(
+                !state
+                    .requests
+                    .iter()
+                    .any(|(p, _)| p == "/file/update" || p == "/recyclebin/batchTrash")
+            );
+            if dry_run {
+                assert!(text.contains("同步计划"));
+            } else {
+                assert!(text.contains("04010319"), "{text}");
+            }
         } else {
-            assert!(mutations.iter().any(|(_, b)| b["name"] == "z-small.bin"));
-            assert!(text.contains("1 个超限未传"), "{text}");
+            assert!(!old_present);
+            assert!(
+                state.children["/"]
+                    .iter()
+                    .any(|item| item["name"] == "movie.bin" && item["type"] == "file")
+            );
+            let writes: Vec<_> = state
+                .requests
+                .iter()
+                .filter(|(p, _)| p != "/file/list")
+                .collect();
+            assert_eq!(writes.len(), 4);
+            assert_eq!(writes[0].0, "/file/create");
+            assert_eq!(writes[1].0, "/file/update");
+            assert_eq!(writes[1].1["fileId"], "old");
+            assert_eq!(writes[2].0, "/file/update");
+            assert_eq!(writes[2].1["name"], "movie.bin");
+            assert_eq!(writes[3].0, "/recyclebin/batchTrash");
+            assert!(!text.contains(".cloud139-upload-"), "{text}");
         }
     }
 }

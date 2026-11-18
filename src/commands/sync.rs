@@ -22,7 +22,7 @@ fn parse_jobs(value: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    after_help = "本地到个人盘同步时，超过 5 GiB 的待上传文件会提示并继续处理其他文件，保留云端同名条目；实际执行有未完成项返回退出码 1，-n 仅预览并返回 0。"
+    after_help = "个人盘统一使用 PC 客户端标识，上传大小由服务器按账号权益校验。同步上传成功后才替换同名条目；有失败项返回退出码 1，-n 仅预览计划。"
 )]
 pub struct SyncArgs {
     #[arg(help = "源路径，本地路径或 cloud:/remote/path")]
@@ -141,15 +141,8 @@ pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
 
     crate::presentation::sync_renderer::print_summary_with_mode(&summary, args.dry_run);
 
-    if !args.dry_run && (summary.failed > 0 || summary.oversized > 0) {
-        return Err(CommandExit::new(
-            1,
-            format!(
-                "同步未完成: 超限未传 {} 个，其他失败 {} 个",
-                summary.oversized, summary.failed
-            ),
-        )
-        .into());
+    if !args.dry_run && summary.failed > 0 {
+        return Err(CommandExit::new(1, format!("同步未完成: {} 个失败", summary.failed)).into());
     }
 
     Ok(())

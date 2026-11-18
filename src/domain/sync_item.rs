@@ -40,10 +40,6 @@ pub enum SyncTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
-    UploadBlocked {
-        rel_path: String,
-        size: u64,
-    },
     Upload {
         rel_path: String,
         local_abs: PathBuf,
@@ -81,6 +77,5 @@ pub struct SyncSummary {
     pub deleted: usize,
     pub created_dirs: usize,
     pub failed: usize,
-    pub oversized: usize,
     pub bytes: u64,
 }

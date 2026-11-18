@@ -1,29 +1,18 @@
 use crate::client::{ClientError, api};
-use crate::domain::{FileEntry, PERSONAL_UPLOAD_MAX_BYTES, StorageType, SyncEntryKind};
+use crate::domain::{FileEntry, StorageType, SyncEntryKind};
 use indicatif::ProgressBar;
 use std::collections::HashMap;
 use std::path::Path;
 
 use super::directory_service as dirs;
 
-pub fn validate_upload_size(storage: StorageType, size: u64) -> Result<(), ClientError> {
-    if storage == StorageType::PersonalNew && size > PERSONAL_UPLOAD_MAX_BYTES {
-        return Err(ClientError::UploadTooLarge {
-            size,
-            max_size: PERSONAL_UPLOAD_MAX_BYTES,
-        });
-    }
-    Ok(())
-}
-
 /// Re-read metadata before hashing or any destructive sync operation.
-pub fn checked_upload_size(storage: StorageType, path: &Path) -> Result<i64, ClientError> {
+pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     dirs::safe_local(path)?;
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
     }
-    validate_upload_size(storage, metadata.len())?;
     i64::try_from(metadata.len()).map_err(|_| dirs::invalid("文件过大"))
 }
 
@@ -64,13 +53,10 @@ pub async fn upload(
             "只支持普通文件；目录请使用递归上传",
         ));
     }
-    validate_upload_size(
-        config.storage_type(),
-        file_size
-            .try_into()
-            .map_err(|_| dirs::invalid("无效文件大小"))?,
-    )?;
-    let file_size = checked_upload_size(config.storage_type(), local_path)?;
+    if file_size < 0 {
+        return Err(dirs::invalid("无效文件大小"));
+    }
+    let file_size = checked_upload_size(local_path)?;
     let remote_path = super::directory_service::normalize(remote_path)?;
     let parent = super::directory_service::directory(config, &remote_path).await?;
     let storage_type = config.storage_type();
@@ -151,7 +137,7 @@ pub async fn upload_directory(
     if !local.is_dir() {
         return Err(dirs::invalid("递归上传源必须是目录").into());
     }
-    let mut entries = scan_local(
+    let entries = scan_local(
         local,
         SyncScanOptions {
             recursive: true,
@@ -177,18 +163,7 @@ pub async fn upload_directory(
         dirs::safe_local(&local.join(&entry.rel_path))?;
     }
     if config.storage_type() == StorageType::PersonalNew {
-        let mut oversized = 0;
-        entries.retain(|entry| {
-            if entry.kind == SyncEntryKind::File
-                && let Err(error) = validate_upload_size(StorageType::PersonalNew, entry.size)
-            {
-                crate::warn!("超限未传: {}: {}", entry.rel_path, error);
-                oversized += 1;
-                return false;
-            }
-            true
-        });
-        return upload_personal_directory(config, local, &root, entries, force, oversized).await;
+        return upload_personal_directory(config, local, &root, entries, force).await;
     }
     dirs::ensure_dir(config, &root, true).await?;
     for entry in entries {
@@ -224,9 +199,8 @@ async fn upload_personal_directory(
     root: &str,
     entries: Vec<FileEntry>,
     force: bool,
-    mut oversized: usize,
 ) -> anyhow::Result<()> {
-    if root == "/" && entries.is_empty() && oversized == 0 {
+    if root == "/" && entries.is_empty() {
         return Ok(());
     }
     let mut config = config.clone();
@@ -263,15 +237,9 @@ async fn upload_personal_directory(
             .get(parent)
             .ok_or_else(|| dirs::invalid("上传计划缺少父目录"))?;
         let path = local.join(&entry.rel_path);
-        let result =
-            upload_personal_directory_file(&listing, &path, parent_id, name, entry.size, force)
-                .await;
+        let result = upload_personal_directory_file(&listing, &path, parent_id, name, force).await;
         match result {
             Ok(()) => uploaded += 1,
-            Err(error @ ClientError::UploadTooLarge { .. }) => {
-                oversized += 1;
-                crate::warn!("超限未传: {}: {}", entry.rel_path, error);
-            }
             Err(error) => {
                 let message = format!(
                     "上传 {} 失败；此前条目可能已完成: {}",
@@ -282,11 +250,10 @@ async fn upload_personal_directory(
             }
         }
     }
-    if oversized > 0 || !failures.is_empty() {
+    if !failures.is_empty() {
         anyhow::bail!(
-            "目录上传未完成: 成功 {} 个，超限未传 {} 个，其他失败 {} 个{}",
+            "目录上传未完成: 成功 {} 个，失败 {} 个{}",
             uploaded,
-            oversized,
             failures.len(),
             if failures.is_empty() {
                 String::new()
@@ -304,15 +271,13 @@ async fn upload_personal_directory_file(
     path: &Path,
     parent_id: &str,
     name: &str,
-    size: u64,
     force: bool,
 ) -> Result<(), ClientError> {
     dirs::safe_local(path)?;
     if !path.is_file() {
         return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
     }
-    validate_upload_size(StorageType::PersonalNew, size)?;
-    let size = checked_upload_size(StorageType::PersonalNew, path)?;
+    let size = checked_upload_size(path)?;
     let items = listing.list_files(parent_id).await?;
     if items.iter().any(|item| {
         item.name.as_deref() == Some(name)
@@ -332,4 +297,7 @@ async fn upload_personal_directory_file(
         None,
     )
     .await
+    .map(|saved_name| {
+        crate::success!("上传完成: {}", saved_name);
+    })
 }

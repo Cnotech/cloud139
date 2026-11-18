@@ -14,14 +14,10 @@ pub async fn upload(
     force: bool,
     pb: Option<ProgressBar>,
 ) -> Result<(), ClientError> {
-    super::super::upload_service::validate_upload_size(
-        StorageType::PersonalNew,
-        file_size
-            .try_into()
-            .map_err(|_| ClientError::InvalidFilePath)?,
-    )?;
-    let file_size =
-        super::super::upload_service::checked_upload_size(StorageType::PersonalNew, local_path)?;
+    if file_size < 0 {
+        return Err(ClientError::InvalidFilePath);
+    }
+    let file_size = super::super::upload_service::checked_upload_size(local_path)?;
     let mut config = config.clone();
     let host = crate::client::api::get_personal_cloud_host(&mut config).await?;
     let parent_file_id = if remote_path == "/" || remote_path.is_empty() {
@@ -34,16 +30,111 @@ pub async fn upload(
         check_file_exists(&config, &parent_file_id, file_name, &pb).await?;
     }
 
-    upload_to_parent(
+    let saved_name = upload_to_parent(
         &config,
         &host,
         local_path,
         &parent_file_id,
         file_name,
         file_size,
-        pb,
+        pb.clone(),
+    )
+    .await?;
+    finish_upload(&saved_name, &pb);
+    Ok(())
+}
+
+fn finish_upload(name: &str, pb: &Option<ProgressBar>) {
+    pb_success(&format!("上传完成: {name}"), pb);
+    if let Some(bar) = pb {
+        bar.finish_and_clear();
+    }
+}
+
+/// Upload a unique sibling first, then promote it. Server-side entitlement,
+/// transfer, or completion failures must not delete the existing destination.
+pub(in crate::services) async fn upload_for_sync(
+    config: &crate::config::Config,
+    local_path: &std::path::Path,
+    remote_path: &str,
+    file_name: &str,
+    file_size: i64,
+    pb: Option<ProgressBar>,
+) -> Result<(), ClientError> {
+    super::super::directory_service::validate_name(file_name)?;
+    let mut config = config.clone();
+    let host = api::get_personal_cloud_host(&mut config).await?;
+    let parent_id = if remote_path == "/" || remote_path.is_empty() {
+        "/".to_owned()
+    } else {
+        api::get_file_id_by_path(&config, remote_path).await?
+    };
+    let temporary_name = format!(
+        ".cloud139-upload-{}",
+        crate::utils::crypto::generate_random_string(24)
+    );
+    let before = api::list_personal_files(&config, &parent_id).await?;
+    if before
+        .iter()
+        .any(|item| item.name.as_deref() == Some(&temporary_name))
+    {
+        return Err(ClientError::Api("临时上传名称冲突，旧条目未替换".into()));
+    }
+    let saved_name = upload_to_parent(
+        &config,
+        &host,
+        local_path,
+        &parent_id,
+        &temporary_name,
+        file_size,
+        pb.clone(),
     )
     .await
+    .map_err(|error| {
+        ClientError::Api(format!(
+            "同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}: {error}"
+        ))
+    })?;
+    let promote = async {
+        let files = api::list_personal_files(&config, &parent_id).await?;
+        let mut candidates = files
+            .iter()
+            .filter(|item| item.name.as_deref() == Some(&saved_name));
+        let file = candidates
+            .next()
+            .filter(|item| !item.is_folder())
+            .ok_or_else(|| ClientError::Api("无法确认已上传的临时文件".into()))?;
+        let id = file
+            .file_id
+            .as_deref()
+            .filter(|id| !id.is_empty() && *id != "/")
+            .ok_or(ClientError::InvalidFilePath)?;
+        if candidates.next().is_some()
+            || before
+                .iter()
+                .any(|item| item.file_id.as_deref() == Some(id))
+        {
+            return Err(ClientError::Api("临时文件身份不明确，旧条目未替换".into()));
+        }
+        handle_name_conflict(
+            &config,
+            &host,
+            &parent_id,
+            id,
+            file_name,
+            Some(&saved_name),
+            true,
+        )
+        .await
+    }
+    .await
+    .map_err(|error| {
+        ClientError::Api(format!(
+            "临时文件 {saved_name} 已上传，替换 {file_name} 未完成: {error}"
+        ))
+    })?;
+    finish_upload(&promote, &pb);
+    Ok(())
 }
 
 pub(in crate::services) async fn upload_to_parent(
@@ -54,20 +145,19 @@ pub(in crate::services) async fn upload_to_parent(
     file_name: &str,
     file_size: i64,
     pb: Option<ProgressBar>,
-) -> Result<(), ClientError> {
-    super::super::upload_service::validate_upload_size(
-        StorageType::PersonalNew,
-        file_size
-            .try_into()
-            .map_err(|_| ClientError::InvalidFilePath)?,
+) -> Result<String, ClientError> {
+    if file_size < 0 {
+        return Err(ClientError::InvalidFilePath);
+    }
+    let file_size = super::super::upload_service::checked_upload_size(local_path)?;
+    checked_part_count(
+        file_size,
+        crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size),
     )?;
-    let file_size =
-        super::super::upload_service::checked_upload_size(StorageType::PersonalNew, local_path)?;
     pb_debug("计算文件哈希...", &pb);
     let local_path_str = local_path.to_str().ok_or(ClientError::InvalidSourcePath)?;
     let content_hash = crate::utils::crypto::calc_file_sha256(local_path_str)?;
-
-    let init_resp = init_upload(
+    let response = init_upload(
         config,
         &format!("{host}/file/create"),
         local_path,
@@ -77,88 +167,53 @@ pub(in crate::services) async fn upload_to_parent(
         &content_hash,
     )
     .await?;
-
-    if init_resp.data.is_none() {
-        pb_success(&format!("上传完成: {}", file_name), &pb);
-        if let Some(ref pb_bar) = pb {
-            pb_bar.finish_and_clear();
-        }
-        return Ok(());
-    }
-
-    let data = init_resp.data.unwrap();
-
+    let Some(data) = response.data else {
+        return Ok(file_name.to_owned());
+    };
     if data.exist.unwrap_or(false) {
-        pb_warn(
-            &format!("文件已存在: {}", data.file_name.as_deref().unwrap_or("")),
-            &pb,
-        );
+        pb_debug("服务器复用已有文件内容", &pb);
     }
-
-    if let Some(part_infos_response) = data.part_infos {
-        if part_infos_response.is_empty() {
-            pb_debug("服务器未返回分片信息", &pb);
-            pb_success(
-                &format!(
-                    "上传完成: {}",
-                    data.file_name.unwrap_or_else(|| file_name.to_string())
-                ),
-                &pb,
-            );
-            if let Some(ref pb_bar) = pb {
-                pb_bar.finish_and_clear();
-            }
-        } else {
-            let file_id = data
-                .file_id
-                .filter(|id| !id.is_empty() && id != "/")
-                .ok_or(ClientError::InvalidFilePath)?;
-            let upload_id = data
-                .upload_id
-                .filter(|id| !id.is_empty())
-                .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
-
-            pb_debug("开始分片上传...", &pb);
-            upload_parts(UploadPartsParams {
-                config,
-                host,
-                local_path,
-                upload_id: &upload_id,
-                file_id: &file_id,
-                file_size,
-                content_hash: &content_hash,
-                part_size: crate::services::upload_service::get_part_size(
-                    file_size,
-                    config.custom_upload_part_size,
-                ),
-                pb: pb.clone(),
-            })
-            .await?;
-
-            let saved_name = handle_name_conflict(
-                config,
-                host,
-                parent_file_id,
-                &file_id,
-                file_name,
-                data.file_name.as_deref(),
-            )
-            .await?;
-
-            pb_success(&format!("上传完成: {saved_name}"), &pb);
-            if let Some(ref pb_bar) = pb {
-                pb_bar.finish_and_clear();
-            }
-        }
-    } else {
-        pb_debug("服务器未返回分片信息", &pb);
-        pb_success(&format!("上传完成: {}", file_name), &pb);
-        if let Some(ref pb_bar) = pb {
-            pb_bar.finish_and_clear();
-        }
+    if data
+        .part_infos
+        .as_ref()
+        .is_none_or(|parts| parts.is_empty())
+    {
+        return Ok(data.file_name.unwrap_or_else(|| file_name.to_owned()));
     }
-
-    Ok(())
+    let file_id = data
+        .file_id
+        .filter(|id| !id.is_empty() && id != "/")
+        .ok_or(ClientError::InvalidFilePath)?;
+    let upload_id = data
+        .upload_id
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
+    pb_debug("开始分片上传...", &pb);
+    upload_parts(UploadPartsParams {
+        config,
+        host,
+        local_path,
+        upload_id: &upload_id,
+        file_id: &file_id,
+        file_size,
+        content_hash: &content_hash,
+        part_size: crate::services::upload_service::get_part_size(
+            file_size,
+            config.custom_upload_part_size,
+        ),
+        pb,
+    })
+    .await?;
+    handle_name_conflict(
+        config,
+        host,
+        parent_file_id,
+        &file_id,
+        file_name,
+        data.file_name.as_deref(),
+        false,
+    )
+    .await
 }
 
 async fn check_file_exists(
@@ -179,6 +234,19 @@ async fn check_file_exists(
     Ok(())
 }
 
+fn checked_part_count(file_size: i64, part_size: i64) -> Result<i64, ClientError> {
+    if file_size < 0 || part_size <= 0 {
+        return Err(ClientError::Api(
+            "文件大小必须非负，上传分片大小必须大于 0".into(),
+        ));
+    }
+    let count = file_size / part_size + i64::from(file_size % part_size != 0);
+    if count > i32::MAX as i64 {
+        return Err(ClientError::Api("上传分片数量超出协议范围".into()));
+    }
+    Ok(count)
+}
+
 async fn init_upload(
     config: &crate::config::Config,
     url: &str,
@@ -190,7 +258,7 @@ async fn init_upload(
 ) -> Result<PersonalUploadResp, ClientError> {
     let part_size =
         crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size);
-    let part_count = (file_size + part_size - 1) / part_size;
+    let part_count = checked_part_count(file_size, part_size)?;
 
     let first_part_infos: Vec<serde_json::Value> = (0..part_count.min(100))
         .map(|i| {
@@ -292,7 +360,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     let part_size = params.part_size;
 
     let mut file = std::fs::File::open(local_path)?;
-    let part_count = (file_size + part_size - 1) / part_size;
+    let part_count = checked_part_count(file_size, part_size)?;
 
     let upload_urls = crate::services::upload::personal_parts::get_upload_urls(
         config, host, file_id, upload_id, part_count, part_size, file_size,
@@ -302,18 +370,9 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
     for i in 0..part_count {
         file.seek(std::io::SeekFrom::Start(i as u64 * part_size as u64))?;
 
-        let read_size = if (i + 1) * part_size > file_size {
-            file_size - i * part_size
-        } else {
-            part_size
-        };
-
+        let read_size = part_size.min(file_size - i * part_size);
         let mut buffer = vec![0u8; read_size as usize];
-        let bytes_read = Read::read(&mut file, &mut buffer)?;
-
-        if bytes_read == 0 {
-            break;
-        }
+        file.read_exact(&mut buffer)?;
 
         let part_number = (i + 1) as i32;
         pb_debug(
@@ -324,7 +383,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
         crate::services::upload::personal_parts::upload_single_part(
             &upload_urls,
             part_number,
-            &buffer[..bytes_read],
+            &buffer,
             params.pb.clone(),
         )
         .await?;
@@ -347,6 +406,7 @@ async fn handle_name_conflict(
     file_id: &str,
     file_name: &str,
     reported_name: Option<&str>,
+    replace_directory: bool,
 ) -> Result<String, ClientError> {
     if reported_name == Some(file_name) {
         return Ok(file_name.to_owned());
@@ -368,7 +428,7 @@ async fn handle_name_conflict(
         .filter(|item| item.name.as_deref() == Some(file_name));
     let old_file = conflicts.next();
     if let Some(item) = old_file {
-        if conflicts.next().is_some() || item.is_folder() {
+        if conflicts.next().is_some() || (item.is_folder() && !replace_directory) {
             return Err(ClientError::Api(format!(
                 "同名条目无法安全替换，新文件保存在 {saved_name}"
             )));
@@ -430,6 +490,106 @@ mod tests {
     use httpmock::prelude::*;
     use serde_json::json;
 
+    #[test]
+    fn part_count_handles_large_sizes_and_rejects_invalid_layouts() {
+        assert_eq!(checked_part_count(i64::MAX, i64::MAX).unwrap(), 1);
+        assert_eq!(checked_part_count(0, 100).unwrap(), 0);
+        assert_eq!(checked_part_count(101, 100).unwrap(), 2);
+        for (size, part) in [(1, 0), (1, -1), (-1, 100), (i64::MAX, 1)] {
+            assert!(checked_part_count(size, part).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn large_upload_initialization_uses_pc_identity_and_preserves_entitlement_errors() {
+        let server = MockServer::start();
+        let config = crate::config::Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Default::default()
+        };
+        for gib in [5_i64, 50, 500] {
+            let size = gib * 1024 * 1024 * 1024 + 1;
+            let request = server.mock(|when, then| {
+                when.method(POST).path("/file/create")
+                    .header("x-yun-client-info", crate::client::PC_CLIENT_INFO)
+                    .json_body_includes(format!("{{\"size\":{size}}}"));
+                then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
+            });
+            let response = init_upload(
+                &config,
+                &server.url("/file/create"),
+                std::path::Path::new("large.bin"),
+                "large.bin",
+                size,
+                "/",
+                "fictional-hash",
+            )
+            .await
+            .unwrap();
+            assert_eq!(response.data.unwrap().file_id.as_deref(), Some("new"));
+            request.assert_calls(1);
+        }
+        let rejected = server.mock(|when, then| {
+            when.method(POST)
+                .path("/denied")
+                .header("x-yun-client-info", crate::client::PC_CLIENT_INFO);
+            then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
+        });
+        let error = init_upload(
+            &config,
+            &server.url("/denied"),
+            std::path::Path::new("small.bin"),
+            "small.bin",
+            1,
+            "/",
+            "fictional-hash",
+        )
+        .await
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(message.contains("04010319") && message.contains("权益不足"));
+        rejected.assert_calls(1);
+    }
+
+    #[tokio::test]
+    async fn truncated_local_file_never_uploads_a_partial_part_or_completes() {
+        let server = MockServer::start();
+        let config = crate::config::Config::default();
+        let source = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(source.path(), b"x").unwrap();
+        let urls = server.mock(|when, then| {
+            when.method(POST).path("/file/getUploadUrl");
+            then.json_body(json!({"success":true,"data":{"partInfos":[{"partNumber":1,"uploadUrl":server.url("/part")}]}}));
+        });
+        let part = server.mock(|when, then| {
+            when.method(PUT).path("/part");
+            then.status(200);
+        });
+        let complete = server.mock(|when, then| {
+            when.path("/file/complete");
+            then.json_body(json!({"success":true}));
+        });
+        let error = upload_parts(UploadPartsParams {
+            config: &config,
+            host: &server.base_url(),
+            local_path: source.path(),
+            upload_id: "upload",
+            file_id: "new",
+            file_size: 2,
+            content_hash: "fictional-hash",
+            part_size: 2,
+            pb: None,
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(error, ClientError::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof)
+        );
+        urls.assert_calls(1);
+        part.assert_calls(0);
+        complete.assert_calls(0);
+    }
+
     #[tokio::test]
     async fn failed_upload_conflict_renames_do_not_trash_existing_file() {
         for fail_backup in [true, false] {
@@ -470,6 +630,7 @@ mod tests {
                 "new",
                 "report.txt",
                 Some("report-copy.txt"),
+                false,
             )
             .await;
             let message = result.unwrap_err().to_string();

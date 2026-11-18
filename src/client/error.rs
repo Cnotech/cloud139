@@ -2,8 +2,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ClientError {
-    #[error("文件大小 {size} 字节超过个人盘上传限制 5 GiB（{max_size} 字节）；未上传")]
-    UploadTooLarge { size: u64, max_size: u64 },
     #[error("HTTP 错误: {0}")]
     Http(#[from] reqwest::Error),
     #[error("API 错误: {0}")]

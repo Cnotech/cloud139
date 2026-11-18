@@ -48,6 +48,14 @@ pub async fn get_upload_urls(
             crate::client::api::personal_api_request(config, &url, body, StorageType::PersonalNew)
                 .await?;
 
+        if resp_json["success"].as_bool() != Some(true) {
+            return Err(ClientError::Api(format!(
+                "获取分片上传地址失败: {}（错误码: {}）",
+                resp_json["message"].as_str().unwrap_or("未知错误"),
+                resp_json["code"].as_str().unwrap_or("未返回")
+            )));
+        }
+
         if let Some(part_infos) = resp_json
             .get("data")
             .and_then(|d| d.get("partInfos"))
@@ -153,7 +161,10 @@ pub async fn confirm_upload(
         let message = resp_json["message"]
             .as_str()
             .unwrap_or("服务端未确认上传完成");
-        return Err(ClientError::Api(format!("完成上传失败: {message}")));
+        let code = resp_json["code"].as_str().unwrap_or("未返回");
+        return Err(ClientError::Api(format!(
+            "完成上传失败: {message}（错误码: {code}）"
+        )));
     }
     Ok(())
 }

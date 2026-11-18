@@ -49,16 +49,13 @@ async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {
             deleted: 1,
             created_dirs: 1,
             failed: 0,
-            oversized: 0,
             bytes: 5,
         }
     );
 }
 
-#[cfg(unix)]
 #[tokio::test]
-async fn grown_upload_is_rejected_before_parent_mutation_and_other_actions_continue() {
-    use cloud139::domain::PERSONAL_UPLOAD_MAX_BYTES;
+async fn missing_local_upload_preserves_cloud_objects_and_other_actions_continue() {
     use httpmock::prelude::*;
     let server = MockServer::start();
     let requests = server.mock(|when, then| {
@@ -70,23 +67,13 @@ async fn grown_upload_is_rejected_before_parent_mutation_and_other_actions_conti
         ..Config::default()
     };
     let tmp = tempdir().unwrap();
-    let large = tmp.path().join("large.bin");
-    std::fs::File::create(&large)
-        .unwrap()
-        .set_len(PERSONAL_UPLOAD_MAX_BYTES + 1)
-        .unwrap();
     let actions = vec![
-        // A stale scan claims this file is small; execution must re-read metadata.
         SyncAction::Upload {
-            rel_path: "large.bin".into(),
-            local_abs: large,
-            remote_abs: "/existing/large.bin".into(),
+            rel_path: "missing.bin".into(),
+            local_abs: tmp.path().join("missing.bin"),
+            remote_abs: "/existing/missing.bin".into(),
             size: 1,
             change: ChangeKind::SizeOrTime,
-        },
-        SyncAction::UploadBlocked {
-            rel_path: "blocked.bin".into(),
-            size: PERSONAL_UPLOAD_MAX_BYTES + 1,
         },
         SyncAction::CreateDir {
             rel_path: "empty".into(),
@@ -106,12 +93,9 @@ async fn grown_upload_is_rejected_before_parent_mutation_and_other_actions_conti
     )
     .await
     .unwrap();
-    assert_eq!(summary.oversized, 2);
-    assert_eq!(summary.failed, 0);
+    assert_eq!(summary.failed, 1);
     assert_eq!(summary.transferred, 0);
-    assert_eq!(summary.bytes, 0);
     assert_eq!(summary.created_dirs, 1);
-    assert!(tmp.path().join("empty").is_dir());
     requests.assert_calls(0);
 }
 
@@ -154,17 +138,4 @@ async fn test_execute_create_dir_replaces_existing_local_file() {
     );
     assert_eq!(summary.created_dirs, 1);
     assert_eq!(summary.failed, 0);
-}
-
-#[tokio::test]
-async fn upload_new_file_does_not_call_delete_api() {
-    // 验证 ChangeKind::New 的上传不触发 delete API
-    // 由于实际 upload 需要真实文件和 token，此测试改为单元测试验证 ChangeKind 的判断逻辑：
-    // 直接测试 should_pre_delete 辅助函数（在 Step 3 中提取）。
-    assert!(!cloud139::services::sync_executor::should_pre_delete(
-        ChangeKind::New
-    ));
-    assert!(cloud139::services::sync_executor::should_pre_delete(
-        ChangeKind::SizeOrTime
-    ));
 }
