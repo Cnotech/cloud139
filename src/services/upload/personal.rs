@@ -96,31 +96,40 @@ pub(in crate::services) async fn upload_for_sync(
         ))
     })?;
     let promote = async {
-        let files = api::list_personal_files(&config, &parent_id).await?;
-        let mut candidates = files
-            .iter()
-            .filter(|item| item.name.as_deref() == Some(&saved_name));
-        let file = candidates
-            .next()
-            .filter(|item| !item.is_folder())
-            .ok_or_else(|| ClientError::Api("无法确认已上传的临时文件".into()))?;
-        let id = file
-            .file_id
-            .as_deref()
-            .filter(|id| !id.is_empty() && *id != "/")
-            .ok_or(ClientError::InvalidFilePath)?;
-        if candidates.next().is_some()
-            || before
+        let mut uploaded_id = None;
+        for attempt in 0..5 {
+            let files = api::list_personal_files(&config, &parent_id).await?;
+            let mut candidates = files
                 .iter()
-                .any(|item| item.file_id.as_deref() == Some(id))
-        {
-            return Err(ClientError::Api("临时文件身份不明确，旧条目未替换".into()));
+                .filter(|item| item.name.as_deref() == Some(&saved_name));
+            if let Some(file) = candidates.next() {
+                let id = file
+                    .file_id
+                    .as_deref()
+                    .filter(|id| !id.is_empty() && *id != "/")
+                    .ok_or(ClientError::InvalidFilePath)?;
+                if file.is_folder()
+                    || candidates.next().is_some()
+                    || before
+                        .iter()
+                        .any(|item| item.file_id.as_deref() == Some(id))
+                {
+                    return Err(ClientError::Api("临时文件身份不明确，旧条目未替换".into()));
+                }
+                uploaded_id = Some(id.to_owned());
+                break;
+            }
+            if attempt < 4 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            }
         }
+        let id = uploaded_id
+            .ok_or_else(|| ClientError::Api("无法确认已上传的临时文件，旧条目未替换".into()))?;
         handle_name_conflict(
             &config,
             &host,
             &parent_id,
-            id,
+            &id,
             file_name,
             Some(&saved_name),
             true,
@@ -452,6 +461,13 @@ async fn handle_name_conflict(
         rename_uploaded_file(config, host, file_id, file_name).await.map_err(|error| {
             ClientError::Api(format!("无法重命名新文件；旧文件保留为 {backup_name}，请检查新文件 {saved_name}: {error}"))
         })?;
+        confirm_uploaded_name(config, parent_file_id, file_id, file_name)
+            .await
+            .map_err(|error| {
+                ClientError::Api(format!(
+                    "无法确认新文件名称；旧文件备份 {backup_name} 未删除: {error}"
+                ))
+            })?;
         super::super::delete_service::trash_personal_file_id(config, host, old_id)
             .await
             .map_err(|error| ClientError::Api(format!(
@@ -459,8 +475,34 @@ async fn handle_name_conflict(
             )))?;
     } else {
         rename_uploaded_file(config, host, file_id, file_name).await?;
+        confirm_uploaded_name(config, parent_file_id, file_id, file_name).await?;
     }
     Ok(file_name.to_owned())
+}
+
+async fn confirm_uploaded_name(
+    config: &crate::config::Config,
+    parent_id: &str,
+    file_id: &str,
+    name: &str,
+) -> Result<(), ClientError> {
+    for attempt in 0..5 {
+        let files = api::list_personal_files(config, parent_id).await?;
+        let mut matches = files
+            .iter()
+            .filter(|item| item.name.as_deref() == Some(name));
+        if matches
+            .next()
+            .is_some_and(|item| item.file_id.as_deref() == Some(file_id))
+            && matches.next().is_none()
+        {
+            return Ok(());
+        }
+        if attempt < 4 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        }
+    }
+    Err(ClientError::Api(format!("无法在云端列表确认新文件 {name}")))
 }
 
 async fn rename_uploaded_file(
@@ -588,6 +630,46 @@ mod tests {
         urls.assert_calls(1);
         part.assert_calls(0);
         complete.assert_calls(0);
+    }
+
+    #[tokio::test]
+    async fn acknowledged_but_unconfirmed_rename_never_trashes_backup() {
+        let server = MockServer::start();
+        let config = crate::config::Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Default::default()
+        };
+        let list = server.mock(|when, then| {
+            when.method(POST).path("/file/list");
+            then.json_body(json!({"success":true,"data":{"items":[
+                {"fileId":"old","name":"report.txt","type":"file"},
+                {"fileId":"new","name":"temporary.txt","type":"file"}
+            ]}}));
+        });
+        let rename = server.mock(|when, then| {
+            when.path("/file/update");
+            then.json_body(json!({"success":true}));
+        });
+        let trash = server.mock(|when, then| {
+            when.path("/recyclebin/batchTrash");
+            then.json_body(json!({"success":true}));
+        });
+        let error = handle_name_conflict(
+            &config,
+            &server.base_url(),
+            "/",
+            "new",
+            "report.txt",
+            Some("temporary.txt"),
+            true,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("未删除"));
+        assert!(error.to_string().contains(".cloud139-backup-"));
+        list.assert_calls(6);
+        rename.assert_calls(2);
+        trash.assert_calls(0);
     }
 
     #[tokio::test]

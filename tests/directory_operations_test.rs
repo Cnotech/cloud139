@@ -24,6 +24,7 @@ struct State {
     fail_name: Option<String>,
     fail_upload: bool,
     sync_mutations: bool,
+    staged_visibility_delay: usize,
     fail_batch: bool,
     fail_trash_item: bool,
     page_size: usize,
@@ -74,7 +75,22 @@ impl Server {
                                     .unwrap_or("")
                                     .parse::<usize>()
                                     .unwrap_or(0);
-                                let items = state.children.get(parent).cloned().unwrap_or_default();
+                                let mut items =
+                                    state.children.get(parent).cloned().unwrap_or_default();
+                                if state.staged_visibility_delay > 0
+                                    && items.iter().any(|item| {
+                                        item["name"].as_str().is_some_and(|name| {
+                                            name.starts_with(".cloud139-upload-")
+                                        })
+                                    })
+                                {
+                                    state.staged_visibility_delay -= 1;
+                                    items.retain(|item| {
+                                        !item["name"].as_str().is_some_and(|name| {
+                                            name.starts_with(".cloud139-upload-")
+                                        })
+                                    });
+                                }
                                 let end = (offset + state.page_size).min(items.len());
                                 let next = if state.cycle {
                                     "1".into()
@@ -608,6 +624,7 @@ async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload(
             let mut state = server.state.lock().unwrap();
             state.requests.clear();
             state.fail_upload = fail_upload;
+            state.staged_visibility_delay = if !dry_run && !fail_upload { 2 } else { 0 };
         }
         let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"));
         command
@@ -652,6 +669,7 @@ async fn pc_sync_preserves_old_directory_on_rejection_and_replaces_after_upload(
             }
         } else {
             assert!(!old_present);
+            assert_eq!(state.staged_visibility_delay, 0);
             assert!(
                 state.children["/"]
                     .iter()
