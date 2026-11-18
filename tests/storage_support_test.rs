@@ -42,6 +42,35 @@ authorization = "test"
 }
 
 #[test]
+fn config_errors_are_reported_consistently_across_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile = dir.path().join("profile.toml");
+    for (contents, expected) in [
+        (None, "配置文件未找到"),
+        (Some("invalid TOML ["), "TOML 解析错误"),
+    ] {
+        if let Some(contents) = contents {
+            std::fs::write(&profile, contents).unwrap();
+        }
+        for args in [&["ls"][..], &["sync", "local", "cloud:/"]] {
+            let output = Command::new(env!("CARGO_BIN_EXE_cloud139"))
+                .current_dir(dir.path())
+                .arg("--config")
+                .arg(&profile)
+                .args(args)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{args:?}: {stderr}");
+            assert!(
+                stderr.contains(&format!("配置错误: {expected}")),
+                "{stderr}"
+            );
+        }
+    }
+}
+
+#[test]
 fn all_commands_reject_unsupported_profiles_before_renewal_or_io() {
     let dir = tempfile::tempdir().unwrap();
     let profile = dir.path().join("profile.toml");

@@ -1,4 +1,3 @@
-use crate::client::ClientError;
 use crate::commands::CommandExit;
 use crate::config::Config;
 use crate::presentation::sync_renderer::{print_outcome, print_plan};
@@ -50,7 +49,7 @@ pub struct SyncArgs {
 
 pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
     let request = preflight(&args)?;
-    let config = Config::load_personal().map_err(config_error)?;
+    let config = Config::load_personal()?;
     execute_with_config(args, request, config).await
 }
 
@@ -73,13 +72,6 @@ pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
         args.verify,
     )
     .map_err(|error| CommandExit::new(2, error.to_string()))
-}
-
-pub(super) fn config_error(error: ClientError) -> anyhow::Error {
-    match error {
-        ClientError::UnsupportedStorage => error.into(),
-        _ => CommandExit::new(2, error.to_string()).into(),
-    }
 }
 
 pub(super) async fn execute_with_config(

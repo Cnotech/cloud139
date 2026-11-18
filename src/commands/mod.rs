@@ -41,8 +41,7 @@ pub async fn execute(command: Commands) -> anyhow::Result<()> {
         Commands::Rename(args) => rename::execute_with_config(args, &config.await?).await,
         Commands::Sync(args) => {
             let request = sync::preflight(&args)?;
-            let config = config.await.map_err(sync::config_error)?;
-            sync::execute_with_config(args, request, config).await
+            sync::execute_with_config(args, request, config.await?).await
         }
         Commands::Login(_) => unreachable!("登录已单独处理"),
     }
