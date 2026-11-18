@@ -1,3 +1,4 @@
+use crate::config::Config;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -17,8 +18,10 @@ pub struct RenameArgs {
 }
 
 pub async fn execute(args: RenameArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load_personal()?;
-    crate::services::rename_service::rename(&config, &args.source, &args.target, args.force)
-        .await?;
+    execute_with_config(args, &Config::load_personal()?).await
+}
+
+pub(super) async fn execute_with_config(args: RenameArgs, config: &Config) -> anyhow::Result<()> {
+    crate::services::rename_service::rename(config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

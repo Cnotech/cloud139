@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::debug;
 use crate::presentation::list_renderer;
 use clap::Parser;
@@ -22,13 +23,16 @@ pub struct ListArgs {
 }
 
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load_personal()?;
+    execute_with_config(args, &Config::load_personal()?).await
+}
+
+pub(super) async fn execute_with_config(args: ListArgs, config: &Config) -> anyhow::Result<()> {
     debug!(
         "准备列出云端目录 path={} page={} page_size={}",
         args.path, args.page, args.page_size
     );
     if args.recursive {
-        let results = crate::services::list_service::list_recursive(&config, &args.path).await?;
+        let results = crate::services::list_service::list_recursive(config, &args.path).await?;
         for result in &results {
             list_renderer::render_terminal(result);
         }
@@ -41,7 +45,7 @@ pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
         }
         return Ok(());
     }
-    let result = crate::services::list(&config, &args).await?;
+    let result = crate::services::list(config, &args).await?;
     list_renderer::render_terminal(&result);
 
     if let Some(output) = &args.output {

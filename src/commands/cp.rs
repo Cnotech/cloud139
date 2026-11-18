@@ -1,3 +1,4 @@
+use crate::config::Config;
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
@@ -17,7 +18,10 @@ pub struct CpArgs {
 }
 
 pub async fn execute(args: CpArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load_personal()?;
-    crate::services::copy_service::cp(&config, &args.source, &args.target, args.force).await?;
+    execute_with_config(args, &Config::load_personal()?).await
+}
+
+pub(super) async fn execute_with_config(args: CpArgs, config: &Config) -> anyhow::Result<()> {
+    crate::services::copy_service::cp(config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

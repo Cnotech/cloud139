@@ -3,7 +3,7 @@ use crate::client::api::refresh;
 pub use crate::client::api::refresh::RefreshOptions;
 use crate::config::{Config, ConfigUpdate};
 use crate::{debug, warn};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn parse_login_token(token: &str) -> Result<Config, ClientError> {
     let token = token.strip_prefix("Basic ").unwrap_or(token);
@@ -114,9 +114,15 @@ pub async fn refresh_and_save_token_if_due(
     if !config.is_token_refresh_due() {
         return Ok(());
     }
+    refresh_saved_token(&path, options).await
+}
 
+pub(crate) async fn refresh_saved_token(
+    path: &Path,
+    options: RefreshOptions<'_>,
+) -> Result<(), ClientError> {
     // 路径已经固定。锁忙时跳过，不让另一个进程的续期阻塞普通命令。
-    let update = match ConfigUpdate::load(&path) {
+    let update = match ConfigUpdate::load(path) {
         Ok(update) => update,
         Err(err) => {
             warn!("自动续期跳过（继续使用现有 Token）: {}", err);

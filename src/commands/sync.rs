@@ -1,4 +1,6 @@
+use crate::client::ClientError;
 use crate::commands::CommandExit;
+use crate::config::Config;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
 use crate::presentation::sync_renderer::{print_json_report, print_summary};
 use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions, execute_scanned_sync};
@@ -55,22 +57,52 @@ pub struct SyncArgs {
 }
 
 pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
+    let endpoints = preflight(&args)?;
+    let config = Config::load_personal().map_err(config_error)?;
+    execute_with_config(args, endpoints, config).await
+}
+
+pub(super) struct SyncEndpoints {
+    src: SyncEndpoint,
+    dest: SyncEndpoint,
+    direction: SyncDirection,
+}
+
+pub(super) fn preflight(args: &SyncArgs) -> Result<SyncEndpoints, CommandExit> {
     let src = parse_sync_endpoint(&args.src);
     let dest = parse_sync_endpoint(&args.dest);
     let direction =
         sync_direction(&src, &dest).map_err(|err| CommandExit::new(2, err.to_string()))?;
     if args.verify && direction != SyncDirection::LocalToCloud {
-        return Err(CommandExit::new(2, "--verify 仅支持本地到个人盘").into());
+        return Err(CommandExit::new(2, "--verify 要求目标路径以 cloud: 开头"));
     }
     if args.verify && args.jobs != 1 {
-        return Err(CommandExit::new(2, "--verify 只允许 -j 1").into());
+        return Err(CommandExit::new(2, "--verify 只允许 -j 1"));
     }
+    Ok(SyncEndpoints {
+        src,
+        dest,
+        direction,
+    })
+}
 
-    let mut config = crate::config::Config::load_personal().map_err(|error| match error {
-        crate::client::ClientError::UnsupportedStorage => anyhow::Error::from(error),
+pub(super) fn config_error(error: ClientError) -> anyhow::Error {
+    match error {
+        ClientError::UnsupportedStorage => error.into(),
         _ => CommandExit::new(2, error.to_string()).into(),
-    })?;
+    }
+}
 
+pub(super) async fn execute_with_config(
+    args: SyncArgs,
+    endpoints: SyncEndpoints,
+    mut config: Config,
+) -> anyhow::Result<()> {
+    let SyncEndpoints {
+        src,
+        dest,
+        direction,
+    } = endpoints;
     let scan_options = SyncScanOptions {
         recursive: args.recursive,
         exclude: args.exclude.clone(),

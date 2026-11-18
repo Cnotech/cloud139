@@ -1,7 +1,8 @@
 use clap::Parser;
 
 use cloud139::cli::app::{Cli, Commands};
-use cloud139::client::{ClientError, auth};
+use cloud139::client::ClientError;
+use cloud139::commands::{self, CommandExit};
 use cloud139::config;
 use cloud139::error;
 
@@ -16,37 +17,8 @@ async fn main() -> anyhow::Result<()> {
     }
     cloud139::utils::logger::init_verbose(&cli.verbose);
 
-    // 除登录外的命令，启动时按需续期。139 的 refresh 接口每次滚动发放 30 天有效的新 token，
-    // 所以只要 CLI 每天被调用，就不需要额外的定时任务来维持登录态。
-    if !matches!(&cli.command, Commands::Login(_)) {
-        let candidates = config::config_load_candidates();
-        match auth::refresh_and_save_token_if_due(&candidates, auth::RefreshOptions::default())
-            .await
-        {
-            Err(ClientError::UnsupportedStorage) => {
-                error!("{}", ClientError::UnsupportedStorage);
-                std::process::exit(1);
-            }
-            Err(err) => cloud139::warn!("自动续期检查失败: {}", err),
-            Ok(()) => {}
-        }
-    }
-
-    let result = match cli.command {
-        Commands::Login(args) => cloud139::commands::login::execute(args).await,
-        Commands::Ls(args) => cloud139::commands::list::execute(args).await,
-        Commands::Upload(args) => cloud139::commands::upload::execute(args).await,
-        Commands::Download(args) => cloud139::commands::download::execute(args).await,
-        Commands::Rm(args) => cloud139::commands::delete::execute(args).await,
-        Commands::Mkdir(args) => cloud139::commands::mkdir::execute(args).await,
-        Commands::Mv(args) => cloud139::commands::mv::execute(args).await,
-        Commands::Cp(args) => cloud139::commands::cp::execute(args).await,
-        Commands::Rename(args) => cloud139::commands::rename::execute(args).await,
-        Commands::Sync(args) => cloud139::commands::sync::execute(args).await,
-    };
-
-    if let Err(err) = result {
-        if let Some(exit) = err.downcast_ref::<cloud139::commands::CommandExit>() {
+    if let Err(err) = commands::execute(cli.command).await {
+        if let Some(exit) = err.downcast_ref::<CommandExit>() {
             error!("{}", exit);
             std::process::exit(exit.code());
         } else if let Some(client_err) = err.downcast_ref::<ClientError>() {

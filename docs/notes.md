@@ -19,7 +19,7 @@
 ## API 相关
 
 - CLI 和 API 客户端使用个人云协议。
-- 加载操作配置时校验 `storage_type` 为 `personal_new`。
+- 命令入口校验 `storage_type` 为 `personal_new`，通过参数前置检查后按需续期。
 - 登录 Token 从浏览器开发者工具获取。
 - HTTP 请求使用 `reqwest`。
 

@@ -59,6 +59,7 @@ fn all_commands_reject_unsupported_profiles_before_renewal_or_io() {
             &["mv", "/source", "/target"],
             &["rename", "/source", "other"],
             &["sync", "missing", "cloud:/"],
+            &["sync", "cloud:/", "missing", "--verify"],
         ] {
             let output = Command::new(env!("CARGO_BIN_EXE_cloud139"))
                 .current_dir(dir.path())
@@ -78,5 +79,46 @@ fn all_commands_reject_unsupported_profiles_before_renewal_or_io() {
                 .unwrap()
                 .contains("refresh_token = \"test\"")
         );
+    }
+}
+
+#[test]
+fn invalid_command_arguments_are_rejected_before_token_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let profile = dir.path().join("profile.toml");
+    Config {
+        token_expire_time: Some(0),
+        ..Config::default()
+    }
+    .save_to(&profile)
+    .unwrap();
+
+    for (args, exit_code, expected) in [
+        (
+            &["sync", "cloud:/", "local", "--verify"][..],
+            2,
+            "--verify 要求目标路径以 cloud: 开头",
+        ),
+        (
+            &["sync", "local", "cloud:/", "--verify", "-j", "2"],
+            2,
+            "--verify 只允许 -j 1",
+        ),
+        (&["rm", "/file"], 1, "请使用 --yes 参数确认删除"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_cloud139"))
+            .current_dir(dir.path())
+            .arg("--config")
+            .arg(&profile)
+            .args(args)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(exit_code), "{stdout}\n{stderr}");
+        assert!(stderr.contains(expected), "{stderr}");
+        // 配置已过期且缺少 refresh token，误触发续期会先打印告警。
+        assert!(!stdout.contains("自动续期"), "{stdout}");
+        assert!(!stderr.contains("自动续期"), "{stderr}");
     }
 }

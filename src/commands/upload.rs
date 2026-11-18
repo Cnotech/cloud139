@@ -1,3 +1,4 @@
+use crate::config::Config;
 use clap::Parser;
 use indicatif::MultiProgress;
 
@@ -21,8 +22,10 @@ pub struct UploadArgs {
 }
 
 pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
-    let config = crate::config::Config::load_personal()?;
+    execute_with_config(args, &Config::load_personal()?).await
+}
 
+pub(super) async fn execute_with_config(args: UploadArgs, config: &Config) -> anyhow::Result<()> {
     let local_path = std::path::Path::new(&args.local_path);
     if !local_path.exists() {
         crate::error!("文件不存在: {}", args.local_path);
@@ -32,7 +35,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     crate::services::directory_service::safe_local(local_path)?;
     if local_path.is_dir() {
         return crate::services::upload_service::upload_directory(
-            &config,
+            config,
             local_path,
             &args.remote_path,
             args.local_path.ends_with('/') || args.local_path.ends_with('\\'),
@@ -69,7 +72,7 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     let pb = crate::presentation::make_upload_progress(&mp, file_name, file_size as u64);
 
     crate::services::upload_service::upload(
-        &config,
+        config,
         local_path,
         &remote_dir,
         file_name,
