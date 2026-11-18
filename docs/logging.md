@@ -9,7 +9,7 @@
 - **视觉一致性**：同一级别使用统一颜色与前缀，避免各行其是。
 - **进度条安全**：在含进度条（`ProgressBar` / `MultiProgress`）的交互中，必须通过 `pb_*` / `mp_*` 函数输出，防止日志撕裂进度条。
 - **克制输出**：非必要不刷屏，非调试不暴露内部实现细节（Token、URL 参数、完整 JSON 等）。
-- **国际化语境**：本项目面向中文用户，**面向用户的提示信息使用中文**，代码内部调试日志可使用英文。
+- **日志语言**：CLI 自有日志正文统一使用简体中文，覆盖调试日志和进度条日志。
 
 ## 2. 日志级别与使用场景
 
@@ -62,12 +62,15 @@ success!("成功: 文件已被下载完成。");
 error!("错误: 请输入 --force 参数。");
 ```
 
-### 3.2 多语言与内部调试
+### 3.2 调试日志语言
 
-| 受众 | 语言 | 示例 |
-|---|---|---|
-| 终端用户 | 中文 | `success!("登录成功")` |
-| 开发者调试 | 英文（推荐） | `debug!("token refreshed, expires_at={}", ts)` |
+调试日志先用简体中文说明动作或结果，再用空格分隔的 `key=value` 附上排查字段。字段名使用稳定的英文标识。HTTP 方法、状态码、API 字段名、外部错误原文和日志级别保留原样。
+
+```rust
+debug!("开始续期 Token account={}", account);
+debug!("发送签名请求 method=POST url={}", url);
+debug!("正在上传分片 file_id={} part={}/{}", file_id, index, total);
+```
 
 ## 4. 进度条感知日志
 
@@ -136,16 +139,16 @@ error!("reqwest error: {:?}", api_err);
 ## 6. 调试信息规范
 
 - **默认不可见**：`debug!` 仅在命令行指定 `-v debug` 时输出，生产环境保持静默。
-- **结构化优先**：调试日志推荐 `key=value` 格式，便于 grep 与日志分析。
+- **排查字段**：代码审查时检查调试消息的中文说明和稳定的字段名。
 - **敏感信息脱敏**：调试日志中不得打印用户 Token、Cookie、密码等凭证，可打印脱敏后的前 4 位或哈希值。
 
 ```rust
 // ✅ 正确
-debug!("upload_part: file_id={}, part={}/{}", file_id, i, total);
-debug!("token_prefix={}", &token[..4.min(token.len())]);
+debug!("正在上传分片 file_id={} part={}/{}", file_id, i, total);
+debug!("已收到续期响应 status={}", status);
 
 // ❌ 错误：泄露敏感信息
-debug!("headers: {:?}", headers_with_cookie);
+debug!("续期响应头 headers={:?}", headers_with_cookie);
 ```
 
 ## 7. 进度条展示规范
@@ -182,7 +185,7 @@ pb.set_style(
 | 步骤提示 | `step!("正在解析目录结构...")` | `info!("步骤1: 正在解析目录结构...")` |
 | 警告 | `warn!("云端已存在同名文件")` | `println!("警告: 云端已存在同名文件")` |
 | 错误 | `error!("请使用 --force 参数确认继续")` | `println!("错误: 请使用 --force 参数确认继续")` |
-| 调试 | `debug!("diff_result: {:?}", diff)` | `info!("diff_result: {:?}", diff)` |
+| 调试 | `debug!("已生成同步计划 actions={}", actions.len())` | `info!("diff_result: {:?}", diff)` |
 | 进度条中输出 | `pb_step("正在连接...", &pb)` | `step!("正在连接...")` |
 | 重复标签 | `error!("文件不存在")` | `error!("错误: 文件不存在")` |
 

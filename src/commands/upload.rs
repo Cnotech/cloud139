@@ -54,12 +54,12 @@ pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
     };
 
     crate::debug!(
-        "上传文件: {} -> {}/{}",
+        "准备上传文件 local={} remote={}/{}",
         args.local_path,
         remote_dir,
         file_name
     );
-    crate::debug!("文件大小: {} bytes", file_size);
+    crate::debug!("已读取本地文件大小 size_bytes={}", file_size);
 
     let mp = MultiProgress::new();
     let pb = crate::presentation::make_upload_progress(&mp, file_name, file_size as u64);

@@ -24,7 +24,7 @@ pub struct ListArgs {
 pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
     let config = crate::config::Config::load_personal()?;
     debug!(
-        "list: path={}, page={}, page_size={}",
+        "准备列出云端目录 path={} page={} page_size={}",
         args.path, args.page, args.page_size
     );
     if args.recursive {

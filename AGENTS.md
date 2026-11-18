@@ -73,6 +73,7 @@ clap, reqwest, tokio, serde, thiserror 等
 
 - 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用 `src/utils/logger.rs` 提供的日志宏
 - 常用宏：`success!`（绿，成功）、`step!`（蓝，步骤）、`info!`（青，提示）、`warn!`（黄，警告）、`error!`（红，错误）、`debug!`（灰，调试）
+- 自有日志正文使用简体中文，调试字段沿用稳定的英文 `key=value`。
 - 进度条场景下使用 `pb_*` / `mp_*` 系列函数，避免破坏进度条布局
 
 详细规范见 [docs/logging.md](docs/logging.md)

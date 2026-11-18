@@ -50,7 +50,7 @@ pub async fn get_personal_cloud_host_with_client(
 ) -> Result<String, ClientError> {
     config.require_personal()?;
     if let Some(ref host) = config.personal_cloud_host {
-        debug!("get_personal_cloud_host: 使用缓存 host={}", host);
+        debug!("使用缓存的个人云地址 host={}", host);
         return Ok(host.clone());
     }
 
@@ -71,7 +71,7 @@ pub(crate) async fn fetch_personal_cloud_host(
 ) -> Result<String, ClientError> {
     config.require_personal()?;
     let url = ROUTE_POLICY_URL;
-    debug!("get_personal_cloud_host: 请求 url={}", url);
+    debug!("查询个人云路由 url={}", url);
 
     let body = serde_json::json!({
         "userInfo": {
@@ -97,9 +97,9 @@ pub(crate) async fn fetch_personal_cloud_host(
         .into_iter()
         .find(|p| p.mod_name.as_deref() == Some("personal"))
         .map(|p| p.https_url.unwrap_or_default())
-        .ok_or_else(|| ClientError::Other("Could not find personal cloud host".to_string()))?;
+        .ok_or_else(|| ClientError::Other("未找到个人云地址".into()))?;
 
-    debug!("get_personal_cloud_host: 解析到 host={}", host);
+    debug!("已解析个人云地址 host={}", host);
     Ok(host)
 }
 
@@ -108,7 +108,7 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
     let normalized = crate::utils::remote_path::normalize(path)?;
     let path = normalized.as_str();
     if path == "/" {
-        debug!("get_file_id_by_path: 根路径返回空ID");
+        debug!("云端根路径返回空文件 ID");
         return Ok(String::new());
     }
 
@@ -195,7 +195,7 @@ async fn signed_post<T: for<'de> serde::Deserialize<'de>>(
         reqwest::header::HeaderValue::from_static("application/json"),
     );
 
-    debug!("POST {}", url);
+    debug!("发送签名请求 method=POST url={}", url);
     Ok(client
         .post(url)
         .headers(headers)
@@ -223,7 +223,7 @@ pub async fn check_file_exists_with_client(
     http_client: &HttpClientWrapper,
 ) -> Result<bool, ClientError> {
     debug!(
-        "check_file_exists: parent={}, name={}",
+        "检查云端文件是否存在 parent={} name={}",
         parent_file_id, file_name
     );
     let personal = PersonalClient::connect(config, http_client, ListingRetry::None).await?;
@@ -231,7 +231,7 @@ pub async fn check_file_exists_with_client(
         .find_child(parent_file_id, file_name)
         .await?
         .is_some();
-    debug!("check_file_exists: result={}", exists);
+    debug!("已检查云端文件是否存在 result={}", exists);
     Ok(exists)
 }
 
@@ -281,7 +281,7 @@ pub async fn get_personal_file_detail(
     config: &Config,
     file_id: &str,
 ) -> Result<crate::models::QueryFileData, ClientError> {
-    debug!("get_personal_file_detail: file_id={}", file_id);
+    debug!("查询个人云文件详情 file_id={}", file_id);
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let resp: crate::models::QueryFileResp = personal

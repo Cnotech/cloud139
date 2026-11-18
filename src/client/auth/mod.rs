@@ -15,7 +15,7 @@ pub async fn login(
     cloud_id: Option<&str>,
 ) -> Result<Config, ClientError> {
     Config::validate_storage_type(storage_type)?;
-    debug!("正在解析 Token ...");
+    debug!("开始解析 Token");
 
     let (account, token_info, expire_time) = parse_token(token)?;
 
@@ -84,7 +84,7 @@ async fn request_token_refresh(
     timeout: Duration,
 ) -> Result<Config, ClientError> {
     config.require_personal()?;
-    debug!("Refreshing token for account: {}", config.account);
+    debug!("开始续期 Token account={}", config.account);
 
     // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
     // 正是靠它来换取新 token；提前判死会让唯一能自愈的路径失效。
@@ -140,11 +140,11 @@ async fn request_token_refresh(
     }
 
     let refresh_resp: RefreshResp = serde_xml_rs::from_str(&text)
-        .map_err(|e| ClientError::Other(format!("Failed to parse refresh response: {}", e)))?;
+        .map_err(|error| ClientError::Other(format!("无法解析 Token 续期响应，{error}")))?;
 
     if refresh_resp.return_code != "0" {
         return Err(ClientError::Other(format!(
-            "Token refresh failed: code={}, desc={}",
+            "续期 Token 失败 code={} desc={}",
             refresh_resp.return_code, refresh_resp.desc
         )));
     }
@@ -157,7 +157,7 @@ async fn request_token_refresh(
     };
     if new_token.is_empty() {
         return Err(ClientError::Other(
-            "Token refresh failed: empty token in response".to_string(),
+            "续期 Token 失败，响应未返回有效 Token".into(),
         ));
     }
 
@@ -169,7 +169,7 @@ async fn request_token_refresh(
         format!("pc:{}:{}", config.account, new_token),
     );
 
-    debug!("Token 刷新成功，新有效期 {} 天", expire_seconds / 86400);
+    debug!("已续期 Token valid_days={}", expire_seconds / 86400);
 
     let mut new_config = config.clone();
     new_config.authorization = authorization;
@@ -233,7 +233,7 @@ async fn refresh_config_if_needed(
     let update = match ConfigUpdate::load(&path) {
         Ok(update) => update,
         Err(err) => {
-            warn!("自动续期跳过（继续使用现有 token）: {}", err);
+            warn!("自动续期跳过（继续使用现有 Token）: {}", err);
             return Ok(());
         }
     };
@@ -243,12 +243,12 @@ async fn refresh_config_if_needed(
             update
                 .save(&new_config)
                 .map_err(|err| ClientError::Other(format!("保存配置失败: {}", err)))?;
-            debug!("Token 已自动续期并写回配置: {}", path.display());
+            debug!("已将续期后的 Token 写回配置 path={}", path.display());
         }
         Ok(None) => {}
         Err(ClientError::UnsupportedStorage) => return Err(ClientError::UnsupportedStorage),
         Err(err) => {
-            warn!("自动续期失败（继续使用现有 token）: {}", err);
+            warn!("自动续期失败（继续使用现有 Token）: {}", err);
         }
     }
 

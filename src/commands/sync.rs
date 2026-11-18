@@ -14,7 +14,7 @@ use std::io::IsTerminal;
 fn parse_jobs(value: &str) -> Result<usize, String> {
     let jobs = value
         .parse::<usize>()
-        .map_err(|_| "jobs must be a positive integer".to_string())?;
+        .map_err(|_| "并发数量必须为正整数".to_string())?;
     if !(1..=MAX_JOBS).contains(&jobs) {
         return Err(format!("并发数量必须介于 1 和 {MAX_JOBS} 之间"));
     }

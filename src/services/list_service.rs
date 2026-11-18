@@ -66,7 +66,7 @@ pub async fn list(
                 }),
         );
     }
-    debug!("list_personal: 返回 {} 个条目 (总 {})", items.len(), total);
+    debug!("云端目录列表读取完成 count={} total={}", items.len(), total);
     Ok(ListResult {
         path,
         total: i32::try_from(total)?,

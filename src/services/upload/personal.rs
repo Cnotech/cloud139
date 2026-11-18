@@ -264,7 +264,7 @@ async fn transfer_to_parent(
         file_size,
         crate::services::upload_service::get_part_size(file_size, config.custom_upload_part_size),
     )?;
-    pb_debug("计算文件哈希...", &pb);
+    pb_debug("开始计算文件 SHA-256", &pb);
     let path = local_path.to_owned();
     let content_hash =
         tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(path))
@@ -308,7 +308,7 @@ async fn transfer_to_parent(
         .upload_id
         .filter(|id| !id.is_empty())
         .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
-    pb_debug("开始分片上传...", &pb);
+    pb_debug("开始上传分片", &pb);
     upload_parts(UploadPartsParams {
         config,
         host,
@@ -481,7 +481,7 @@ pub(super) async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), Cl
             part.seek(SeekFrom::Start(offset as u64)).await?;
             let part_number = (i + 1) as i32;
             pb_debug(
-                &format!("上传分片 {}/{}", part_number, part_count),
+                &format!("正在上传分片 part={}/{}", part_number, part_count),
                 &params.pb,
             );
             super::personal_parts::upload_part(

@@ -96,7 +96,7 @@ async fn refresh_rejects_empty_token() {
     let err = auth::refresh_token_at(&base_config(), &server.url(REFRESH_PATH))
         .await
         .expect_err("empty token should fail");
-    assert!(err.to_string().contains("empty token"), "{}", err);
+    assert!(err.to_string().contains("响应未返回有效 Token"), "{err}");
 }
 
 #[tokio::test]
@@ -234,11 +234,7 @@ async fn refresh_rejects_malformed_responses() {
             .await
             .unwrap_err();
         mock.assert_calls(1);
-        assert!(
-            error
-                .to_string()
-                .contains("Failed to parse refresh response")
-        );
+        assert!(error.to_string().contains("无法解析 Token 续期响应"));
     }
 }
 

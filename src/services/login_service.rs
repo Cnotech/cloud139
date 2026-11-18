@@ -38,7 +38,7 @@ pub async fn login_with_group_root(
     config.save_to(&path)?;
 
     success!("Token 验证成功!");
-    debug!("存储类型: {}", storage_type);
+    debug!("已验证存储类型 storage_type={}", storage_type);
     success!("配置文件已保存到: {}", path.display());
 
     Ok(config)

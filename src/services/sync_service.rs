@@ -76,7 +76,7 @@ fn compute_diff_inner(
     verify: bool,
 ) -> Vec<SyncAction> {
     debug!(
-        "compute_diff: source={} entries, target={} entries, direction={:?}",
+        "开始计算同步差异 source={} target={} direction={:?}",
         source.len(),
         target.len(),
         options.direction
@@ -227,7 +227,7 @@ fn compute_diff_inner(
         ),
     });
 
-    debug!("compute_diff: 生成 {} 个动作", actions.len());
+    debug!("已生成同步计划 actions={}", actions.len());
     actions
 }
 

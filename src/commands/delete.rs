@@ -33,7 +33,10 @@ pub async fn execute(args: DeleteArgs) -> anyhow::Result<()> {
 
     let config = crate::config::Config::load_personal()?;
 
-    debug!("delete: path={}, permanent={}", args.path, args.permanent);
+    debug!(
+        "准备删除云端条目 path={} permanent={}",
+        args.path, args.permanent
+    );
     crate::services::delete_service::delete_recursive(
         &config,
         &args.path,
