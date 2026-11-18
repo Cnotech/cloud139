@@ -21,9 +21,6 @@ fn parse_jobs(value: &str) -> Result<usize, String> {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(
-    after_help = "确认上传成功后，才替换云端的同名文件或目录。执行计划时如有操作失败，退出码为 1。"
-)]
 pub struct SyncArgs {
     #[arg(help = "源路径，本地路径或 cloud:/remote/path")]
     pub src: String,
