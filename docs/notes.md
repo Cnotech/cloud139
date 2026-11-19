@@ -12,7 +12,7 @@
 - 遵循分层架构，避免跨层依赖
 - CLI 层 (`cli/`) 只负责参数定义，不直接调用基础设施
 - 命令层 (`commands/`) 作为适配器，连接 CLI 和应用层
-- 应用层 (`crates/cloud139-core/src/services/`) 包含核心业务逻辑
+- 应用层 (`packages/lib/src/services/`) 包含核心业务逻辑
 - 领域层 (`domain/`) 不依赖外部框架
 - 展示层 (`presentation/`) 只处理输出格式化
 

@@ -151,4 +151,4 @@ pb.set_style(
 
 ---
 
-> 规范维护：当新增日志宏或调整颜色语义时，同步更新本文档与 CLI 的 `src/logger.rs`。
+> 规范维护：新增日志宏或调整颜色语义时，同步更新本文档与 `packages/cli/src/logger.rs`。

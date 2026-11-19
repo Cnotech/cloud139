@@ -12,16 +12,16 @@ metadata:
 
 更新 cloud139 项目的版本号，包括：
 - 根据用户选择增加 major、minor 或 patch 版本位
-- 更新 Cargo.toml 中的版本号
+- 更新 `packages/cli/Cargo.toml` 中的版本号
 - 运行 cargo update -w 更新依赖
-- 提交 Cargo.toml 和 Cargo.lock
+- 提交 `packages/cli/Cargo.toml` 和 `Cargo.lock`
 - 创建并推送 Git tag
 
 ## 执行流程
 
 ### 1. 读取当前版本
 
-读取项目根目录的 `Cargo.toml` 文件，解析并打印当前的版本号（格式：`x.y.z`）。
+读取 `packages/cli/Cargo.toml` 的 `[package].version`，解析并打印 CLI 当前版本号（格式 `x.y.z`）。
 
 ### 2. 询问用户
 
@@ -37,7 +37,7 @@ metadata:
 - 选择 minor: x.y+1.0
 - 选择 patch: x.y.z+1
 
-使用 Edit 工具将新版本号写入 Cargo.toml。
+将新版本号写入 `packages/cli/Cargo.toml` 的 `[package].version`。
 
 ### 4. 运行 cargo update
 
@@ -50,9 +50,9 @@ cargo update -w
 
 ### 5. Git 提交
 
-提交 Cargo.toml 和 Cargo.lock：
+提交 CLI 的 Cargo.toml 和 workspace 的 Cargo.lock：
 ```bash
-git add Cargo.toml Cargo.lock
+git add packages/cli/Cargo.toml Cargo.lock
 git commit -m "chore: bump version to v{x.y.z}"
 ```
 

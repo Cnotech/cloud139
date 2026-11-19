@@ -21,9 +21,9 @@ cargo clippy --workspace
 
 ### 项目结构
 
-根目录 package `cloud139` 提供 CLI。参数定义在 `src/cli/`，命令适配在 `src/commands/`，展示在 `src/presentation/`，配置路径和跨进程锁在 `src/config/`。
+Package `cloud139` 位于 `packages/cli/`。参数定义、命令适配、展示、配置路径和跨进程锁分别在该 package 的 `src/cli/`、`src/commands/`、`src/presentation/` 和 `src/config/` 中。
 
-库 package `cloud139-core` 位于 `crates/cloud139-core/`，负责配置读写、认证、API 请求和文件操作。CLI 显式传递配置或路径，并将服务结果转换成命令行输出。详见 [项目结构](docs/structure.md)。
+库 package `cloud139-core` 位于 `packages/lib/`，负责配置读写、认证、API 请求和文件操作。CLI 显式传递配置或路径，并将服务结果转换成命令行输出。详见 [项目结构](docs/structure.md)。
 
 ### 代码风格
 
@@ -44,7 +44,7 @@ clap, reqwest, tokio, serde, thiserror 等
 
 ### 日志打印规范
 
-- 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用各 package 的日志宏。CLI 由 `src/logger.rs` 输出，库通过 `utils/logger.rs` 交给宿主处理。
+- 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用各 package 的日志宏。CLI 由 `packages/cli/src/logger.rs` 输出，库由 `packages/lib/src/utils/logger.rs` 将日志交给宿主。
 - 常用宏：`success!`（绿，成功）、`step!`（蓝，步骤）、`info!`（青，提示）、`warn!`（黄，警告）、`error!`（红，错误）、`debug!`（灰，调试）
 - 自有日志正文使用简体中文，调试字段沿用稳定的英文 `key=value`。
 - CLI 日志输出会协调进度条重绘。库通过传入的进度回调报告传输进展。
