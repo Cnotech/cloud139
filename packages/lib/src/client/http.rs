@@ -22,11 +22,21 @@ impl Default for HttpClientWrapper {
 
 impl HttpClientWrapper {
     pub fn new() -> Self {
-        Self {
-            client: http_client_builder()
+        Self::with_client(
+            http_client_builder()
+                .read_timeout(Duration::from_secs(30))
                 .build()
                 .expect("HTTP 客户端初始化失败"),
-        }
+        )
+    }
+
+    pub(crate) fn for_upload_parts() -> Self {
+        // reqwest 的读取计时会覆盖请求体发送，分片上传单独按传输活动计时。
+        Self::with_client(
+            http_client_builder()
+                .build()
+                .expect("分片上传 HTTP 客户端初始化失败"),
+        )
     }
 
     pub fn with_client(client: reqwest::Client) -> Self {
@@ -47,9 +57,7 @@ impl HttpClientWrapper {
 }
 
 fn http_client_builder() -> ClientBuilder {
-    Client::builder()
-        .connect_timeout(Duration::from_secs(10))
-        .read_timeout(Duration::from_secs(30))
+    Client::builder().connect_timeout(Duration::from_secs(10))
 }
 
 fn build_signed_post(

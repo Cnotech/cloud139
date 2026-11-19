@@ -39,6 +39,7 @@ cargo test --locked --offline -p cloud139 --test download_dir_paging_test --test
 | 13.8 | `cargo test --locked --offline -p cloud139 --lib services::download::tests` 验证下载断流、错误响应、已有文件及进度重试。[download_dir_paging_test](../../../../packages/lib/tests/download_dir_paging_test.rs) 核对下载链接的业务错误和空 CDN 地址的回退。 |
 | 13.9 | [personal_pc_test](../../../../packages/lib/tests/personal_pc_test.rs) 和 `cargo test --locked --offline -p cloud139 --lib client::api::upload::tests` 核对 PC 请求头、上传权益由远端判断、分片和完成失败时保留原同步目标。用 mock 覆盖大文件权益错误。 |
 | 13.12 | `cargo test --locked --offline -p cloud139 --test personal_pc_test rapid_upload_` 核对 `rapidUpload: true` 且无分片时返回成功，未确认秒传且无分片时返回失败。 |
+| 13.13 | `cargo test --locked --offline -p cloud139 --lib client::api::personal::transfer::tests` 使用虚拟时钟验证单个分片持续传输时可超过 30 秒，最后一次发送数据后停滞 30 秒则超时。 |
 
 ## 同步和清理
 

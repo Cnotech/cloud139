@@ -15,7 +15,7 @@ toml = "1.1"
 base64 = "0.22"
 sha2 = "0.11"
 md-5 = "0.11"
-tokio = { version = "1.51", features = ["fs", "io-util", "rt", "sync", "time"] }
+tokio = { version = "1.51", features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 thiserror = "2.0"
 anyhow = "1"
@@ -33,4 +33,4 @@ windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 httpmock = "0.8"
-tokio = { version = "1.51", features = ["macros"] }
+tokio = { version = "1.51", features = ["test-util"] }

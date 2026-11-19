@@ -91,7 +91,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     let file_size = layout.file_size();
     let content_hash = params.content_hash;
     let file = tokio::fs::File::open(local_path).await?;
-    let data_client = HttpClientWrapper::new();
+    let data_client = HttpClientWrapper::for_upload_parts();
     if file.metadata().await?.len() < file_size as u64 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
