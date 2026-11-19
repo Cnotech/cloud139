@@ -1,4 +1,4 @@
-use super::directory_service as dirs;
+use super::directory as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::Config;

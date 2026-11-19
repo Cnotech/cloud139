@@ -3,7 +3,7 @@
 use crate::cli::CpArgs;
 use cloud139::config::Config;
 use cloud139::error::ClientError;
-use cloud139::services::copy_service;
+use cloud139::services::copy;
 
 #[test]
 fn test_cp_args_validation_single_source() {
@@ -47,7 +47,7 @@ async fn test_cp_family_rejects_multiple_sources() {
     };
     let sources = vec!["/source1.txt".to_string(), "/source2.txt".to_string()];
 
-    let result = copy_service::cp(&config, &sources, "/target/", false).await;
+    let result = copy::cp(&config, &sources, "/target/", false).await;
 
     assert!(matches!(result, Err(ClientError::UnsupportedStorage)));
 }
@@ -60,7 +60,7 @@ async fn test_cp_group_rejects_multiple_sources() {
     };
     let sources = vec!["/source1.txt".to_string(), "/source2.txt".to_string()];
 
-    let result = copy_service::cp(&config, &sources, "/target/", false).await;
+    let result = copy::cp(&config, &sources, "/target/", false).await;
 
     assert!(matches!(result, Err(ClientError::UnsupportedStorage)));
 }

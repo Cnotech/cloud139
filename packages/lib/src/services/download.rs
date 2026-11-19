@@ -215,7 +215,7 @@ async fn download_normalized(
     pb: Option<Progress>,
     recursive: bool,
 ) -> Result<()> {
-    use super::directory_service as dirs;
+    use super::directory as dirs;
     safe_local(Path::new(local))?;
     if remote == "/" && !recursive {
         return Err(ClientError::UnsupportedDownloadDirectory.into());

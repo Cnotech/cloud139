@@ -107,7 +107,7 @@ fn local_metadata_no_longer_rejects_files_at_web_account_boundaries() {
         let bytes = size * 1024 * 1024 * 1024 + 1;
         file.set_len(bytes).unwrap();
         assert_eq!(
-            cloud139::services::upload_service::checked_upload_size(&path).unwrap(),
+            cloud139::services::upload::checked_upload_size(&path).unwrap(),
             bytes as i64
         );
     }

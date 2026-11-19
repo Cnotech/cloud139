@@ -1,11 +1,11 @@
-use crate::presentation::list_renderer::format_size;
+use crate::presentation::list::format_size;
 use cloud139::client::api::upload::get_part_size;
-use cloud139::services::mkdir_service;
+use cloud139::services::mkdir;
 use cloud139::utils::time::parse_personal_time;
 
 #[test]
 fn test_parse_path_root() {
-    let result = mkdir_service::parse_path("/test");
+    let result = mkdir::parse_path("/test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -14,7 +14,7 @@ fn test_parse_path_root() {
 
 #[test]
 fn test_parse_path_nested() {
-    let result = mkdir_service::parse_path("/parent/child");
+    let result = mkdir::parse_path("/parent/child");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/parent");
@@ -23,7 +23,7 @@ fn test_parse_path_nested() {
 
 #[test]
 fn test_parse_path_deep_nested() {
-    let result = mkdir_service::parse_path("/a/b/c/d");
+    let result = mkdir::parse_path("/a/b/c/d");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/a/b/c");
@@ -32,7 +32,7 @@ fn test_parse_path_deep_nested() {
 
 #[test]
 fn test_parse_path_single_name() {
-    let result = mkdir_service::parse_path("test");
+    let result = mkdir::parse_path("test");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/");
@@ -41,25 +41,25 @@ fn test_parse_path_single_name() {
 
 #[test]
 fn test_parse_path_empty() {
-    let result = mkdir_service::parse_path("");
+    let result = mkdir::parse_path("");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_only_slash() {
-    let result = mkdir_service::parse_path("/");
+    let result = mkdir::parse_path("/");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_whitespace() {
-    let result = mkdir_service::parse_path("  ");
+    let result = mkdir::parse_path("  ");
     assert!(result.is_err());
 }
 
 #[test]
 fn test_parse_path_with_spaces() {
-    let result = mkdir_service::parse_path("/my folder/file");
+    let result = mkdir::parse_path("/my folder/file");
     assert!(result.is_ok());
     let (parent, name) = result.unwrap();
     assert_eq!(parent, "/my folder");

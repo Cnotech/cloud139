@@ -50,7 +50,7 @@ async fn download_dir_check_stops_at_first_page() {
 
     let tmp = tempfile::tempdir().expect("tmp");
     let local = tmp.path().join("out.bin");
-    let result = cloud139::services::download_service::download(
+    let result = cloud139::services::download::download(
         &config_for(&server),
         "/hit",
         &local.to_string_lossy(),
@@ -99,7 +99,7 @@ async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
     );
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("file.txt");
-    cloud139::services::download_service::download(
+    cloud139::services::download::download(
         &config,
         "/file.txt",
         target.to_str().unwrap(),

@@ -5,5 +5,5 @@ pub async fn mv(
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
-    super::directory_service::transfer(config, sources, target, force, true).await
+    super::directory::transfer(config, sources, target, force, true).await
 }

@@ -4,7 +4,7 @@ use std::io::IsTerminal;
 
 pub(super) async fn execute(args: UploadArgs, config: &Config) -> anyhow::Result<()> {
     let progress = std::io::stderr().is_terminal();
-    cloud139::services::upload_service::upload_path(
+    cloud139::services::upload::upload_path(
         config,
         &args.local_path,
         &args.remote_path,

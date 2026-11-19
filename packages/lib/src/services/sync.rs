@@ -1,4 +1,4 @@
-use super::local_scan::{LocalSyncScan, scan_items};
+use super::local_scan::{LocalSyncScan, scan_items, scan_local_target, scan_upload_source};
 use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
@@ -9,19 +9,20 @@ use crate::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
     SyncTarget,
 };
-use crate::services::sync_executor::SyncExecuteOptions;
+use crate::services::progress::ProgressFactory;
+use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_report::SyncReport;
+use crate::services::sync_verify::execute_verified_sync;
 use crate::utils::path::rel_to_local;
 use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
 use crate::utils::remote_path;
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, ensure};
 use futures_util::TryStreamExt;
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::pin::pin;
-
-mod execution;
+use std::time::Instant;
 
 /// Validated options for a local-to-cloud or cloud-to-local sync.
 pub struct SyncRequest {
@@ -53,6 +54,170 @@ enum SyncMode {
 pub enum SyncOutcome {
     Summary(SyncSummary),
     Report(SyncReport),
+}
+
+impl SyncRequest {
+    pub fn new(
+        source: &str,
+        destination: &str,
+        scan: SyncScanOptions,
+        execution: SyncExecuteOptions,
+        delete: bool,
+        verify: bool,
+    ) -> Result<Self> {
+        let source = parse_sync_endpoint(source);
+        let destination = parse_sync_endpoint(destination);
+        let direction = sync_direction(&source, &destination)?;
+        if verify {
+            ensure!(
+                direction == SyncDirection::LocalToCloud,
+                "--verify 要求目标路径以 cloud: 开头"
+            );
+            ensure!(execution.jobs == 1, "--verify 只允许 -j 1");
+        }
+        Ok(Self {
+            source,
+            destination,
+            direction,
+            scan,
+            execution,
+            delete,
+            verify,
+        })
+    }
+
+    pub async fn plan(self, mut config: Config, track_paths: bool) -> Result<SyncPlan> {
+        let diff_options = |local_root, cloud_root| SyncDiffOptions {
+            direction: self.direction,
+            delete: self.delete,
+            local_root,
+            cloud_root,
+        };
+        let mut report =
+            (track_paths && !self.verify).then(|| SyncReport::new(self.execution.dry_run, true));
+        let (actions, cloud, local, mode) = match (self.source, self.destination) {
+            (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
+                let (local_root, source) = scan_upload_source(
+                    local_root,
+                    self.scan.recursive,
+                    &self.scan.exclude,
+                    self.delete,
+                )?;
+                let objects = source
+                    .iter()
+                    .filter(|entry| entry.kind == SyncEntryKind::File)
+                    .count();
+                ensure!(
+                    !self.verify || !self.delete || objects > 0,
+                    "--verify --delete 要求同步范围内至少有一个源文件"
+                );
+                let cloud = scan_cloud(&config, &cloud_root, &self.scan, self.direction).await?;
+                crate::step!("正在计算同步差异...");
+                let actions = cloud.compute_upload_diff(
+                    &source,
+                    diff_options(local_root, cloud.root.clone()),
+                    self.verify,
+                );
+                if let Some(report) = &mut report {
+                    report.count_source_files(&source, &actions);
+                }
+                let mode = if self.verify {
+                    SyncMode::Verify {
+                        objects,
+                        track_paths,
+                    }
+                } else {
+                    SyncMode::Ordinary(report)
+                };
+                (actions, cloud, None, mode)
+            }
+            (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
+                let cloud = scan_cloud(&config, &cloud_root, &self.scan, self.direction).await?;
+                let local =
+                    scan_local_target(&local_root, self.scan.recursive, &self.scan.exclude)?;
+                local.validate_destinations(&cloud.items, &local_root)?;
+                crate::step!("正在计算同步差异...");
+                let actions =
+                    cloud.compute_download_diff(&local, diff_options(local_root, cloud_root));
+                if let Some(report) = &mut report {
+                    report.count_source_files(&cloud.items, &actions);
+                }
+                (actions, cloud, Some(local), SyncMode::Ordinary(report))
+            }
+            _ => anyhow::bail!("无效的同步方向"),
+        };
+        config.personal_cloud_host = Some(cloud.host.clone());
+        Ok(SyncPlan {
+            config,
+            actions,
+            cloud,
+            local,
+            execution: self.execution,
+            mode,
+        })
+    }
+}
+
+impl SyncPlan {
+    pub fn actions(&self) -> &[SyncAction] {
+        &self.actions
+    }
+
+    pub async fn execute(self) -> Result<SyncOutcome> {
+        self.execute_with_progress(None).await
+    }
+
+    pub async fn execute_with_progress(
+        self,
+        progress: Option<&ProgressFactory<'_>>,
+    ) -> Result<SyncOutcome> {
+        match self.mode {
+            SyncMode::Verify {
+                objects,
+                track_paths,
+            } => {
+                let report = execute_verified_sync(
+                    &self.config,
+                    &self.cloud,
+                    &self.actions,
+                    objects,
+                    self.execution,
+                    track_paths,
+                    progress,
+                )
+                .await;
+                Ok(SyncOutcome::Report(report))
+            }
+            SyncMode::Ordinary(mut report) => {
+                let started = Instant::now();
+                let summary = execute_scanned_sync(
+                    &self.config,
+                    self.actions,
+                    self.execution,
+                    Some(&self.cloud),
+                    self.local.as_ref(),
+                    report.as_mut(),
+                    progress,
+                )
+                .await?;
+                if let Some(mut report) = report {
+                    report.seconds = started.elapsed().as_secs_f64();
+                    Ok(SyncOutcome::Report(report))
+                } else {
+                    Ok(SyncOutcome::Summary(summary))
+                }
+            }
+        }
+    }
+}
+
+impl SyncOutcome {
+    pub fn failed(&self) -> usize {
+        match self {
+            Self::Summary(summary) => summary.failed,
+            Self::Report(report) => report.failures.len(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -593,7 +758,7 @@ pub async fn scan_cloud(
     let cloud_root = remote_path::normalize(cloud_root)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, SYNC_LIST_RETRY).await?;
-    let root_id = super::directory_service::directory_with_listing(&listing, &cloud_root).await?;
+    let root_id = super::directory::directory_with_listing(&listing, &cloud_root).await?;
     let mut scanner = CloudScanner {
         scan: CloudSyncScan {
             directories: BTreeMap::from([(String::new(), root_id.clone())]),

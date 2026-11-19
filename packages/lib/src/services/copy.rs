@@ -5,5 +5,5 @@ pub async fn cp(
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
-    super::directory_service::transfer(config, sources, target, force, false).await
+    super::directory::transfer(config, sources, target, force, false).await
 }

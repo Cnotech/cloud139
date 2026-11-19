@@ -1,6 +1,6 @@
 use crate::cli::MkdirArgs;
 use cloud139::config::Config;
-use cloud139::services::mkdir_service::{MkdirMode, mkdir};
+use cloud139::services::mkdir::{MkdirMode, mkdir};
 
 pub(super) async fn execute(args: MkdirArgs, config: &Config) -> anyhow::Result<()> {
     let mode = if args.parents {

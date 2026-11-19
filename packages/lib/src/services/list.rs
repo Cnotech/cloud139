@@ -34,7 +34,7 @@ pub async fn list<'a>(
     let path = remote_path::normalize(args.path)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    let parent = super::directory_service::directory_with_listing(&listing, &path).await?;
+    let parent = super::directory::directory_with_listing(&listing, &path).await?;
     let thumbnails = if config.use_large_thumbnail {
         protocol::THUMBNAILS_WITH_ORIGINAL
     } else {
@@ -89,7 +89,7 @@ pub async fn list_recursive(
     config: &crate::config::Config,
     root: &str,
 ) -> anyhow::Result<Vec<ListResult>> {
-    use super::directory_service as dirs;
+    use super::directory as dirs;
     let root = remote_path::normalize(root)?;
     let entries = dirs::tree(config, &root).await?;
     let mut grouped = std::collections::BTreeMap::<String, Vec<FileItem>>::new();

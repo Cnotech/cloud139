@@ -1307,7 +1307,7 @@ async fn recursive_download_rejects_local_case_or_unicode_collisions() {
         let aliases = volume_probe.path().join(second).exists();
         server.set("dir", vec![file("one", first), file("two", second)]);
         let destination = tmp.path().join(format!("download-{index}"));
-        let result = services::download_service::download(
+        let result = services::download::download(
             &server.config(),
             "/folder",
             destination.to_str().unwrap(),
@@ -1335,7 +1335,7 @@ async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
     let server = Server::new();
     server.set("/", vec![file("one", "report.txt")]);
     server.state.lock().unwrap().fail_trash_item = true;
-    let error = services::delete_service::delete(&server.config(), "/report.txt", false)
+    let error = services::delete::delete(&server.config(), "/report.txt", false)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("删除失败"));
@@ -1376,22 +1376,22 @@ async fn root_mutations_are_rejected_for_personal_storage_without_network() {
         let config = Config::default();
         for root in ["/", "//./", "/a/..", ""] {
             assert!(
-                services::delete_service::delete(&config, root, true)
+                services::delete::delete(&config, root, true)
                     .await
                     .unwrap_err()
                     .to_string()
                     .contains("根目录")
             );
             assert!(matches!(
-                services::rename_service::rename(&config, root, "safe", false).await,
+                services::rename::rename(&config, root, "safe", false).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::copy_service::cp(&config, &[root.into()], "/dst", true).await,
+                services::copy::cp(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::move_service::mv(&config, &[root.into()], "/dst", true).await,
+                services::mv::mv(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
         }
@@ -1403,14 +1403,14 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
     let config = Config::default();
     for target in ["/a", "/a/sub", "/a/./sub/child", "/x/../a/sub"] {
         assert!(
-            services::copy_service::cp(&config, &["/a".into()], target, true)
+            services::copy::cp(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("自身或子目录")
         );
         assert!(
-            services::move_service::mv(&config, &["/a".into()], target, true)
+            services::mv::mv(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
@@ -1423,28 +1423,20 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
 async fn mkdir_parents_is_idempotent_and_rejects_files_without_rename() {
     let server = Server::new();
     let config = server.config();
-    services::mkdir_service::mkdir(
-        &config,
-        "/a/b/empty",
-        services::mkdir_service::MkdirMode::Parents,
-    )
-    .await
-    .unwrap();
+    services::mkdir::mkdir(&config, "/a/b/empty", services::mkdir::MkdirMode::Parents)
+        .await
+        .unwrap();
     assert_eq!(server.mutations().len(), 3);
-    services::mkdir_service::mkdir(
-        &config,
-        "/a/b/empty/",
-        services::mkdir_service::MkdirMode::Parents,
-    )
-    .await
-    .unwrap();
+    services::mkdir::mkdir(&config, "/a/b/empty/", services::mkdir::MkdirMode::Parents)
+        .await
+        .unwrap();
     assert_eq!(server.mutations().len(), 3);
     server.set("/", vec![file("f", "occupied")]);
     assert!(
-        services::mkdir_service::mkdir(
+        services::mkdir::mkdir(
             &config,
             "/occupied/child",
-            services::mkdir_service::MkdirMode::Parents
+            services::mkdir::MkdirMode::Parents
         )
         .await
         .is_err()
@@ -1464,7 +1456,7 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
     server.state.lock().unwrap().page_size = 1;
     server.set("/", vec![folder("d", "dir"), file("f", "last.bin")]);
     server.set("d", vec![folder("e", "empty"), file("n", "nested.bin")]);
-    let result = services::list_service::list_recursive(&server.config(), "/")
+    let result = services::list::list_recursive(&server.config(), "/")
         .await
         .unwrap();
     assert_eq!(result.len(), 3);
@@ -1476,7 +1468,7 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
     );
     server.state.lock().unwrap().cycle = true;
     assert!(
-        services::list_service::list_recursive(&server.config(), "/")
+        services::list::list_recursive(&server.config(), "/")
             .await
             .unwrap_err()
             .to_string()
@@ -1485,7 +1477,7 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
     server.state.lock().unwrap().cycle = false;
     server.set("d", vec![folder("d", "loop")]);
     assert!(
-        services::list_service::list_recursive(&server.config(), "/")
+        services::list::list_recursive(&server.config(), "/")
             .await
             .unwrap_err()
             .to_string()
@@ -1497,13 +1489,13 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
 async fn ordinary_ls_rejects_cursor_cycles() {
     let server = Server::new();
     server.state.lock().unwrap().cycle = true;
-    let args = cloud139::services::list_service::ListOptions {
+    let args = cloud139::services::list::ListOptions {
         path: "/",
         page: 1,
         page_size: 100,
     };
     assert!(
-        services::list_service::list(&server.config(), args)
+        services::list::list(&server.config(), args)
             .await
             .unwrap_err()
             .to_string()
@@ -1520,12 +1512,12 @@ async fn recursive_download_requires_flag_preserves_empty_and_file_contents() {
     let out = tmp.path().join("out");
     let local = out.to_str().unwrap();
     assert!(
-        services::download_service::download(&server.config(), "/dir", local, None, false)
+        services::download::download(&server.config(), "/dir", local, None, false)
             .await
             .is_err()
     );
     assert!(!out.exists());
-    services::download_service::download(&server.config(), "/dir", local, None, true)
+    services::download::download(&server.config(), "/dir", local, None, true)
         .await
         .unwrap();
     assert!(out.join("empty").is_dir());
@@ -1553,7 +1545,7 @@ async fn recursive_download_validates_listed_size_without_content_length() {
         server.state.lock().unwrap().close_delimited_payload = Some(payload);
         std::fs::write(&destination, b"keep original").unwrap();
         let result =
-            services::download_service::download(&server.config(), "/dir", local, None, true).await;
+            services::download::download(&server.config(), "/dir", local, None, true).await;
         if valid {
             result.unwrap();
             assert_eq!(std::fs::read(&destination).unwrap(), payload);
@@ -1575,7 +1567,7 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     for name in ["../escape", "/escape", "C:escape", "a\\b", "."] {
         server.set("d", vec![file("f", name)]);
         assert!(
-            services::download_service::download(
+            services::download::download(
                 &server.config(),
                 "/dir",
                 out.to_str().unwrap(),
@@ -1591,15 +1583,9 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     std::fs::create_dir(&out).unwrap();
     std::fs::write(out.join("empty"), b"keep").unwrap();
     assert!(
-        services::download_service::download(
-            &server.config(),
-            "/dir",
-            out.to_str().unwrap(),
-            None,
-            true
-        )
-        .await
-        .is_err()
+        services::download::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
+            .await
+            .is_err()
     );
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
@@ -1860,15 +1846,9 @@ async fn upload_maps_directory_or_contents_keeps_empty_and_never_skips_same_size
     let source = tmp.path().join("source");
     std::fs::create_dir_all(source.join("empty")).unwrap();
     std::fs::write(source.join("file.bin"), b"new!").unwrap();
-    services::upload_service::upload_directory(
-        &server.config(),
-        &source,
-        "/missing/target",
-        false,
-        false,
-    )
-    .await
-    .unwrap();
+    services::upload::upload_directory(&server.config(), &source, "/missing/target", false, false)
+        .await
+        .unwrap();
     let names: Vec<_> = server
         .mutations()
         .iter()
@@ -1884,15 +1864,9 @@ async fn upload_maps_directory_or_contents_keeps_empty_and_never_skips_same_size
         .iter()
         .filter(|(_, b)| b["type"] == "file")
         .count();
-    services::upload_service::upload_directory(
-        &server.config(),
-        &source,
-        "/missing/target",
-        false,
-        true,
-    )
-    .await
-    .unwrap();
+    services::upload::upload_directory(&server.config(), &source, "/missing/target", false, true)
+        .await
+        .unwrap();
     assert_eq!(
         server
             .mutations()
@@ -1902,7 +1876,7 @@ async fn upload_maps_directory_or_contents_keeps_empty_and_never_skips_same_size
         uploads + 1
     );
     let second = Server::new();
-    services::upload_service::upload_directory(&second.config(), &source, "/target", true, false)
+    services::upload::upload_directory(&second.config(), &source, "/target", true, false)
         .await
         .unwrap();
     assert!(
@@ -1921,15 +1895,10 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     std::fs::write(tmp.path().join("z.bin"), b"fail").unwrap();
     std::fs::write(tmp.path().join("zz.bin"), b"after failure").unwrap();
     server.state.lock().unwrap().fail_name = Some("z.bin".into());
-    let error = services::upload_service::upload_directory(
-        &server.config(),
-        tmp.path(),
-        "/target",
-        true,
-        false,
-    )
-    .await
-    .unwrap_err();
+    let error =
+        services::upload::upload_directory(&server.config(), tmp.path(), "/target", true, false)
+            .await
+            .unwrap_err();
     assert!(error.to_string().contains("此前条目可能已完成"));
     let uploads = server.mutations();
     assert_eq!(
@@ -1950,7 +1919,7 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);
     server.state.lock().unwrap().fail_batch = true;
     assert!(
-        services::copy_service::cp(&server.config(), &["/src".into()], "/dest", false)
+        services::copy::cp(&server.config(), &["/src".into()], "/dest", false)
             .await
             .is_err()
     );
@@ -1977,7 +1946,7 @@ async fn recursive_upload_retries_the_failed_page_without_replaying_writes() {
     std::fs::write(source.path().join("a.txt"), b"first").unwrap();
     std::fs::write(source.path().join("b.txt"), b"second").unwrap();
     std::fs::write(source.path().join("z.txt"), b"blocked").unwrap();
-    let error = services::upload_service::upload_directory(
+    let error = services::upload::upload_directory(
         &server.config(),
         source.path(),
         "/outer/target",
@@ -2026,15 +1995,9 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
         std::fs::write(source.path().join(&name), format!("root {index}\n")).unwrap();
         std::fs::write(child.join(&name), format!("child {index}\n")).unwrap();
     }
-    services::upload_service::upload_directory(
-        &server.config(),
-        source.path(),
-        "/paged",
-        true,
-        false,
-    )
-    .await
-    .unwrap();
+    services::upload::upload_directory(&server.config(), source.path(), "/paged", true, false)
+        .await
+        .unwrap();
 
     let state = server.state.lock().unwrap();
     assert!(state.drop_list_cursor_once.is_none());
@@ -2086,27 +2049,27 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     server.set("d", vec![file("c", "src")]);
     assert!(
-        services::copy_service::cp(&server.config(), &["/src".into()], "/dest", true)
+        services::copy::cp(&server.config(), &["/src".into()], "/dest", true)
             .await
             .is_err()
     );
     assert!(
-        services::move_service::mv(&server.config(), &["/src".into()], "/file", true)
+        services::mv::mv(&server.config(), &["/src".into()], "/file", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename_service::rename(&server.config(), "/src", "file", true)
+        services::rename::rename(&server.config(), "/src", "file", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename_service::rename(&server.config(), "/src", "../unsafe", true)
+        services::rename::rename(&server.config(), "/src", "../unsafe", true)
             .await
             .is_err()
     );
     assert!(
-        services::copy_service::cp(
+        services::copy::cp(
             &server.config(),
             &["/src".into(), "/missing".into()],
             "/dest",
@@ -2117,13 +2080,13 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     assert!(server.mutations().is_empty());
     server.set("d", vec![]);
-    services::copy_service::cp(&server.config(), &["/src".into()], "/dest", false)
+    services::copy::cp(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
-    services::move_service::mv(&server.config(), &["/src".into()], "/dest", false)
+    services::mv::mv(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
-    services::rename_service::rename(&server.config(), "/src", "renamed", false)
+    services::rename::rename(&server.config(), "/src", "renamed", false)
         .await
         .unwrap();
     assert_eq!(server.mutations().len(), 3);
@@ -2134,14 +2097,14 @@ async fn directory_delete_needs_recursive_and_permanent_never_trashes() {
     let server = Server::new();
     server.set("/", vec![folder("d", "dir")]);
     assert!(
-        services::delete_service::delete(&server.config(), "/dir", false)
+        services::delete::delete(&server.config(), "/dir", false)
             .await
             .unwrap_err()
             .to_string()
             .contains("-r")
     );
     assert!(server.mutations().is_empty());
-    services::delete_service::delete(&server.config(), "/dir", true)
+    services::delete::delete(&server.config(), "/dir", true)
         .await
         .unwrap();
     assert_eq!(server.mutations()[0].0, "/recyclebin/batchTrash");
@@ -2159,19 +2122,13 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     std::fs::write(outside.path().join("data.bin"), b"keep").unwrap();
     symlink(outside.path(), tmp.path().join("link")).unwrap();
     assert!(
-        services::upload_service::upload_directory(
-            &server.config(),
-            tmp.path(),
-            "/target",
-            true,
-            false
-        )
-        .await
-        .is_err()
+        services::upload::upload_directory(&server.config(), tmp.path(), "/target", true, false)
+            .await
+            .is_err()
     );
     assert!(server.mutations().is_empty());
     assert!(
-        services::download_service::download(
+        services::download::download(
             &server.config(),
             "/dir",
             tmp.path().join("link/out").to_str().unwrap(),
@@ -2185,15 +2142,9 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     std::fs::create_dir(&out).unwrap();
     symlink(outside.path().join("data.bin"), out.join("data.bin")).unwrap();
     assert!(
-        services::download_service::download(
-            &server.config(),
-            "/dir",
-            out.to_str().unwrap(),
-            None,
-            true
-        )
-        .await
-        .is_err()
+        services::download::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
+            .await
+            .is_err()
     );
     assert_eq!(
         std::fs::read(outside.path().join("data.bin")).unwrap(),
@@ -2239,12 +2190,12 @@ async fn server_root_id_alias_is_rejected_before_delete_or_rename() {
     let server = Server::new();
     server.set("/", vec![folder("/", "alias")]);
     assert!(
-        services::delete_service::delete(&server.config(), "/alias", true)
+        services::delete::delete(&server.config(), "/alias", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename_service::rename(&server.config(), "/alias", "renamed", false)
+        services::rename::rename(&server.config(), "/alias", "renamed", false)
             .await
             .is_err()
     );
@@ -2530,7 +2481,7 @@ async fn ordinary_multipart_upload_preserves_server_selected_name_and_never_tras
         });
         let local = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(local.path(), b"test content").unwrap();
-        services::upload_service::upload(&config, local.path(), "/", "report.txt", 12, force, None)
+        services::upload::upload(&config, local.path(), "/", "report.txt", 12, force, None)
             .await
             .unwrap();
         list.assert_calls(1);

@@ -1,5 +1,5 @@
 use cloud139::models::sync_item::SyncEntryKind;
-use cloud139::services::sync_service::{SyncScanOptions, scan_local};
+use cloud139::services::sync::{SyncScanOptions, scan_local};
 use std::fs;
 use std::io::Write;
 use tempfile::tempdir;

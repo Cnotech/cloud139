@@ -1,10 +1,10 @@
 use crate::cli::SyncArgs;
 use crate::error::CommandExit;
-use crate::presentation::sync_renderer::{print_outcome, print_plan};
+use crate::presentation::sync::{print_outcome, print_plan};
 use cloud139::config::Config;
 use cloud139::services::progress::ProgressFactory;
+use cloud139::services::sync::{SyncRequest, SyncScanOptions};
 use cloud139::services::sync_executor::SyncExecuteOptions;
-use cloud139::services::sync_service::{SyncRequest, SyncScanOptions};
 use std::io::IsTerminal;
 
 pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {

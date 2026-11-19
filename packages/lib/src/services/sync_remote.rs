@@ -1,6 +1,6 @@
 use super::{
-    directory_service as dirs,
-    sync_service::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
+    directory as dirs,
+    sync::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
 };
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
@@ -29,7 +29,7 @@ pub(super) async fn remote_sha256(
         .as_deref()
         .context("服务端未返回文件 ID，无法读取远端内容")?;
     with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-        super::download_service::personal_content_sha256(config, host, id, expected_size)
+        super::download::personal_content_sha256(config, host, id, expected_size)
             .await
             .map_err(Into::into)
     })

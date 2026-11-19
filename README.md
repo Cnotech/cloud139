@@ -59,7 +59,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - `sync --jobs` 接受 1 到 32，默认 4。
 - 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
 - Rust 库移除了 `aes_cbc_encrypt`、`aes_cbc_decrypt`、`aes_ecb_decrypt`、`sha1_hash` 和 `calc_file_hash`。仍需兼容旧密文或 SHA-1 摘要的应用可直接依赖对应的算法 crate。新的文件完整性校验可使用 `cloud139::utils::crypto::calc_file_sha256`。
-- Rust 库的旧重导出路径已移除。请按下表从定义模块导入。
+- Rust 库的导入路径有调整。请按下表从定义模块导入。
 
 | 原导入位置 | 新导入位置 |
 | ---------- | ---------- |
@@ -68,7 +68,8 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
 | `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
 | `utils` 下的函数 | 按用途从 `utils::{crypto, path, rand, time, width}` 的相应子模块导入 |
-| `services` 下的文件操作和 `ListResult` | 从相应的服务模块导入，例如 `copy_service::cp`、`move_service::mv`、`list_service::{list, ListResult}` 和 `upload_service::upload` |
+| `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::copy::cp`、`services::mv::mv`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
+| `services::*_service` 下的类型和函数 | 模块名去掉 `_service`，例如 `services::sync::SyncRequest`。移动服务使用 `services::mv` |
 | `services::directory_service` 下的路径工具 | `utils::path::safe_local` 和 `utils::remote_path::{normalize, non_root, validate_name}` |
 | `services::sync_service` 下的远端路径工具 | `utils::remote_path::{cloud_child_path, normalize_cloud_path}` |
 | `services::directory_service::invalid`、`utils::remote_path::invalid` | `error::invalid` |
@@ -528,7 +529,7 @@ cloud139 = { path = "../cloud139/packages/lib" }
 ```rust,no_run
 use cloud139::{
     config::Config,
-    services::list_service::{ListOptions, ListResult, list},
+    services::list::{ListOptions, ListResult, list},
 };
 use std::path::Path;
 

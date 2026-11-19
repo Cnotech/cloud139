@@ -3,7 +3,7 @@ use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::local_scan::LocalSyncScan;
-use crate::services::sync_service::{CloudSyncScan, format_action_line};
+use crate::services::sync::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
@@ -271,7 +271,7 @@ async fn execute_one_action(
             ..
         } => {
             // Validate the source before creating any missing cloud parents.
-            super::upload_service::checked_upload_size(local_abs)?;
+            super::upload::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
@@ -279,9 +279,7 @@ async fn execute_one_action(
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             let parent_id = remote.ensure_directory(&remote_dir).await?;
             let listing = remote.listing().await?;
-            use crate::services::upload_service::transfer::{
-                SyncUploadPlan, upload_sync_to_parent,
-            };
+            use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
             upload_sync_to_parent(
                 config,
                 local_abs,
@@ -327,13 +325,13 @@ async fn execute_one_action(
                 let attempt_pb = pb.clone();
                 async move {
                     if let Some((host, id, size)) = scanned {
-                        super::download_service::download_scanned_personal(
+                        super::download::download_scanned_personal(
                             config, host, id, local_abs, attempt_pb, size,
                         )
                         .await?;
                         Ok(())
                     } else {
-                        crate::services::download_service::download(
+                        crate::services::download::download(
                             config,
                             remote_abs,
                             &local_path,
@@ -392,9 +390,9 @@ async fn execute_one_action(
     Ok(())
 }
 
-/// 与 sync 的列表重试保持一致（见 sync_service::SYNC_RETRIES）。
-const RETRIES: u32 = crate::services::sync_service::SYNC_RETRIES;
-const BACKOFF_SECS: u64 = crate::services::sync_service::SYNC_BACKOFF_SECS;
+/// 与 sync 的列表重试保持一致（见 sync::SYNC_RETRIES）。
+const RETRIES: u32 = crate::services::sync::SYNC_RETRIES;
+const BACKOFF_SECS: u64 = crate::services::sync::SYNC_BACKOFF_SECS;
 
 fn remote_parent(remote_abs: &str) -> String {
     let trimmed = remote_abs.trim_end_matches('/');

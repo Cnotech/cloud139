@@ -1,4 +1,4 @@
-use super::list_service::{ListOptions, list};
+use super::list::{ListOptions, list};
 use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
 use crate::info;

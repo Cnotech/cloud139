@@ -15,7 +15,7 @@ pub(super) fn preflight(args: &DeleteArgs) -> anyhow::Result<()> {
 
 pub(super) async fn execute(args: DeleteArgs, config: &Config) -> anyhow::Result<()> {
     debug!("准备删除云端条目 path={}", args.path);
-    cloud139::services::delete_service::delete(config, &args.path, args.recursive).await?;
+    cloud139::services::delete::delete(config, &args.path, args.recursive).await?;
 
     success!("文件或目录已移动到回收站");
 

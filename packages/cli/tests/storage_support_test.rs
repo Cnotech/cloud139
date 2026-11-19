@@ -23,12 +23,7 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(
-            services::mkdir_service::mkdir(
-                &profile,
-                "/",
-                services::mkdir_service::MkdirMode::Single
-            )
-            .await,
+            services::mkdir::mkdir(&profile, "/", services::mkdir::MkdirMode::Single).await,
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(
