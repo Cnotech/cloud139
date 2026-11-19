@@ -27,12 +27,9 @@
 | md-5 | 0.11 | MD5 哈希 |
 | cipher | 0.5 | 加密算法抽象 |
 | cbc | 0.1 | CBC 模式 |
-| digest | 0.11 | 哈希算法抽象 |
 | generic-array | 1.3 | 泛型数组 |
-| typenum | 1.17 | 类型级数字 |
 | rand | 0.8 | 随机数生成 |
 | regex | 1 | 正则表达式 |
-| url | 2 | URL 解析 |
 | urlencoding | 2 | URL 编码 |
 | glob | 0.3 | 全局匹配 |
 | quick-xml | 0.39 | XML 解析/序列化 |
@@ -45,4 +42,3 @@
 |------|------|------|
 | tempfile | 3 | 临时文件/目录（测试） |
 | httpmock | 0.8 | HTTP Mock 服务器（测试） |
-| serde_json | 1 | JSON 处理（测试） |

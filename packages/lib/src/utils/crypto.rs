@@ -1,6 +1,6 @@
-use aes::cipher::generic_array::GenericArray;
+use aes::{Aes128, cipher::Block};
 use anyhow::{Result, anyhow};
-use digest::Digest;
+use sha2::Digest;
 
 pub fn sha1_hash(data: &str) -> String {
     let mut hasher = sha1::Sha1::new();
@@ -15,7 +15,6 @@ pub fn md5_hash(data: &str) -> String {
 }
 
 pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
-    use aes::Aes128;
     use cbc::{
         Encryptor,
         cipher::{BlockEncryptMut, KeyIvInit},
@@ -33,9 +32,9 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
     };
     data.extend(vec![pad_len as u8; pad_len]);
 
-    let mut blocks: Vec<GenericArray<u8, typenum::U16>> = Vec::new();
+    let mut blocks = Vec::new();
     for chunk in data.chunks(16) {
-        let mut block = GenericArray::from([0u8; 16]);
+        let mut block = Block::<Aes128>::default();
         block.copy_from_slice(chunk);
         blocks.push(block);
     }
@@ -51,7 +50,6 @@ pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8
 }
 
 pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
-    use aes::Aes128;
     use cbc::{
         Decryptor,
         cipher::{BlockDecryptMut, KeyIvInit},
@@ -61,9 +59,9 @@ pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u
 
     let mut cipher = Aes128Cbc::new(key.into(), iv.into());
 
-    let mut blocks: Vec<GenericArray<u8, typenum::U16>> = Vec::new();
+    let mut blocks = Vec::new();
     for chunk in ciphertext.chunks(16) {
-        let mut block = GenericArray::from([0u8; 16]);
+        let mut block = Block::<Aes128>::default();
         block.copy_from_slice(chunk);
         blocks.push(block);
     }
@@ -99,13 +97,13 @@ pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>> {
         ));
     }
 
-    let mut cipher = aes::Aes128::new(key.into());
+    let mut cipher = Aes128::new(key.into());
 
     let mut result = ciphertext.to_vec();
     let blocks = result.chunks_mut(block_size);
 
     for block in blocks {
-        let mut arr = *GenericArray::<u8, typenum::U16>::from_slice(block);
+        let mut arr = *Block::<Aes128>::from_slice(block);
         cipher.decrypt_block_mut(&mut arr);
         block.copy_from_slice(&arr);
     }
