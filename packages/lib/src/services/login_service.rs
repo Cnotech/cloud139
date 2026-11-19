@@ -1,5 +1,5 @@
 use super::list_service::{ListOptions, list};
-use crate::client::api;
+use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
 use crate::info;
 
@@ -8,7 +8,7 @@ pub async fn login(token: &str) -> anyhow::Result<Config> {
     let mut config = crate::client::auth::parse_login_token(token)?;
     info!("正在校验 Token 可用性 (ls /) ...");
     config.personal_cloud_host = Some(
-        api::HttpClientWrapper::new()
+        HttpClientWrapper::new()
             .fetch_personal_cloud_host(&config)
             .await?,
     );

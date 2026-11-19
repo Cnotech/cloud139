@@ -1,8 +1,5 @@
-use super::{ListingRetry, PersonalClient};
+use super::PersonalClient;
 use crate::client::api::response::{is_mutation_successful, require_success};
-use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
-use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
 
@@ -10,8 +7,8 @@ impl PersonalClient<'_> {
     pub(crate) async fn file_detail(
         &self,
         file_id: &str,
-    ) -> Result<crate::models::QueryFileData, ClientError> {
-        let response: crate::models::QueryFileResp = self
+    ) -> Result<crate::models::common::QueryFileData, ClientError> {
+        let response: crate::models::common::QueryFileResp = self
             .request(
                 protocol::QUERY_FILE,
                 &serde_json::json!({ "fileId": file_id }),
@@ -26,7 +23,7 @@ impl PersonalClient<'_> {
         parent_id: &str,
         name: &str,
     ) -> Result<(), ClientError> {
-        let response: crate::models::PersonalUploadResp = self
+        let response: crate::models::upload::PersonalUploadResp = self
             .request(
                 protocol::CREATE_FILE,
                 &serde_json::json!({
@@ -38,7 +35,7 @@ impl PersonalClient<'_> {
     }
 
     pub(crate) async fn rename(&self, file_id: &str, name: &str) -> Result<(), ClientError> {
-        let response: crate::models::PersonalUploadResp = self
+        let response: crate::models::upload::PersonalUploadResp = self
             .request(
                 protocol::UPDATE_FILE,
                 &serde_json::json!({ "fileId": file_id, "name": name, "description": "" }),
@@ -103,14 +100,4 @@ impl PersonalClient<'_> {
         }
         Ok(())
     }
-}
-
-pub async fn get_personal_file_detail(
-    config: &Config,
-    file_id: &str,
-) -> Result<crate::models::QueryFileData, ClientError> {
-    debug!("查询个人云文件详情 file_id={}", file_id);
-    let client = HttpClientWrapper::new();
-    let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    personal.file_detail(file_id).await
 }

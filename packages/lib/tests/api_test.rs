@@ -1,4 +1,8 @@
-use cloud139::models::*;
+use cloud139::models::auth::RoutePolicy;
+use cloud139::models::batch_ops::BatchMoveResp;
+use cloud139::models::common::{ApiResult, CommonAccountInfo, DownloadUrlData, QueryFileResp};
+use cloud139::models::list::{PersonalFileItem, PersonalListResp};
+use cloud139::models::upload::{PartInfo, PersonalPartInfo, PersonalUploadData};
 
 #[test]
 fn test_query_file_resp_with_defaults() {

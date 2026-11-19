@@ -1,10 +1,13 @@
 #![allow(dead_code)]
 
 mod api_extended_test {
-    use cloud139::client::api::HttpClientWrapper;
+    use cloud139::client::http::HttpClientWrapper;
     use cloud139::config::Config;
 
-    use cloud139::models::*;
+    use cloud139::models::auth::{QueryRoutePolicyResp, RoutePolicy};
+    use cloud139::models::common::{ApiResult, BaseResp, DownloadUrlResp};
+    use cloud139::models::list::{PersonalFileItem, PersonalListResp};
+    use cloud139::models::upload::PersonalUploadResp;
 
     #[test]
     fn test_http_client_wrapper_default() {

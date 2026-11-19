@@ -1,6 +1,11 @@
 #![allow(dead_code)]
 
-use cloud139::models::*;
+use cloud139::models::auth::RoutePolicy;
+use cloud139::models::common::{
+    ApiResult, BaseResp, CommonAccountInfo, CreateFolderData, QueryFileData,
+};
+use cloud139::models::list::{PersonalFileItem, PersonalThumbnail};
+use cloud139::models::upload::{PersonalUploadData, UploadRequest};
 
 #[test]
 fn test_base_resp_deserialize_success() {

@@ -1,12 +1,13 @@
 use super::directory_service as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
+use crate::config::Config;
 use crate::error::invalid;
 use crate::utils::remote_path;
-use crate::{client::api, config::Config};
 pub async fn delete(config: &Config, path: &str, recursive: bool) -> anyhow::Result<()> {
     config.require_personal()?;
     let path = remote_path::non_root(path)?;
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let (entry, _) = dirs::resolve_entry(&personal, &path).await?;
     if entry.folder && !recursive {

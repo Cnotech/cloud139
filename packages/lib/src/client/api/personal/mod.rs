@@ -1,4 +1,4 @@
-pub(super) mod files;
+mod files;
 pub(crate) mod listing;
 pub(crate) mod transfer;
 

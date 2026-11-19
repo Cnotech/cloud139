@@ -9,8 +9,11 @@ use crate::{
     config::Config,
     debug,
     error::ClientError,
-    models::{BaseResp, PersonalPartInfo, PersonalUploadResp},
     protocol,
+    {
+        models::common::BaseResp,
+        models::upload::{PersonalPartInfo, PersonalUploadResp},
+    },
 };
 use std::{collections::HashMap, ops::Range, path::Path};
 

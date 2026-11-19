@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::client::api::HttpClientWrapper;
+use cloud139::client::http::HttpClientWrapper;
 
 #[test]
 fn test_http_client_wrapper_creation() {

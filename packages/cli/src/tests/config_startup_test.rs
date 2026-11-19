@@ -1,8 +1,8 @@
 use crate::config::{refresh_saved_token, save_config};
 use crate::error::{CommandExit, ConfigWriteError};
-use cloud139::client::ClientError;
 use cloud139::client::auth::RefreshOptions;
 use cloud139::config::Config;
+use cloud139::error::ClientError;
 use httpmock::prelude::*;
 use std::path::PathBuf;
 use std::{fs, time::Duration};

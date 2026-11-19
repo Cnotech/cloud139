@@ -1,4 +1,5 @@
-use cloud139::{client::ClientError, config::Config};
+use cloud139::client::http::HttpClientWrapper;
+use cloud139::{config::Config, error::ClientError};
 use std::process::Command;
 
 const EXPECTED: &str = "未实现：当前仅支持个人云";
@@ -12,7 +13,7 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
             ..Config::default()
         };
         assert!(matches!(
-            api::HttpClientWrapper::new()
+            HttpClientWrapper::new()
                 .personal_api_request::<serde_json::Value>(
                     &profile,
                     "invalid",
@@ -22,7 +23,12 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(
-            services::mkdir(&profile, "/", services::mkdir_service::MkdirMode::Single).await,
+            services::mkdir_service::mkdir(
+                &profile,
+                "/",
+                services::mkdir_service::MkdirMode::Single
+            )
+            .await,
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(

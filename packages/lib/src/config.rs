@@ -1,5 +1,4 @@
-use crate::error::ClientError;
-pub use crate::error::ConfigError;
+use crate::error::{ClientError, ConfigError};
 use serde::{Deserialize, Serialize};
 use std::fs;
 #[cfg(unix)]

@@ -1,7 +1,6 @@
-use super::{ListingRetry, PersonalClient};
+use super::PersonalClient;
 use crate::client::api::response::format_api_error;
 use crate::client::http::{HttpClientWrapper, insert_static_headers};
-use crate::config::Config;
 use crate::error::ClientError;
 use crate::protocol;
 use futures_util::Stream;
@@ -13,7 +12,7 @@ use std::io;
 
 pub(crate) struct DownloadLink<'a> {
     client: &'a HttpClientWrapper,
-    url: String,
+    pub(in crate::client::api) url: String,
     pub(crate) name: Option<String>,
 }
 
@@ -69,8 +68,8 @@ impl PersonalClient<'_> {
         #[derive(serde::Deserialize)]
         struct Response {
             #[serde(flatten)]
-            base: crate::models::BaseResp,
-            data: Option<crate::models::DownloadUrlData>,
+            base: crate::models::common::BaseResp,
+            data: Option<crate::models::common::DownloadUrlData>,
         }
 
         let response: Response = self
@@ -100,15 +99,6 @@ impl PersonalClient<'_> {
             name: data.file_name,
         })
     }
-}
-
-pub async fn get_personal_download_link(
-    config: &Config,
-    file_id: &str,
-) -> Result<String, ClientError> {
-    let client = HttpClientWrapper::new();
-    let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    personal.download_link(file_id).await.map(|link| link.url)
 }
 
 fn build_upload_part_headers(size: u64) -> HeaderMap {

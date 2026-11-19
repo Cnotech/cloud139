@@ -1,4 +1,4 @@
-use crate::{error::ClientError, models::BaseResp};
+use crate::{error::ClientError, models::common::BaseResp};
 use serde_json::Value;
 
 pub(super) fn is_response_successful(response: &Value) -> bool {

@@ -1,3 +1,4 @@
+// 导出宏通过本库访问日志级别，调用方无需直接依赖 log。
 #[doc(hidden)]
 pub use log::Level;
 

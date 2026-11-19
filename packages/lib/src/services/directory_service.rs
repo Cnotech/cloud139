@@ -1,16 +1,12 @@
 //! Remote directory resolution, traversal, and mutation preflight.
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
+use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
 use crate::utils::remote_path;
-use crate::{client::api, error::ClientError};
 use std::collections::HashSet;
-
-// 兼容现有的 directory_service 导入路径。
-pub use crate::error::invalid;
-pub use crate::utils::path::safe_local;
-pub use crate::utils::remote_path::{non_root, normalize, validate_name};
 
 #[derive(Debug, Clone)]
 pub struct RemoteEntry {
@@ -24,7 +20,7 @@ pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientE
     if path == "/" {
         return Ok(remote_root().0);
     }
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     resolve_entry(&listing, &path).await.map(|(entry, _)| entry)
 }
@@ -154,7 +150,7 @@ pub async fn children(
     path: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
     let path = remote_path::normalize(path)?;
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let id = directory_with_listing(&listing, &path).await?;
     children_by_id(&listing, &id).await
@@ -190,7 +186,7 @@ async fn children_by_id(
 
 pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientError> {
     let root = remote_path::normalize(root)?;
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let root_id = directory_with_listing(&listing, &root).await?;
     Ok(tree_with_listing(&listing, root, root_id)
@@ -261,7 +257,7 @@ pub async fn transfer(
             return Err(crate::error::invalid("不能复制或移动到自身或子目录"));
         }
     }
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let target_id = directory_with_listing(&listing, &target).await?;
     let existing = listing.list_files(&target_id).await?;

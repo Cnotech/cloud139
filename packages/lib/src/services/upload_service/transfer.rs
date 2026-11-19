@@ -1,9 +1,11 @@
+use crate::client::http::HttpClientWrapper;
 mod personal_parts;
 
 use super::checked_upload_size;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::api::upload::UploadFile;
-use crate::models::PersonalFileItem;
+use crate::error::ClientError;
+use crate::models::list::PersonalFileItem;
 use crate::protocol;
 use crate::services::directory_service;
 use crate::services::progress::Progress;
@@ -17,7 +19,6 @@ use crate::utils::{
     remote_file::is_non_root_file_id,
     upload_parts::{checked_part_count, part_offset_and_size},
 };
-use crate::{client::api, error::ClientError};
 use anyhow::Context;
 use tokio::io::{AsyncSeekExt, SeekFrom};
 
@@ -77,7 +78,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         "{SYNC_UPLOAD_PREFIX}{}",
         crate::utils::rand::generate_rand_str(24)
     );
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let before = personal.list_files(parent_id).await?;
     if before
@@ -312,7 +313,7 @@ struct UploadPartsParams<'a> {
     file_size: i64,
     content_hash: &'a str,
     part_size: i64,
-    initial_parts: &'a [crate::models::PersonalPartInfo],
+    initial_parts: &'a [crate::models::upload::PersonalPartInfo],
     pb: Option<Progress>,
 }
 
@@ -326,7 +327,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     let part_size = params.part_size;
 
     let file = tokio::fs::File::open(local_path).await?;
-    let data_client = api::HttpClientWrapper::new();
+    let data_client = HttpClientWrapper::new();
     if file.metadata().await?.len() < file_size as u64 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::UnexpectedEof,
@@ -494,6 +495,7 @@ async fn confirm_uploaded_name(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::api::headers::PC_CLIENT_INFO;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -514,14 +516,14 @@ mod tests {
             personal_cloud_host: Some(server.base_url()),
             ..Default::default()
         };
-        let client = api::HttpClientWrapper::new();
+        let client = HttpClientWrapper::new();
         let personal =
             PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         for gib in [5_i64, 8, 50, 500] {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
                 when.method(POST).path("/file/create")
-                    .header("x-yun-client-info", api::headers::PC_CLIENT_INFO)
+                    .header("x-yun-client-info", PC_CLIENT_INFO)
                     .json_body_includes(format!("{{\"size\":{size}}}"));
                 then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
             });
@@ -543,7 +545,7 @@ mod tests {
             when.method(POST)
                 .path("/file/create")
                 .json_body_includes(r#"{"size":1}"#)
-                .header("x-yun-client-info", api::headers::PC_CLIENT_INFO);
+                .header("x-yun-client-info", PC_CLIENT_INFO);
             then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
         });
         let error = personal
@@ -569,7 +571,7 @@ mod tests {
     async fn ordinary_and_silver_limits_are_enforced_by_server_not_local_policy() {
         let server = MockServer::start();
         let gib = 1024_i64 * 1024 * 1024;
-        let client = api::HttpClientWrapper::new();
+        let client = HttpClientWrapper::new();
         for (plan, limit) in [("ordinary", 5 * gib), ("silver", 8 * gib)] {
             let config = crate::config::Config {
                 authorization: format!("fictional-{plan}-token"),
@@ -593,7 +595,7 @@ mod tests {
                 let mut request = server.mock(|when, then| {
                     when.method(POST).path("/file/create")
                         .header("Authorization", format!("Basic fictional-{plan}-token"))
-                        .header("x-yun-client-info", api::headers::PC_CLIENT_INFO)
+                        .header("x-yun-client-info", PC_CLIENT_INFO)
                         .json_body(json!({
                             "contentHash": "fictional-hash", "contentHashAlgorithm": "SHA256",
                             "contentType": "application/octet-stream", "parallelUpload": false,
@@ -665,12 +667,12 @@ mod tests {
             then.json_body(json!({"success":true}));
         });
         let initial: Vec<_> = (1..=100)
-            .map(|part_number| crate::models::PersonalPartInfo {
+            .map(|part_number| crate::models::upload::PersonalPartInfo {
                 part_number,
                 upload_url: server.url("/initial"),
             })
             .collect();
-        let client = api::HttpClientWrapper::new();
+        let client = HttpClientWrapper::new();
         let personal =
             PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         upload_parts(UploadPartsParams {
@@ -711,7 +713,7 @@ mod tests {
             when.path("/file/complete");
             then.json_body(json!({"success":true}));
         });
-        let client = api::HttpClientWrapper::new();
+        let client = HttpClientWrapper::new();
         let personal =
             PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         let error = upload_parts(UploadPartsParams {
@@ -722,7 +724,7 @@ mod tests {
             file_size: 2,
             content_hash: "fictional-hash",
             part_size: 2,
-            initial_parts: &[crate::models::PersonalPartInfo {
+            initial_parts: &[crate::models::upload::PersonalPartInfo {
                 part_number: 1,
                 upload_url: server.url("/part"),
             }],
@@ -760,7 +762,7 @@ mod tests {
             when.path("/recyclebin/batchTrash");
             then.json_body(json!({"success":true}));
         });
-        let client = api::HttpClientWrapper::new();
+        let client = HttpClientWrapper::new();
         let personal =
             PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         let files = personal.list_files("/").await.unwrap();
@@ -817,7 +819,7 @@ mod tests {
                 when.method(POST).path("/recyclebin/batchTrash");
                 then.json_body(json!({"success":true}));
             });
-            let client = api::HttpClientWrapper::new();
+            let client = HttpClientWrapper::new();
             let personal =
                 PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
             let files = personal.list_files("/").await.unwrap();

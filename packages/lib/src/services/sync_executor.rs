@@ -1,7 +1,7 @@
 use super::progress::{Progress, ProgressFactory};
 use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
-use crate::domain::{SyncAction, SyncSummary, SyncTarget};
+use crate::domain::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::local_scan::LocalSyncScan;
 use crate::services::sync_service::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;
@@ -333,7 +333,7 @@ async fn execute_one_action(
                         .await?;
                         Ok(())
                     } else {
-                        crate::services::download(
+                        crate::services::download_service::download(
                             config,
                             remote_abs,
                             &local_path,

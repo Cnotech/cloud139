@@ -1,7 +1,9 @@
 use super::directory_service as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
+use crate::config::Config;
+use crate::error::{ClientError, invalid};
 use crate::utils::remote_path;
-use crate::{client::api, config::Config, error::ClientError, error::invalid};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MkdirMode {
@@ -20,7 +22,7 @@ pub async fn mkdir(config: &Config, path: &str, mode: MkdirMode) -> Result<(), C
             Err(ClientError::CannotOperateOnRoot)
         };
     }
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     dirs::ensure_personal_dir(&listing, &path, parents).await?;
     Ok(())

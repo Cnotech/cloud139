@@ -1,27 +1,16 @@
 use super::{
-    CloudSyncScan, SyncDiffOptions, SyncScanOptions, parse_sync_endpoint, scan_cloud,
-    sync_direction,
+    SyncDiffOptions, SyncMode, SyncOutcome, SyncPlan, SyncRequest, SyncScanOptions,
+    parse_sync_endpoint, scan_cloud, sync_direction,
 };
 use crate::config::Config;
-use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary};
-use crate::services::local_scan::{LocalSyncScan, scan_local_target, scan_upload_source};
+use crate::domain::sync_item::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
+use crate::services::local_scan::{scan_local_target, scan_upload_source};
 use crate::services::progress::ProgressFactory;
 use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_report::SyncReport;
 use crate::services::sync_verify::execute_verified_sync;
 use anyhow::{Result, ensure};
 use std::time::Instant;
-
-/// Validated options for a local-to-cloud or cloud-to-local sync.
-pub struct SyncRequest {
-    source: SyncEndpoint,
-    destination: SyncEndpoint,
-    direction: SyncDirection,
-    scan: SyncScanOptions,
-    execution: SyncExecuteOptions,
-    delete: bool,
-    verify: bool,
-}
 
 impl SyncRequest {
     pub fn new(
@@ -125,21 +114,6 @@ impl SyncRequest {
     }
 }
 
-/// Scanned targets and the actions computed for a sync.
-pub struct SyncPlan {
-    config: Config,
-    actions: Vec<SyncAction>,
-    cloud: CloudSyncScan,
-    local: Option<LocalSyncScan>,
-    execution: SyncExecuteOptions,
-    mode: SyncMode,
-}
-
-enum SyncMode {
-    Ordinary(Option<SyncReport>),
-    Verify { objects: usize, track_paths: bool },
-}
-
 impl SyncPlan {
     pub fn actions(&self) -> &[SyncAction] {
         &self.actions
@@ -191,12 +165,6 @@ impl SyncPlan {
             }
         }
     }
-}
-
-/// The summary or detailed file report produced by a sync.
-pub enum SyncOutcome {
-    Summary(SyncSummary),
-    Report(SyncReport),
 }
 
 impl SyncOutcome {

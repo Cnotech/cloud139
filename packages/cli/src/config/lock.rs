@@ -1,5 +1,6 @@
 //! 跨进程配置锁，不创建磁盘锁文件。
 
+// 配置读写通过同一入口使用当前平台的锁实现。
 #[cfg(unix)]
 pub(super) use unix::ConfigLock;
 #[cfg(windows)]

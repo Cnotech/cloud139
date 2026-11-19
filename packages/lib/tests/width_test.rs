@@ -1,4 +1,4 @@
-use cloud139::utils::*;
+use cloud139::utils::width::{pad_with_width, str_width, truncate_with_width};
 
 #[test]
 fn test_str_width_ascii() {

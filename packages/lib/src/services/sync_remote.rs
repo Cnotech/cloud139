@@ -3,11 +3,12 @@ use super::{
     sync_service::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
 };
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
+use crate::config::Config;
 use crate::utils::{
     remote_path::{self, cloud_child_path},
     retry::with_retries,
 };
-use crate::{client::api, config::Config};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
@@ -39,7 +40,7 @@ pub(super) async fn remote_sha256(
 pub(super) struct SyncCloud<'a> {
     config: &'a Config,
     scan: Option<&'a CloudSyncScan>,
-    client: api::HttpClientWrapper,
+    client: HttpClientWrapper,
     host: OnceCell<String>,
     directories: Mutex<HashMap<String, Arc<OnceCell<String>>>>,
 }
@@ -49,7 +50,7 @@ impl<'a> SyncCloud<'a> {
         Self {
             config,
             scan,
-            client: api::HttpClientWrapper::new(),
+            client: HttpClientWrapper::new(),
             host: OnceCell::new(),
             directories: Mutex::default(),
         }

@@ -247,7 +247,7 @@ async fn refresh_without_refresh_token_fails_without_request() {
     let error = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap_err();
-    assert!(matches!(error, cloud139::client::ClientError::TokenExpired));
+    assert!(matches!(error, cloud139::error::ClientError::TokenExpired));
     mock.assert_calls(0);
 }
 

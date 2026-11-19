@@ -15,15 +15,4 @@ mod sync_remote;
 pub mod sync_report;
 pub mod sync_service;
 mod sync_verify;
-/// 兼容旧版的上传模块路径。上传操作见 [upload_service]。
-pub mod upload {}
 pub mod upload_service;
-
-pub use copy_service::cp;
-pub use delete_service::delete;
-pub use download_service::download;
-pub use list_service::{ListResult, list};
-pub use mkdir_service::mkdir;
-pub use move_service::mv;
-pub use rename_service::rename;
-pub use upload_service::upload;

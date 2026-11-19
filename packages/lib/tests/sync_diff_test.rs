@@ -1,4 +1,4 @@
-use cloud139::domain::{
+use cloud139::domain::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
 };
 use cloud139::services::sync_service::{SyncDiffOptions, compute_diff, format_action_line};

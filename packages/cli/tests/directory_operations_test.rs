@@ -1,9 +1,6 @@
 //! Stateful loopback-only regression tests. No real 139 credentials or endpoints.
-use cloud139::{
-    client::ClientError,
-    config::Config,
-    services::{self, directory_service as dirs},
-};
+use cloud139::utils::remote_path;
+use cloud139::{config::Config, error::ClientError, services};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -1310,7 +1307,7 @@ async fn recursive_download_rejects_local_case_or_unicode_collisions() {
         let aliases = volume_probe.path().join(second).exists();
         server.set("dir", vec![file("one", first), file("two", second)]);
         let destination = tmp.path().join(format!("download-{index}"));
-        let result = services::download(
+        let result = services::download_service::download(
             &server.config(),
             "/folder",
             destination.to_str().unwrap(),
@@ -1338,7 +1335,7 @@ async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
     let server = Server::new();
     server.set("/", vec![file("one", "report.txt")]);
     server.state.lock().unwrap().fail_trash_item = true;
-    let error = services::delete(&server.config(), "/report.txt", false)
+    let error = services::delete_service::delete(&server.config(), "/report.txt", false)
         .await
         .unwrap_err();
     assert!(error.to_string().contains("删除失败"));
@@ -1348,13 +1345,13 @@ async fn personal_trash_reports_item_failure_even_if_batch_succeeded() {
 #[test]
 fn normalizes_root_aliases_and_checks_names() {
     for path in ["", "/", "//", "/./", "/a/..", "a/../.", "/../../"] {
-        assert_eq!(dirs::normalize(path).unwrap(), "/");
+        assert_eq!(remote_path::normalize(path).unwrap(), "/");
         assert!(matches!(
-            dirs::non_root(path),
+            remote_path::non_root(path),
             Err(ClientError::CannotOperateOnRoot)
         ));
     }
-    assert_eq!(dirs::normalize("//a/./b/../c/").unwrap(), "/a/c");
+    assert_eq!(remote_path::normalize("//a/./b/../c/").unwrap(), "/a/c");
     for name in [
         "",
         ".",
@@ -1369,7 +1366,7 @@ fn normalizes_root_aliases_and_checks_names() {
         "x.",
         "x ",
     ] {
-        assert!(dirs::validate_name(name).is_err(), "{name:?}");
+        assert!(remote_path::validate_name(name).is_err(), "{name:?}");
     }
 }
 
@@ -1379,22 +1376,22 @@ async fn root_mutations_are_rejected_for_personal_storage_without_network() {
         let config = Config::default();
         for root in ["/", "//./", "/a/..", ""] {
             assert!(
-                services::delete(&config, root, true)
+                services::delete_service::delete(&config, root, true)
                     .await
                     .unwrap_err()
                     .to_string()
                     .contains("根目录")
             );
             assert!(matches!(
-                services::rename(&config, root, "safe", false).await,
+                services::rename_service::rename(&config, root, "safe", false).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::cp(&config, &[root.into()], "/dst", true).await,
+                services::copy_service::cp(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::mv(&config, &[root.into()], "/dst", true).await,
+                services::move_service::mv(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
         }
@@ -1406,14 +1403,14 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
     let config = Config::default();
     for target in ["/a", "/a/sub", "/a/./sub/child", "/x/../a/sub"] {
         assert!(
-            services::cp(&config, &["/a".into()], target, true)
+            services::copy_service::cp(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("自身或子目录")
         );
         assert!(
-            services::mv(&config, &["/a".into()], target, true)
+            services::move_service::mv(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
@@ -1426,7 +1423,7 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
 async fn mkdir_parents_is_idempotent_and_rejects_files_without_rename() {
     let server = Server::new();
     let config = server.config();
-    services::mkdir(
+    services::mkdir_service::mkdir(
         &config,
         "/a/b/empty",
         services::mkdir_service::MkdirMode::Parents,
@@ -1434,7 +1431,7 @@ async fn mkdir_parents_is_idempotent_and_rejects_files_without_rename() {
     .await
     .unwrap();
     assert_eq!(server.mutations().len(), 3);
-    services::mkdir(
+    services::mkdir_service::mkdir(
         &config,
         "/a/b/empty/",
         services::mkdir_service::MkdirMode::Parents,
@@ -1444,7 +1441,7 @@ async fn mkdir_parents_is_idempotent_and_rejects_files_without_rename() {
     assert_eq!(server.mutations().len(), 3);
     server.set("/", vec![file("f", "occupied")]);
     assert!(
-        services::mkdir(
+        services::mkdir_service::mkdir(
             &config,
             "/occupied/child",
             services::mkdir_service::MkdirMode::Parents
@@ -1506,7 +1503,7 @@ async fn ordinary_ls_rejects_cursor_cycles() {
         page_size: 100,
     };
     assert!(
-        services::list(&server.config(), args)
+        services::list_service::list(&server.config(), args)
             .await
             .unwrap_err()
             .to_string()
@@ -1523,12 +1520,12 @@ async fn recursive_download_requires_flag_preserves_empty_and_file_contents() {
     let out = tmp.path().join("out");
     let local = out.to_str().unwrap();
     assert!(
-        services::download(&server.config(), "/dir", local, None, false)
+        services::download_service::download(&server.config(), "/dir", local, None, false)
             .await
             .is_err()
     );
     assert!(!out.exists());
-    services::download(&server.config(), "/dir", local, None, true)
+    services::download_service::download(&server.config(), "/dir", local, None, true)
         .await
         .unwrap();
     assert!(out.join("empty").is_dir());
@@ -1555,7 +1552,8 @@ async fn recursive_download_validates_listed_size_without_content_length() {
         server.set("d", vec![item]);
         server.state.lock().unwrap().close_delimited_payload = Some(payload);
         std::fs::write(&destination, b"keep original").unwrap();
-        let result = services::download(&server.config(), "/dir", local, None, true).await;
+        let result =
+            services::download_service::download(&server.config(), "/dir", local, None, true).await;
         if valid {
             result.unwrap();
             assert_eq!(std::fs::read(&destination).unwrap(), payload);
@@ -1577,9 +1575,15 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     for name in ["../escape", "/escape", "C:escape", "a\\b", "."] {
         server.set("d", vec![file("f", name)]);
         assert!(
-            services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
-                .await
-                .is_err()
+            services::download_service::download(
+                &server.config(),
+                "/dir",
+                out.to_str().unwrap(),
+                None,
+                true
+            )
+            .await
+            .is_err()
         );
         assert!(!out.exists());
     }
@@ -1587,9 +1591,15 @@ async fn malicious_names_and_local_kind_conflicts_fail_before_writes() {
     std::fs::create_dir(&out).unwrap();
     std::fs::write(out.join("empty"), b"keep").unwrap();
     assert!(
-        services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
-            .await
-            .is_err()
+        services::download_service::download(
+            &server.config(),
+            "/dir",
+            out.to_str().unwrap(),
+            None,
+            true
+        )
+        .await
+        .is_err()
     );
     assert_eq!(std::fs::read(out.join("empty")).unwrap(), b"keep");
 }
@@ -1940,7 +1950,7 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);
     server.state.lock().unwrap().fail_batch = true;
     assert!(
-        services::cp(&server.config(), &["/src".into()], "/dest", false)
+        services::copy_service::cp(&server.config(), &["/src".into()], "/dest", false)
             .await
             .is_err()
     );
@@ -2076,27 +2086,27 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     server.set("d", vec![file("c", "src")]);
     assert!(
-        services::cp(&server.config(), &["/src".into()], "/dest", true)
+        services::copy_service::cp(&server.config(), &["/src".into()], "/dest", true)
             .await
             .is_err()
     );
     assert!(
-        services::mv(&server.config(), &["/src".into()], "/file", true)
+        services::move_service::mv(&server.config(), &["/src".into()], "/file", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename(&server.config(), "/src", "file", true)
+        services::rename_service::rename(&server.config(), "/src", "file", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename(&server.config(), "/src", "../unsafe", true)
+        services::rename_service::rename(&server.config(), "/src", "../unsafe", true)
             .await
             .is_err()
     );
     assert!(
-        services::cp(
+        services::copy_service::cp(
             &server.config(),
             &["/src".into(), "/missing".into()],
             "/dest",
@@ -2107,13 +2117,13 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     assert!(server.mutations().is_empty());
     server.set("d", vec![]);
-    services::cp(&server.config(), &["/src".into()], "/dest", false)
+    services::copy_service::cp(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
-    services::mv(&server.config(), &["/src".into()], "/dest", false)
+    services::move_service::mv(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
-    services::rename(&server.config(), "/src", "renamed", false)
+    services::rename_service::rename(&server.config(), "/src", "renamed", false)
         .await
         .unwrap();
     assert_eq!(server.mutations().len(), 3);
@@ -2124,14 +2134,14 @@ async fn directory_delete_needs_recursive_and_permanent_never_trashes() {
     let server = Server::new();
     server.set("/", vec![folder("d", "dir")]);
     assert!(
-        services::delete(&server.config(), "/dir", false)
+        services::delete_service::delete(&server.config(), "/dir", false)
             .await
             .unwrap_err()
             .to_string()
             .contains("-r")
     );
     assert!(server.mutations().is_empty());
-    services::delete(&server.config(), "/dir", true)
+    services::delete_service::delete(&server.config(), "/dir", true)
         .await
         .unwrap();
     assert_eq!(server.mutations()[0].0, "/recyclebin/batchTrash");
@@ -2161,7 +2171,7 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     );
     assert!(server.mutations().is_empty());
     assert!(
-        services::download(
+        services::download_service::download(
             &server.config(),
             "/dir",
             tmp.path().join("link/out").to_str().unwrap(),
@@ -2175,9 +2185,15 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     std::fs::create_dir(&out).unwrap();
     symlink(outside.path().join("data.bin"), out.join("data.bin")).unwrap();
     assert!(
-        services::download(&server.config(), "/dir", out.to_str().unwrap(), None, true)
-            .await
-            .is_err()
+        services::download_service::download(
+            &server.config(),
+            "/dir",
+            out.to_str().unwrap(),
+            None,
+            true
+        )
+        .await
+        .is_err()
     );
     assert_eq!(
         std::fs::read(outside.path().join("data.bin")).unwrap(),
@@ -2204,7 +2220,7 @@ async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
             ..Default::default()
         };
         assert!(
-            cloud139::client::api::HttpClientWrapper::new()
+            cloud139::client::http::HttpClientWrapper::new()
                 .list_personal_files(&config, "/")
                 .await
                 .is_err()
@@ -2223,12 +2239,12 @@ async fn server_root_id_alias_is_rejected_before_delete_or_rename() {
     let server = Server::new();
     server.set("/", vec![folder("/", "alias")]);
     assert!(
-        services::delete(&server.config(), "/alias", true)
+        services::delete_service::delete(&server.config(), "/alias", true)
             .await
             .is_err()
     );
     assert!(
-        services::rename(&server.config(), "/alias", "renamed", false)
+        services::rename_service::rename(&server.config(), "/alias", "renamed", false)
             .await
             .is_err()
     );
@@ -2514,7 +2530,7 @@ async fn ordinary_multipart_upload_preserves_server_selected_name_and_never_tras
         });
         let local = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(local.path(), b"test content").unwrap();
-        services::upload(&config, local.path(), "/", "report.txt", 12, force, None)
+        services::upload_service::upload(&config, local.path(), "/", "report.txt", 12, force, None)
             .await
             .unwrap();
         list.assert_calls(1);

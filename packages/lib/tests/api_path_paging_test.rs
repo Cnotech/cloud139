@@ -164,7 +164,7 @@ async fn listing_preserves_page_size_and_thumbnails_across_partial_wire_pages() 
     let first = mock_page("", &["a"], "next");
     let second = mock_page("next", &["b", "c"], "last");
     let last = mock_page("last", &["d", "e"], "");
-    let result = cloud139::services::list(
+    let result = cloud139::services::list_service::list(
         &config,
         ListOptions {
             path: "/",

@@ -1,12 +1,16 @@
 use super::local_scan::{LocalSyncScan, scan_items};
 use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
-use crate::client::api::HttpClientWrapper;
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
+use crate::config::Config;
 use crate::debug;
-use crate::domain::{
-    ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
+use crate::domain::sync_item::{
+    ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
+    SyncTarget,
 };
+use crate::services::sync_executor::SyncExecuteOptions;
+use crate::services::sync_report::SyncReport;
 use crate::utils::path::rel_to_local;
 use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
 use crate::utils::remote_path;
@@ -19,9 +23,37 @@ use std::pin::pin;
 
 mod execution;
 
-// 兼容现有的 sync_service 导入路径。
-pub use crate::utils::remote_path::{cloud_child_path, normalize_cloud_path};
-pub use execution::{SyncOutcome, SyncPlan, SyncRequest};
+/// Validated options for a local-to-cloud or cloud-to-local sync.
+pub struct SyncRequest {
+    source: SyncEndpoint,
+    destination: SyncEndpoint,
+    direction: SyncDirection,
+    scan: SyncScanOptions,
+    execution: SyncExecuteOptions,
+    delete: bool,
+    verify: bool,
+}
+
+/// Scanned targets and the actions computed for a sync.
+pub struct SyncPlan {
+    config: Config,
+    actions: Vec<SyncAction>,
+    cloud: CloudSyncScan,
+    local: Option<LocalSyncScan>,
+    execution: SyncExecuteOptions,
+    mode: SyncMode,
+}
+
+enum SyncMode {
+    Ordinary(Option<SyncReport>),
+    Verify { objects: usize, track_paths: bool },
+}
+
+/// The summary or detailed file report produced by a sync.
+pub enum SyncOutcome {
+    Summary(SyncSummary),
+    Report(SyncReport),
+}
 
 #[derive(Debug, Clone)]
 pub struct SyncDiffOptions {
@@ -351,7 +383,7 @@ pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry
 
 pub fn personal_item_to_file_entry(
     rel_parent: &str,
-    item: &crate::models::PersonalFileItem,
+    item: &crate::models::list::PersonalFileItem,
 ) -> Result<FileEntry> {
     let name = item
         .name
@@ -371,7 +403,7 @@ pub fn personal_item_to_file_entry(
     })
 }
 
-fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
+fn parse_cloud_mtime(item: &crate::models::list::PersonalFileItem) -> Option<i64> {
     let raw = item.modified_time()?;
 
     chrono::DateTime::parse_from_rfc3339(raw)
@@ -420,8 +452,8 @@ pub(super) struct CloudSyncFile {
     modified: Option<String>,
 }
 
-impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
-    fn from(item: &crate::models::PersonalFileItem) -> Self {
+impl From<&crate::models::list::PersonalFileItem> for CloudSyncFile {
+    fn from(item: &crate::models::list::PersonalFileItem) -> Self {
         let id = item
             .file_id
             .as_ref()

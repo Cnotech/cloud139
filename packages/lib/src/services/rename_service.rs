@@ -1,7 +1,9 @@
 use super::directory_service as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::http::HttpClientWrapper;
+use crate::config::Config;
+use crate::error::ClientError;
 use crate::utils::remote_path;
-use crate::{client::api, config::Config, error::ClientError};
 pub async fn rename(
     config: &Config,
     source: &str,
@@ -11,7 +13,7 @@ pub async fn rename(
     config.require_personal()?;
     let source = remote_path::non_root(source)?;
     remote_path::validate_name(target)?;
-    let client = api::HttpClientWrapper::new();
+    let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let (entry, _) = dirs::resolve_entry(&personal, &source).await?;
     let (parent, name) = source.rsplit_once('/').unwrap();

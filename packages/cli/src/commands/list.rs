@@ -34,7 +34,7 @@ pub(super) async fn execute(args: ListArgs, config: &Config) -> anyhow::Result<(
         }
         return Ok(());
     }
-    let result = cloud139::services::list(config, &args).await?;
+    let result = cloud139::services::list_service::list(config, &args).await?;
     render_list(&result);
 
     if let Some(output) = &args.output {

@@ -1,5 +1,5 @@
 use cloud139::config::Config;
-use cloud139::domain::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
+use cloud139::domain::sync_item::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
 use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
 use tempfile::tempdir;
 

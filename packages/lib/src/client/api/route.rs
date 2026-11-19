@@ -1,7 +1,7 @@
 use crate::client::{api::headers::build_route_headers, http::HttpClientWrapper};
 use crate::debug;
 use crate::error::ClientError;
-use crate::models::{QueryRoutePolicyResp, RoutePolicy};
+use crate::models::auth::{QueryRoutePolicyResp, RoutePolicy};
 use crate::protocol;
 
 pub(super) async fn query_route_policy(

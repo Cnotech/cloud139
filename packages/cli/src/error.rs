@@ -1,4 +1,4 @@
-use cloud139::config::ConfigError;
+use cloud139::error::ConfigError;
 use std::{fmt, io};
 use thiserror::Error;
 

@@ -29,6 +29,12 @@ Package `cloud139-cli` 位于 `packages/cli/`。参数定义、命令适配、�
 
 参考现有代码风格，见 [docs/style.md](docs/style.md)
 
+### 模块导入
+
+- 优先用 `use` 从定义所在的模块直接导入类型、函数和常量。公开 API 优先直接定义在其对外入口。
+- 尽量避免 `pub use` 和 `pub(crate) use` 等重导出。发现为了缩短路径、提供重复入口或跨模块转发而引入的重导出时，将调用方迁移到定义模块。
+- 平台实现选择、导出宏从调用方访问依赖等确需重导出的场景，使用最小可见范围并就地注明原因。
+
 ### 常用依赖
 
 clap, reqwest, tokio, serde, thiserror 等

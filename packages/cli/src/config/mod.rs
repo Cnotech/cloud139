@@ -1,8 +1,11 @@
 use crate::error::ConfigWriteError;
-use cloud139::client::{ClientError, auth};
 #[cfg(windows)]
 use cloud139::config::read_config;
-use cloud139::config::{Config, ConfigError, prepare_save_path, save_atomically};
+use cloud139::{client::auth, error::ClientError};
+use cloud139::{
+    config::{Config, prepare_save_path, save_atomically},
+    error::ConfigError,
+};
 use std::io;
 use std::path::{Path, PathBuf};
 

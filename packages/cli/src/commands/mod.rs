@@ -11,8 +11,8 @@ mod upload;
 
 use crate::cli::Commands;
 use crate::config::{config_paths, refresh_saved_token};
-use cloud139::client::{ClientError, auth};
-use cloud139::config::{Config, ConfigError};
+use cloud139::{client::auth, error::ClientError};
+use cloud139::{config::Config, error::ConfigError};
 use std::path::{Path, PathBuf};
 
 /// 校验配置和命令参数，再续期并执行命令。

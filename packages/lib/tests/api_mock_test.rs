@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139::client::api::HttpClientWrapper;
+use cloud139::client::http::HttpClientWrapper;
 use cloud139::config::Config;
 
 #[tokio::test]

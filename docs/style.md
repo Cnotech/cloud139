@@ -14,10 +14,10 @@ use thiserror::Error;
 use tokio::fs;
 
 // 项目内部导入（使用 crate:: 前缀）
-use crate::client::{ClientError, api::HttpClientWrapper};
-use crate::domain::EntryKind;
-use crate::commands::list;
-use crate::models::FileInfo;
+use crate::client::http::HttpClientWrapper;
+use crate::domain::file_item::EntryKind;
+use crate::error::ClientError;
+use crate::models::list::PersonalFileItem;
 use crate::{error, info, success, warn};
 ```
 
@@ -55,7 +55,7 @@ pub enum ClientError {
     #[error("Not logged in")]
     NotLoggedIn,
     #[error("Config error: {0}")]
-    Config(#[from] crate::config::ConfigError),
+    Config(#[from] crate::error::ConfigError),
 }
 
 // 在函数中返回 Result，使用 ? 操作符传播错误

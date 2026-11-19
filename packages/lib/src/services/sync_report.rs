@@ -1,5 +1,5 @@
 use super::sync_service::CloudSyncScan;
-use crate::domain::{ChangeKind, FileEntry, SyncAction, SyncEntryKind};
+use crate::domain::sync_item::{ChangeKind, FileEntry, SyncAction, SyncEntryKind};
 use crate::error::RetryError;
 use serde::Serialize;
 use std::collections::HashSet;

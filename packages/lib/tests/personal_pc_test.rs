@@ -1,3 +1,4 @@
+use cloud139::client::http::HttpClientWrapper;
 use cloud139::{
     client::{
         api::{self, headers},
@@ -48,7 +49,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
             .header("x-yun-client-info", PC_CLIENT_INFO);
         then.json_body(json!({"success":true,"data":{"items":[],"nextPageCursor":""}}));
     });
-    api::HttpClientWrapper::new()
+    HttpClientWrapper::new()
         .list_personal_files(&config, "/")
         .await
         .unwrap();
@@ -87,7 +88,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
                 .header("x-yun-client-info", PC_CLIENT_INFO);
             then.json_body(json!({"success":true}));
         });
-        let response: serde_json::Value = api::HttpClientWrapper::new()
+        let response: serde_json::Value = HttpClientWrapper::new()
             .personal_api_request(&refreshed, &server.url(endpoint), &json!({}))
             .await
             .unwrap();
@@ -170,7 +171,7 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
 
 #[tokio::test]
 async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
-    use cloud139::domain::{ChangeKind, SyncAction};
+    use cloud139::domain::sync_item::{ChangeKind, SyncAction};
     use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
     for transfer_fails in [true, false] {
         let server = MockServer::start();

@@ -1,10 +1,11 @@
 use crate::client::api::personal::{ListingRetry, PersonalClient};
-use crate::domain::{FileEntry, SyncEntryKind};
+use crate::client::http::HttpClientWrapper;
+use crate::domain::sync_item::{FileEntry, SyncEntryKind};
+use crate::error::ClientError;
 use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;
-use crate::{client::api, error::ClientError};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -103,7 +104,7 @@ pub async fn upload(
     }
     checked_upload_size(local_path)?;
     let remote_path = remote_path::normalize(remote_path)?;
-    let http_client = api::HttpClientWrapper::new();
+    let http_client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &http_client, ListingRetry::DIRECTORY).await?;
     let parent = dirs::directory_with_listing(&listing, &remote_path).await?;
     upload_file(&listing, local_path, &parent, file_name, force, pb).await
@@ -154,7 +155,7 @@ async fn upload_personal_directory(
     if root == "/" && entries.is_empty() {
         return Ok(());
     }
-    let http_client = api::HttpClientWrapper::new();
+    let http_client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &http_client, ListingRetry::DIRECTORY).await?;
     let root_id = dirs::ensure_personal_dir(&listing, root, true).await?;
     let mut directories = HashMap::from([(root.to_owned(), root_id)]);

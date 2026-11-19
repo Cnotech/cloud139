@@ -36,4 +36,4 @@ CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新�
 
 `client/api/headers.rs` 定义路由和个人云请求头及客户端标识。`client/api/route.rs` 负责路由查询，`client/api/personal/` 负责个人云目录和文件请求，`client/api/upload.rs` 负责个人云上传请求。Token 续期位于 `client/auth/`，HTTP 客户端和签名请求发送位于 `client/http.rs`。共用的 API 响应判断位于 `client/api/response.rs`。
 
-同步和目录上传共用 `services::local_scan` 的本地扫描。同步扫描使用 `services::sync_paths` 的路径过滤规则，同步和上传共用 `services::sync_remote` 的远端 SHA-256 读取。库的公开入口可显式重导出实现模块的成员，已有路径工具别名保留供外部调用。库内的路径校验直接调用 `utils::remote_path`。
+同步和目录上传共用 `services::local_scan` 的本地扫描。同步扫描使用 `services::sync_paths` 的路径过滤规则，同步和上传共用 `services::sync_remote` 的远端 SHA-256 读取。库内和外部调用方都从定义模块导入，例如从 `error` 导入错误类型、从 `utils::remote_path` 导入远端路径校验。

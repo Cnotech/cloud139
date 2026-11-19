@@ -4,7 +4,7 @@ use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
 use crate::debug;
 use crate::error::{ClientError, invalid};
-use crate::models::{PersonalFileItem, PersonalListData, PersonalListResp};
+use crate::models::list::{PersonalFileItem, PersonalListData, PersonalListResp};
 use crate::protocol;
 use futures_util::{Stream, TryStreamExt};
 use std::{collections::HashSet, pin::pin};
@@ -187,28 +187,10 @@ impl HttpClientWrapper {
         &self,
         config: &Config,
         parent_file_id: &str,
-    ) -> Result<Vec<crate::models::PersonalFileItem>, ClientError> {
+    ) -> Result<Vec<crate::models::list::PersonalFileItem>, ClientError> {
         PersonalClient::connect(config, self, ListingRetry::None)
             .await?
             .list_files(parent_file_id)
             .await
     }
-}
-
-pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
-    config.require_personal()?;
-    let normalized = crate::utils::remote_path::normalize(path)?;
-    let path = normalized.as_str();
-    if path == "/" {
-        debug!("云端根路径返回空文件 ID");
-        return Ok(String::new());
-    }
-
-    let client = HttpClientWrapper::new();
-    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    listing
-        .resolve_path(path)
-        .await?
-        .and_then(|item| item.file_id)
-        .ok_or(ClientError::InvalidFilePath)
 }

@@ -1,4 +1,13 @@
-use cloud139::models::*;
+use cloud139::models::auth::{QueryRoutePolicyResp, RoutePolicy};
+use cloud139::models::batch_ops::{
+    BatchCopyResp, BatchDeleteResp, BatchMoveResp, BatchRenameResp, BatchTrashResp,
+};
+use cloud139::models::common::{
+    ApiResult, BaseResp, CommonAccountInfo, CreateBatchOprTaskResp, CreateFolderResp,
+    DownloadUrlResp, QueryFileResp,
+};
+use cloud139::models::list::{PersonalFileItem, PersonalListResp, PersonalThumbnail};
+use cloud139::models::upload::{PartInfo, PersonalUploadResp, UploadRequest};
 
 #[test]
 fn test_base_resp_deserialize() {

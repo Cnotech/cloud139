@@ -1,7 +1,7 @@
 //! Cursor cycles must fail explicitly, not loop or report a partial scan as complete.
-use cloud139::client::api::{HttpClientWrapper, get_file_id_by_path};
+use cloud139::client::{api::get_file_id_by_path, http::HttpClientWrapper};
 use cloud139::services::sync_service::{SyncScanOptions, scan_cloud};
-use cloud139::{config::Config, domain::SyncDirection};
+use cloud139::{config::Config, domain::sync_item::SyncDirection};
 use httpmock::prelude::*;
 use serde_json::json;
 use std::time::Duration;
