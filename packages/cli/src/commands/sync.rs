@@ -1,4 +1,4 @@
-use crate::commands::CommandExit;
+use crate::error::CommandExit;
 use crate::presentation::sync_renderer::{print_outcome, print_plan};
 use clap::Parser;
 use cloud139::config::Config;

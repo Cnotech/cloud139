@@ -2,6 +2,7 @@ use super::directory_service as dirs;
 use crate::{
     client::{ClientError, api},
     config::Config,
+    error::invalid,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -29,7 +30,7 @@ pub async fn mkdir(config: &Config, path: &str, mode: MkdirMode) -> Result<(), C
 
 pub fn parse_path(path: &str) -> Result<(String, String), ClientError> {
     if path.trim().is_empty() {
-        return Err(dirs::invalid("路径不能为空"));
+        return Err(invalid("路径不能为空"));
     }
     let path = dirs::non_root(path.trim())?;
     let (parent, name) = path.rsplit_once('/').unwrap();

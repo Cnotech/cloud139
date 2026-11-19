@@ -1,10 +1,10 @@
+use crate::error::ConfigWriteError;
 use cloud139::client::{ClientError, auth};
 #[cfg(windows)]
 use cloud139::config::read_config;
 use cloud139::config::{Config, ConfigError, prepare_save_path, save_atomically};
 use std::io;
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 
 mod lock;
 use lock::ConfigLock;
@@ -33,22 +33,6 @@ pub(super) fn config_paths(override_path: Option<&Path>) -> Vec<PathBuf> {
     match override_path {
         Some(path) => vec![path.to_owned()],
         None => vec![local_config_path(), global_config_path()],
-    }
-}
-
-#[derive(Debug, Error)]
-pub(super) enum ConfigWriteError {
-    #[error(transparent)]
-    File(#[from] ConfigError),
-    #[error("配置正在被另一个进程更新")]
-    Busy,
-    #[error("配置已被其他操作修改，放弃写回续期结果")]
-    Changed,
-}
-
-impl From<io::Error> for ConfigWriteError {
-    fn from(error: io::Error) -> Self {
-        Self::File(error.into())
     }
 }
 

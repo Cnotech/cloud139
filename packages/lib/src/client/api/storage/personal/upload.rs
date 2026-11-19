@@ -1,8 +1,7 @@
 use super::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::utils::api_response::{
-    is_mutation_successful, is_response_successful, json_api_error, upload_creation_error,
-};
+use crate::error::{json_api_error, upload_creation_error};
+use crate::utils::api_response::{is_mutation_successful, is_response_successful};
 use crate::utils::remote_file::is_non_root_file_id;
 pub use crate::utils::upload_parts::get_part_size;
 use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};

@@ -1,6 +1,5 @@
 pub mod api;
 pub mod auth;
-mod error;
 mod http;
 
-pub use error::ClientError;
+pub use crate::error::ClientError;

@@ -4,8 +4,8 @@ use crate::client::{
     http::{HttpClientWrapper, insert_static_headers},
 };
 use crate::config::Config;
+use crate::error::format_api_error;
 use crate::protocol;
-use crate::utils::api_response::format_api_error;
 use futures_util::Stream;
 use reqwest::{
     Body, Response, StatusCode,

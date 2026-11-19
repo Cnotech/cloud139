@@ -1,6 +1,7 @@
 mod cli;
 mod commands;
 mod config;
+mod error;
 mod logger;
 mod presentation;
 
@@ -9,7 +10,7 @@ mod tests;
 
 use clap::Parser;
 use cli::app::{Cli, Commands};
-use commands::CommandExit;
+use error::CommandExit;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

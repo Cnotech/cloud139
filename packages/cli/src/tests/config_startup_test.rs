@@ -1,4 +1,5 @@
-use crate::config::{ConfigWriteError, refresh_saved_token, save_config};
+use crate::config::{refresh_saved_token, save_config};
+use crate::error::{CommandExit, ConfigWriteError};
 use cloud139::client::ClientError;
 use cloud139::client::auth::RefreshOptions;
 use cloud139::config::Config;
@@ -35,7 +36,7 @@ async fn command_dispatch_uses_its_own_config_path() {
     assert_eq!(
         second
             .unwrap_err()
-            .downcast_ref::<crate::commands::CommandExit>()
+            .downcast_ref::<CommandExit>()
             .unwrap()
             .code(),
         2

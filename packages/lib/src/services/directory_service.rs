@@ -5,8 +5,9 @@ use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
 use std::collections::HashSet;
 
+pub use crate::error::invalid;
 pub use crate::utils::path::safe_local;
-pub use crate::utils::remote_path::{invalid, non_root, normalize, validate_name};
+pub use crate::utils::remote_path::{non_root, normalize, validate_name};
 
 #[derive(Debug, Clone)]
 pub struct RemoteEntry {

@@ -11,6 +11,7 @@ cloud139/
     │   │   ├── cli/               # clap 参数定义
     │   │   ├── commands/          # 调用服务、映射退出码
     │   │   ├── config/            # 配置路径、续期写回及跨进程锁
+    │   │   ├── error.rs           # CLI 错误类型
     │   │   ├── logger.rs          # 终端日志输出
     │   │   └── presentation/     # JSON、文本与进度条
     │   └── tests/                 # CLI 集成测试
@@ -22,6 +23,7 @@ cloud139/
         │   ├── client/            # API 请求与认证
         │   ├── services/          # 文件操作及同步
         │   ├── domain/            # 业务数据
+        │   ├── error.rs           # 库错误类型和共用错误构造
         │   ├── models/            # API 数据模型
         │   ├── protocol.rs        # 云盘端点、远程返回码和其他协议固定值
         │   └── utils/             # 日志、重试及通用函数

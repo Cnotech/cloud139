@@ -123,8 +123,8 @@ fn test_sync_direction_rejects_same_kind() {
     assert!(cloud_err.to_string().contains("云端路径"));
 }
 
-use crate::commands::CommandExit;
 use crate::commands::sync::SyncArgs as CommandSyncArgs;
+use crate::error::CommandExit;
 
 #[test]
 fn test_command_exit_reports_configured_code() {

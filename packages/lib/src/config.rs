@@ -1,28 +1,17 @@
+use crate::error::ClientError;
+pub use crate::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use thiserror::Error;
 
 /// 剩余有效期不超过这个时长时，在下一次命令启动时续期 token。
 ///
 /// 这是「何时续期」的唯一阈值：续期接口每次滚动发放 30 天有效的新 token，
 /// 留 7 天余量可以容忍几次失败重试。
 pub const TOKEN_REFRESH_THRESHOLD_MS: i64 = 7 * 24 * 60 * 60 * 1000;
-
-#[derive(Error, Debug)]
-pub enum ConfigError {
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("TOML 解析错误: {0}")]
-    TomlDe(#[from] toml::de::Error),
-    #[error("TOML 序列化错误: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-    #[error("配置文件未找到")]
-    NotFound,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -83,11 +72,11 @@ impl Config {
         save_atomically(self, &prepare_save_path(path)?, true)
     }
 
-    pub fn require_personal(&self) -> Result<(), crate::client::ClientError> {
+    pub fn require_personal(&self) -> Result<(), ClientError> {
         if self.storage_type == PERSONAL_STORAGE_TYPE {
             Ok(())
         } else {
-            Err(crate::client::ClientError::UnsupportedStorage)
+            Err(ClientError::UnsupportedStorage)
         }
     }
 

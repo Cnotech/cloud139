@@ -2,9 +2,9 @@ use super::client::{ListingRetry, PersonalClient};
 use crate::client::{ClientError, http::HttpClientWrapper};
 use crate::config::Config;
 use crate::debug;
+use crate::error::{invalid, require_success};
 use crate::models::{PersonalFileItem, PersonalListData, PersonalListResp};
 use crate::protocol;
-use crate::utils::api_response::require_success;
 use futures_util::{Stream, TryStreamExt};
 use std::{collections::HashSet, pin::pin};
 
@@ -29,8 +29,6 @@ impl PersonalClient<'_> {
         &self,
         path: &str,
     ) -> Result<Option<PersonalFileItem>, ClientError> {
-        use crate::utils::remote_path::invalid;
-
         if path.split('/').count() > 258 {
             return Err(invalid("目录层级过深"));
         }

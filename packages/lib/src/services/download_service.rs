@@ -1,6 +1,7 @@
 use crate::client::ClientError;
 use crate::client::api::{DownloadLink, HttpClientWrapper, ListingRetry, PersonalClient};
 use crate::config::Config;
+use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};
 use anyhow::Result;
@@ -169,7 +170,7 @@ fn local_file_metadata(path: &Path) -> Result<Option<std::fs::Metadata>, ClientE
         Ok(metadata) if metadata.is_file() && !metadata.permissions().readonly() => {
             Ok(Some(metadata))
         }
-        Ok(_) => Err(super::directory_service::invalid(format!(
+        Ok(_) => Err(invalid(format!(
             "本地目标不是可写的普通文件: {}",
             path.display()
         ))),
@@ -241,7 +242,7 @@ async fn download_normalized(
         safe_local(&dest)?;
         if dest.exists() {
             if dest.is_dir() != entry.folder {
-                return Err(dirs::invalid("本地文件与目录冲突").into());
+                return Err(invalid("本地文件与目录冲突").into());
             }
             if !entry.folder {
                 local_file_metadata(&dest)?;

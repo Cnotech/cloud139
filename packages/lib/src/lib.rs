@@ -3,6 +3,7 @@
 pub mod client;
 pub mod config;
 pub mod domain;
+mod error;
 pub mod models;
 mod protocol;
 pub mod services;

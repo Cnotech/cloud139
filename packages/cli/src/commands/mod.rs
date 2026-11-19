@@ -13,10 +13,7 @@ use crate::cli::app::Commands;
 use crate::config::{config_paths, refresh_saved_token};
 use cloud139::client::{ClientError, auth};
 use cloud139::config::{Config, ConfigError};
-use std::{
-    fmt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 /// 校验配置和命令参数，再续期并执行命令。
 pub(crate) async fn execute(command: Commands, config_path: Option<&Path>) -> anyhow::Result<()> {
@@ -69,31 +66,3 @@ async fn prepare_config(
     config.require_personal()?;
     Ok(config)
 }
-
-/// 带自定义退出码的命令错误。
-#[derive(Debug)]
-pub struct CommandExit {
-    code: i32,
-    message: String,
-}
-
-impl CommandExit {
-    pub fn new(code: i32, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-
-    pub fn code(&self) -> i32 {
-        self.code
-    }
-}
-
-impl fmt::Display for CommandExit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for CommandExit {}

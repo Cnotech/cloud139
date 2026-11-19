@@ -1,5 +1,6 @@
 use crate::client::{ClientError, api};
 use crate::domain::{FileEntry, SyncEntryKind};
+use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::safe_local;
 use std::collections::HashMap;
@@ -77,9 +78,9 @@ pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     safe_local(path)?;
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
-        return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
+        return Err(invalid("只支持普通文件；目录请使用递归上传"));
     }
-    i64::try_from(metadata.len()).map_err(|_| dirs::invalid("文件过大"))
+    i64::try_from(metadata.len()).map_err(|_| invalid("文件过大"))
 }
 
 pub async fn upload(
@@ -94,7 +95,7 @@ pub async fn upload(
     config.require_personal()?;
     dirs::validate_name(file_name)?;
     if file_size < 0 {
-        return Err(dirs::invalid("无效文件大小"));
+        return Err(invalid("无效文件大小"));
     }
     checked_upload_size(local_path)?;
     let remote_path = dirs::normalize(remote_path)?;
@@ -117,7 +118,7 @@ pub async fn upload_directory(
     config.require_personal()?;
     safe_local(local)?;
     if !local.is_dir() {
-        return Err(dirs::invalid("递归上传源必须是目录").into());
+        return Err(invalid("递归上传源必须是目录").into());
     }
     let entries = scan_local(
         local,
@@ -183,7 +184,7 @@ async fn upload_personal_directory(
         let parent = if parent.is_empty() { "/" } else { parent };
         let parent_id = directories
             .get(parent)
-            .ok_or_else(|| dirs::invalid("上传计划缺少父目录"))?;
+            .ok_or_else(|| invalid("上传计划缺少父目录"))?;
         let path = local.join(&entry.rel_path);
         let result = upload_file(&listing, &path, parent_id, name, force, None).await;
         match result {
@@ -225,7 +226,7 @@ async fn upload_file(
         .filter(|item| item.name.as_deref() == Some(name))
     {
         if item.is_folder() {
-            return Err(dirs::invalid("云端同名目录阻止上传文件"));
+            return Err(invalid("云端同名目录阻止上传文件"));
         }
         if !force {
             return Err(ClientError::ForceRequired);

@@ -1,9 +1,6 @@
 //! Cloud path normalization and cross-platform name validation.
-use crate::client::ClientError;
-
-pub fn invalid(message: impl Into<String>) -> ClientError {
-    ClientError::Other(message.into())
-}
+use crate::error::ClientError;
+pub use crate::error::invalid;
 
 pub fn validate_name(name: &str) -> Result<(), ClientError> {
     let stem = name

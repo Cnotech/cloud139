@@ -8,7 +8,8 @@ pub(super) use windows::ConfigLock;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ConfigWriteError, save_config};
+    use crate::config::{Config, save_config};
+    use crate::error::ConfigWriteError;
     use std::fs;
 
     #[test]
@@ -85,7 +86,7 @@ mod tests {
 
 #[cfg(unix)]
 mod unix {
-    use crate::config::ConfigWriteError;
+    use crate::error::ConfigWriteError;
     use fs2::FileExt;
     use std::fs::{self, File, OpenOptions};
     use std::io::{self, Read, Seek};
@@ -199,7 +200,7 @@ mod unix {
 
 #[cfg(windows)]
 mod windows {
-    use crate::config::ConfigWriteError;
+    use crate::error::ConfigWriteError;
     use sha2::{Digest, Sha256};
     #[cfg(test)]
     use std::fs;
