@@ -5,8 +5,8 @@ use crate::client::http::HttpClientWrapper;
 use crate::error::{ClientError, invalid};
 use crate::models::list::PersonalFileItem;
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
+use crate::progress::Progress;
 use crate::protocol;
-use crate::services::progress::Progress;
 use crate::services::sync::{
     CloudSyncFile, CloudSyncScan, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
 };

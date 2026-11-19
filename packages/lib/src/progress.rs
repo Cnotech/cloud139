@@ -1,3 +1,5 @@
+//! 上传、下载和同步共用的传输进度接口，由调用方提供实现。
+
 use std::sync::Arc;
 
 /// Optional transfer progress supplied by the application.

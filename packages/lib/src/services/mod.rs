@@ -7,7 +7,6 @@ mod local_scan;
 pub mod login;
 pub mod mkdir;
 pub mod mv;
-pub mod progress;
 pub mod rename;
 pub mod sync;
 pub mod sync_executor;

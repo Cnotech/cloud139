@@ -1,8 +1,8 @@
-use super::progress::ProgressFactory;
 use super::sync_remote::{SyncCloud, remote_sha256};
 use super::sync_report::SyncReport;
 use crate::config::Config;
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
+use crate::progress::{Progress, ProgressFactory};
 use crate::services::sync::CloudSyncScan;
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
 use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
@@ -125,7 +125,7 @@ impl VerifiedSync<'_> {
     async fn upload_or_verify(
         &self,
         action: &SyncAction,
-        pb: Option<crate::services::progress::Progress>,
+        pb: Option<Progress>,
         hash_missing: &mut bool,
         file_changed: &mut bool,
     ) -> Result<String> {

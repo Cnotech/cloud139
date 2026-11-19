@@ -9,7 +9,7 @@ use crate::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
     SyncTarget,
 };
-use crate::services::progress::ProgressFactory;
+use crate::progress::ProgressFactory;
 use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
 use crate::services::sync_report::SyncReport;
 use crate::services::sync_verify::execute_verified_sync;

@@ -76,7 +76,7 @@ debug!("正在上传分片 file_id={} part={}/{}", file_id, index, total);
 
 ## 4. 进度条感知日志
 
-库通过日志宏向 `log` 发出记录，CLI 负责把记录渲染到终端。传输通过 `TransferProgress` 报告进度，CLI 提供 `indicatif` 实现。交互期间，CLI 日志器暂停进度条重绘以输出文本，输出后再恢复。
+库通过日志宏向 `log` 发出记录，CLI 负责把记录渲染到终端。传输通过 `cloud139::progress::TransferProgress` 报告进度，CLI 提供 `indicatif` 实现。交互期间，CLI 日志器暂停进度条重绘以输出文本，输出后再恢复。
 
 ## 5. 错误信息规范
 

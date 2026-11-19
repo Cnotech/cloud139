@@ -1,4 +1,4 @@
-use cloud139::services::progress::{Progress, TransferProgress};
+use cloud139::progress::{Progress, TransferProgress};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;

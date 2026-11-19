@@ -1,7 +1,7 @@
-use super::progress::{Progress, ProgressFactory};
 use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
+use crate::progress::{Progress, ProgressFactory};
 use crate::services::local_scan::LocalSyncScan;
 use crate::services::sync::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;

@@ -3,7 +3,7 @@ use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
 use crate::error::{ClientError, invalid};
-use crate::services::progress::Progress;
+use crate::progress::Progress;
 use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};
 use crate::utils::remote_path;
 use anyhow::Result;
@@ -297,7 +297,7 @@ mod tests {
         }
     }
 
-    impl crate::services::progress::TransferProgress for ProgressCounter {
+    impl crate::progress::TransferProgress for ProgressCounter {
         fn reset(&self) {
             self.0.store(0, Ordering::Relaxed);
         }

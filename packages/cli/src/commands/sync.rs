@@ -2,7 +2,7 @@ use crate::cli::SyncArgs;
 use crate::error::CommandExit;
 use crate::presentation::sync::{print_outcome, print_plan};
 use cloud139::config::Config;
-use cloud139::services::progress::ProgressFactory;
+use cloud139::progress::ProgressFactory;
 use cloud139::services::sync::{SyncRequest, SyncScanOptions};
 use cloud139::services::sync_executor::SyncExecuteOptions;
 use std::io::IsTerminal;
