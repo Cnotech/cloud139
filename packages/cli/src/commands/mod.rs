@@ -11,8 +11,8 @@ pub mod upload;
 
 use crate::cli::app::Commands;
 use crate::config::{config_paths, refresh_saved_token};
-use cloud139_core::client::{ClientError, auth};
-use cloud139_core::config::{Config, ConfigError};
+use cloud139::client::{ClientError, auth};
+use cloud139::config::{Config, ConfigError};
 use std::{
     fmt,
     path::{Path, PathBuf},

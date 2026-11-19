@@ -1,5 +1,5 @@
 use super::*;
-use cloud139_core::client::auth::RefreshOptions;
+use cloud139::client::auth::RefreshOptions;
 use httpmock::prelude::*;
 use std::{fs, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

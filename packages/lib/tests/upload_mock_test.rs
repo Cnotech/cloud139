@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 mod upload_mock_test {
-    use cloud139_core::utils::resolve_local_path;
+    use cloud139::utils::resolve_local_path;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -112,7 +112,7 @@ mod upload_mock_test {
 }
 
 mod upload_part_size_tests {
-    use cloud139_core::client::api::upload::get_part_size;
+    use cloud139::client::api::upload::get_part_size;
 
     const MB: i64 = 1024 * 1024;
     const GB: i64 = 1024 * MB;

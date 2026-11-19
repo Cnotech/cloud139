@@ -4,8 +4,8 @@ use base64::Engine;
 use httpmock::Method::POST;
 use httpmock::prelude::*;
 
-use cloud139_core::client::auth;
-use cloud139_core::config::{Config, TOKEN_REFRESH_THRESHOLD_MS};
+use cloud139::client::auth;
+use cloud139::config::{Config, TOKEN_REFRESH_THRESHOLD_MS};
 
 const REFRESH_PATH: &str = "/tellin/authTokenRefresh.do";
 
@@ -247,10 +247,7 @@ async fn refresh_without_refresh_token_fails_without_request() {
     let error = auth::refresh_token(&config, refresh_options(&server.url(REFRESH_PATH)))
         .await
         .unwrap_err();
-    assert!(matches!(
-        error,
-        cloud139_core::client::ClientError::TokenExpired
-    ));
+    assert!(matches!(error, cloud139::client::ClientError::TokenExpired));
     mock.assert_calls(0);
 }
 

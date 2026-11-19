@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 mod config_test_extended {
-    use cloud139_core::config::{Config, ConfigError};
+    use cloud139::config::{Config, ConfigError};
     use tempfile::TempDir;
 
     fn create_temp_config_dir() -> TempDir {

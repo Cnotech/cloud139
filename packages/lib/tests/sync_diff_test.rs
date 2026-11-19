@@ -1,7 +1,7 @@
-use cloud139_core::domain::{
+use cloud139::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
 };
-use cloud139_core::services::sync_service::{SyncDiffOptions, compute_diff, format_action_line};
+use cloud139::services::sync_service::{SyncDiffOptions, compute_diff, format_action_line};
 
 fn entry(path: &str, size: u64, mtime: i64) -> FileEntry {
     FileEntry {

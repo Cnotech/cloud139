@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
 mod utils_test_extended {
-    use cloud139_core::utils::crypto::{
+    use cloud139::utils::crypto::{
         aes_cbc_decrypt, aes_cbc_encrypt, calc_file_hash, calc_file_sha256, calc_sign,
         encode_uri_component, md5_hash, pkcs7_pad, sha1_hash,
     };
-    use cloud139_core::utils::rand::generate_rand_str;
-    use cloud139_core::utils::width::{pad_with_width, str_width, truncate_with_width};
+    use cloud139::utils::rand::generate_rand_str;
+    use cloud139::utils::width::{pad_with_width, str_width, truncate_with_width};
     use std::fs;
     use tempfile::TempDir;
 

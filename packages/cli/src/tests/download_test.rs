@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::commands::download;
-use cloud139_core::utils::resolve_local_path;
+use cloud139::utils::resolve_local_path;
 
 #[test]
 fn test_resolve_local_path_none() {

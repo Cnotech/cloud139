@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 mod api_extended_test {
-    use cloud139_core::client::api::HttpClientWrapper;
-    use cloud139_core::config::Config;
+    use cloud139::client::api::HttpClientWrapper;
+    use cloud139::config::Config;
 
-    use cloud139_core::models::*;
+    use cloud139::models::*;
 
     #[test]
     fn test_http_client_wrapper_default() {
@@ -45,7 +45,7 @@ mod api_extended_test {
     #[tokio::test]
     async fn test_get_file_id_by_path_root() {
         let config = Config::default();
-        let result = cloud139_core::client::api::get_file_id_by_path(&config, "/").await;
+        let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }
@@ -53,7 +53,7 @@ mod api_extended_test {
     #[tokio::test]
     async fn test_get_file_id_by_path_empty() {
         let config = Config::default();
-        let result = cloud139_core::client::api::get_file_id_by_path(&config, "").await;
+        let result = cloud139::client::api::get_file_id_by_path(&config, "").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }

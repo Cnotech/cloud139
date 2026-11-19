@@ -1,5 +1,5 @@
 use crate::config::{ConfigWriteError, save_config};
-use cloud139_core::config::Config;
+use cloud139::config::Config;
 use std::fs;
 use std::sync::{Arc, Barrier};
 

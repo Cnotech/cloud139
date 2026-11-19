@@ -1,10 +1,10 @@
 use crate::commands::CommandExit;
 use crate::presentation::sync_renderer::{print_outcome, print_plan};
 use clap::Parser;
-use cloud139_core::config::Config;
-use cloud139_core::services::progress::ProgressFactory;
-use cloud139_core::services::sync_executor::{MAX_JOBS, SyncExecuteOptions};
-use cloud139_core::services::sync_service::{SyncRequest, SyncScanOptions};
+use cloud139::config::Config;
+use cloud139::services::progress::ProgressFactory;
+use cloud139::services::sync_executor::{MAX_JOBS, SyncExecuteOptions};
+use cloud139::services::sync_service::{SyncRequest, SyncScanOptions};
 use std::io::IsTerminal;
 
 fn parse_jobs(value: &str) -> Result<usize, String> {

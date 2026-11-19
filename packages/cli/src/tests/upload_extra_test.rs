@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::commands::upload;
-use cloud139_core::client::api::upload::get_part_size;
+use cloud139::client::api::upload::get_part_size;
 
 #[test]
 fn test_get_part_size_custom() {

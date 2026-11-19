@@ -1,5 +1,5 @@
 use clap::Parser;
-use cloud139_core::config::Config;
+use cloud139::config::Config;
 use std::io::IsTerminal;
 
 #[derive(Parser, Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct UploadArgs {
 
 pub(super) async fn execute(args: UploadArgs, config: &Config) -> anyhow::Result<()> {
     let progress = std::io::stderr().is_terminal();
-    cloud139_core::services::upload_service::upload_path(
+    cloud139::services::upload_service::upload_path(
         config,
         &args.local_path,
         &args.remote_path,

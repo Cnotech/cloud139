@@ -1,6 +1,6 @@
 use crate::print;
-use cloud139_core::domain::file_item::EntryKind;
-use cloud139_core::services::list_service::ListResult;
+use cloud139::domain::file_item::EntryKind;
+use cloud139::services::list_service::ListResult;
 use serde::Serialize;
 
 pub fn format_size(size: i64) -> String {

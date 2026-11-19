@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use cloud139_core::client::api::HttpClientWrapper;
-use cloud139_core::config::Config;
+use cloud139::client::api::HttpClientWrapper;
+use cloud139::config::Config;
 
 #[tokio::test]
 async fn test_get_personal_cloud_host_with_cached_host() {
@@ -29,7 +29,7 @@ async fn test_get_personal_cloud_host_with_empty_account() {
 
 #[tokio::test]
 async fn personal_post_sends_expected_signed_headers() {
-    use cloud139_core::client::api::headers::PC_CLIENT_INFO;
+    use cloud139::client::api::headers::PC_CLIENT_INFO;
     use httpmock::prelude::*;
     use serde_json::{Value, json};
 

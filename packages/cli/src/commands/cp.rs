@@ -1,5 +1,5 @@
 use clap::Parser;
-use cloud139_core::config::Config;
+use cloud139::config::Config;
 
 #[derive(Parser, Debug, Clone)]
 pub struct CpArgs {
@@ -18,7 +18,6 @@ pub struct CpArgs {
 }
 
 pub(super) async fn execute(args: CpArgs, config: &Config) -> anyhow::Result<()> {
-    cloud139_core::services::copy_service::cp(config, &args.source, &args.target, args.force)
-        .await?;
+    cloud139::services::copy_service::cp(config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

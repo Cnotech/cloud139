@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::commands::mkdir;
-use cloud139_core::services::mkdir_service;
+use cloud139::services::mkdir_service;
 
 #[test]
 fn test_mkdir_args_defaults() {

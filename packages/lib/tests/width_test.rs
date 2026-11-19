@@ -1,4 +1,4 @@
-use cloud139_core::utils::*;
+use cloud139::utils::*;
 
 #[test]
 fn test_str_width_ascii() {

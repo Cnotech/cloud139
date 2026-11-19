@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use crate::commands::cp;
-use cloud139_core::client::ClientError;
-use cloud139_core::config::Config;
-use cloud139_core::services::copy_service;
+use cloud139::client::ClientError;
+use cloud139::config::Config;
+use cloud139::services::copy_service;
 
 #[test]
 fn test_cp_args_validation_single_source() {

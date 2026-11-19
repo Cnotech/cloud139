@@ -1,5 +1,5 @@
-use cloud139_core::utils::rand::generate_rand_str;
-use cloud139_core::utils::*;
+use cloud139::utils::rand::generate_rand_str;
+use cloud139::utils::*;
 
 #[test]
 fn test_sha1_hash() {

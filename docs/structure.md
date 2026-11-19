@@ -5,7 +5,7 @@ cloud139/
 ├── Cargo.toml                     # Workspace 清单
 └── packages/
     ├── cli/
-    │   ├── Cargo.toml             # cloud139 命令行 package
+    │   ├── Cargo.toml             # cloud139-cli 命令行 package
     │   ├── src/
     │   │   ├── main.rs            # CLI 入口
     │   │   ├── cli/               # clap 参数定义
@@ -15,7 +15,7 @@ cloud139/
     │   │   └── presentation/     # JSON、文本与进度条
     │   └── tests/                 # CLI 集成测试
     └── lib/
-        ├── Cargo.toml             # cloud139-core 库 package
+        ├── Cargo.toml             # cloud139 库 package
         ├── src/
         │   ├── lib.rs             # 库入口
         │   ├── config.rs          # 显式路径的配置读写
@@ -27,4 +27,4 @@ cloud139/
         └── tests/                 # 库集成测试
 ```
 
-CLI 单向依赖 `cloud139-core`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。
+CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。

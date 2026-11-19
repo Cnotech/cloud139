@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use cloud139_core::models::*;
+use cloud139::models::*;
 
 #[test]
 fn test_base_resp_deserialize_success() {

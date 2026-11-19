@@ -1,4 +1,4 @@
-use cloud139_core::{
+use cloud139::{
     client::{
         api::{self, headers},
         auth,
@@ -21,7 +21,7 @@ fn personal_requests_use_pc_identity_and_route_keeps_its_headers() {
     assert_eq!(headers["mcloud-sign"], "timestamp,random,signature");
     assert_eq!(headers["x-deviceinfo"], DEVICE_INFO);
 
-    let route = cloud139_core::client::api::headers::build_route_headers(
+    let route = cloud139::client::api::headers::build_route_headers(
         "existing-token",
         "timestamp",
         "random",
@@ -106,7 +106,7 @@ fn local_metadata_no_longer_rejects_files_at_web_account_boundaries() {
         let bytes = size * 1024 * 1024 * 1024 + 1;
         file.set_len(bytes).unwrap();
         assert_eq!(
-            cloud139_core::services::upload_service::checked_upload_size(&path).unwrap(),
+            cloud139::services::upload_service::checked_upload_size(&path).unwrap(),
             bytes as i64
         );
     }
@@ -170,8 +170,8 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
 
 #[tokio::test]
 async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
-    use cloud139_core::domain::{ChangeKind, SyncAction};
-    use cloud139_core::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
+    use cloud139::domain::{ChangeKind, SyncAction};
+    use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
     for transfer_fails in [true, false] {
         let server = MockServer::start();
         let config = Config {

@@ -1,7 +1,7 @@
 use crate::presentation::list_renderer::format_size;
-use cloud139_core::client::api::upload::get_part_size;
-use cloud139_core::services::mkdir_service;
-use cloud139_core::utils::parse_personal_time;
+use cloud139::client::api::upload::get_part_size;
+use cloud139::services::mkdir_service;
+use cloud139::utils::parse_personal_time;
 
 #[test]
 fn test_parse_path_root() {

@@ -508,11 +508,11 @@ token_expire_time = 1775454807088
 
 ```toml
 [dependencies]
-cloud139-core = { path = "../cloud139/packages/lib" }
+cloud139 = { path = "../cloud139/packages/lib" }
 ```
 
 ```rust,no_run
-use cloud139_core::{
+use cloud139::{
     config::Config,
     services::{ListResult, list, list_service::ListOptions},
 };
@@ -530,8 +530,8 @@ async fn list_backup() -> Result<ListResult, Box<dyn std::error::Error>> {
 
 | Package | 位置 | 职责 |
 |---------|------|------|
-| `cloud139` | `packages/cli` | CLI、配置路径选择和跨进程锁、终端和 JSON 输出 |
-| `cloud139-core` | `packages/lib` | 认证、配置读写、云盘请求和文件操作 |
+| `cloud139-cli` | `packages/cli` | CLI、配置路径选择和跨进程锁、终端和 JSON 输出 |
+| `cloud139` | `packages/lib` | 认证、配置读写、云盘请求和文件操作 |
 
 ## 技术栈
 

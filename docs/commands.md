@@ -20,10 +20,10 @@ cargo test --workspace
 cargo test --workspace explicit_config_paths_keep_parallel_accounts_separate
 
 # 运行 CLI 命令测试
-cargo test -p cloud139 --bin cloud139 commands_test
+cargo test -p cloud139-cli --bin cloud139 commands_test
 
 # 运行集成测试
-cargo test -p cloud139-core --test api_test
+cargo test -p cloud139 --test api_test
 
 # 显示测试输出
 cargo test --workspace -- --nocapture

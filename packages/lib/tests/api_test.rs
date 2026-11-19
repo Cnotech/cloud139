@@ -1,4 +1,4 @@
-use cloud139_core::models::*;
+use cloud139::models::*;
 
 #[test]
 fn test_query_file_resp_with_defaults() {

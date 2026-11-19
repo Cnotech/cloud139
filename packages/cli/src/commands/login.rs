@@ -13,7 +13,7 @@ pub struct LoginArgs {
 }
 
 pub(super) async fn execute(args: LoginArgs, path: &Path) -> anyhow::Result<()> {
-    let config = cloud139_core::services::login_service::login(&args.token).await?;
+    let config = cloud139::services::login_service::login(&args.token).await?;
     crate::config::save_config(&config, path)?;
     crate::success!("Token 验证成功!");
     crate::success!("配置文件已保存到: {}", path.display());

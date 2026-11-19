@@ -1,7 +1,7 @@
 //! 下载前的「目标是不是目录」检查：按页找、命中即停。
 
-use cloud139_core::client::ClientError;
-use cloud139_core::config::Config;
+use cloud139::client::ClientError;
+use cloud139::config::Config;
 use httpmock::Method::POST;
 use httpmock::prelude::*;
 use serde_json::json;
@@ -50,7 +50,7 @@ async fn download_dir_check_stops_at_first_page() {
 
     let tmp = tempfile::tempdir().expect("tmp");
     let local = tmp.path().join("out.bin");
-    let result = cloud139_core::services::download(
+    let result = cloud139::services::download(
         &config_for(&server),
         "/hit",
         &local.to_string_lossy(),
@@ -71,7 +71,7 @@ async fn download_dir_check_stops_at_first_page() {
 
 #[tokio::test]
 async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
-    use cloud139_core::client::api::get_personal_download_link;
+    use cloud139::client::api::get_personal_download_link;
     use httpmock::Method::GET;
 
     let server = MockServer::start();
@@ -99,7 +99,7 @@ async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
     );
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("file.txt");
-    cloud139_core::services::download(&config, "/file.txt", target.to_str().unwrap(), None, false)
+    cloud139::services::download(&config, "/file.txt", target.to_str().unwrap(), None, false)
         .await
         .unwrap();
     assert_eq!(std::fs::read(target).unwrap(), b"data");
@@ -115,10 +115,9 @@ async fn public_download_link_preserves_business_error_without_data() {
         when.method(POST).path("/file/getDownloadUrl");
         then.json_body(json!({"success":false,"message":"link denied"}));
     });
-    let error =
-        cloud139_core::client::api::get_personal_download_link(&config_for(&server), "file")
-            .await
-            .unwrap_err();
+    let error = cloud139::client::api::get_personal_download_link(&config_for(&server), "file")
+        .await
+        .unwrap_err();
     assert!(matches!(error, ClientError::Api(message) if message.contains("link denied")));
     request.assert_calls(1);
 }

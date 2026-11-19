@@ -1,5 +1,5 @@
 use clap::Parser;
-use cloud139_core::config::Config;
+use cloud139::config::Config;
 
 #[derive(Parser, Debug, Clone)]
 pub struct MvArgs {
@@ -18,7 +18,6 @@ pub struct MvArgs {
 }
 
 pub(super) async fn execute(args: MvArgs, config: &Config) -> anyhow::Result<()> {
-    cloud139_core::services::move_service::mv(config, &args.source, &args.target, args.force)
-        .await?;
+    cloud139::services::move_service::mv(config, &args.source, &args.target, args.force).await?;
     Ok(())
 }

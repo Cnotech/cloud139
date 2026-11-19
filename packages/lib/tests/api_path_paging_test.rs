@@ -1,7 +1,7 @@
 //! 路径解析必须翻页：父目录超过一页（>100 子项）时，目标在后续页也要能找到。
 
-use cloud139_core::client::api::get_file_id_by_path;
-use cloud139_core::config::Config;
+use cloud139::client::api::get_file_id_by_path;
+use cloud139::config::Config;
 use httpmock::Method::POST;
 use httpmock::prelude::*;
 use serde_json::json;
@@ -134,7 +134,7 @@ async fn all_path_lookup_entries_reject_the_root_id_as_a_child() {
         then.body(page(vec![folder("/", "alias")], ""));
     });
     let client_error = get_file_id_by_path(&config, "/alias").await.unwrap_err();
-    let service_error = cloud139_core::services::directory_service::resolve(&config, "/alias")
+    let service_error = cloud139::services::directory_service::resolve(&config, "/alias")
         .await
         .unwrap_err();
     assert!(client_error.to_string().contains("根目录别名"));
@@ -144,7 +144,7 @@ async fn all_path_lookup_entries_reject_the_root_id_as_a_child() {
 
 #[tokio::test]
 async fn listing_preserves_page_size_and_thumbnails_across_partial_wire_pages() {
-    use cloud139_core::services::list_service::ListOptions;
+    use cloud139::services::list_service::ListOptions;
     let server = MockServer::start();
     let mut config = config_for(&server);
     config.use_large_thumbnail = true;
@@ -164,7 +164,7 @@ async fn listing_preserves_page_size_and_thumbnails_across_partial_wire_pages() 
     let first = mock_page("", &["a"], "next");
     let second = mock_page("next", &["b", "c"], "last");
     let last = mock_page("last", &["d", "e"], "");
-    let result = cloud139_core::services::list(
+    let result = cloud139::services::list(
         &config,
         ListOptions {
             path: "/",

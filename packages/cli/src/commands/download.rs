@@ -1,7 +1,7 @@
 use crate::success;
 use clap::Parser;
-use cloud139_core::config::Config;
-use cloud139_core::services::download_service::download_path;
+use cloud139::config::Config;
+use cloud139::services::download_service::download_path;
 
 #[derive(Parser, Debug)]
 pub struct DownloadArgs {

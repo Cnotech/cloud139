@@ -1,6 +1,6 @@
 use clap::Parser;
-use cloud139_core::config::Config;
-use cloud139_core::services::mkdir_service::{MkdirMode, mkdir};
+use cloud139::config::Config;
+use cloud139::services::mkdir_service::{MkdirMode, mkdir};
 
 #[derive(Parser, Debug, Clone)]
 pub struct MkdirArgs {

@@ -1,5 +1,5 @@
 use clap::Parser;
-use cloud139_core::config::Config;
+use cloud139::config::Config;
 
 #[derive(Parser, Debug, Clone)]
 pub struct RenameArgs {
@@ -18,7 +18,7 @@ pub struct RenameArgs {
 }
 
 pub(super) async fn execute(args: RenameArgs, config: &Config) -> anyhow::Result<()> {
-    cloud139_core::services::rename_service::rename(config, &args.source, &args.target, args.force)
+    cloud139::services::rename_service::rename(config, &args.source, &args.target, args.force)
         .await?;
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 mod commands_list_test {
     use crate::presentation::list_renderer::format_size;
-    use cloud139_core::utils::parse_personal_time;
+    use cloud139::utils::parse_personal_time;
 
     #[test]
     fn test_format_size_bytes() {

@@ -1,5 +1,5 @@
 //! Stateful loopback-only regression tests. No real 139 credentials or endpoints.
-use cloud139_core::{
+use cloud139::{
     client::ClientError,
     config::Config,
     services::{self, directory_service as dirs},
@@ -1500,7 +1500,7 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
 async fn ordinary_ls_rejects_cursor_cycles() {
     let server = Server::new();
     server.state.lock().unwrap().cycle = true;
-    let args = cloud139_core::services::list_service::ListOptions {
+    let args = cloud139::services::list_service::ListOptions {
         path: "/",
         page: 1,
         page_size: 100,
@@ -2051,8 +2051,7 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
                 assert_eq!(parent, root_id);
                 source.path().join(name)
             };
-            let hash =
-                cloud139_core::utils::crypto::calc_file_sha256(local.to_str().unwrap()).unwrap();
+            let hash = cloud139::utils::crypto::calc_file_sha256(local.to_str().unwrap()).unwrap();
             assert_eq!(body["contentHash"], hash);
             (parent, name)
         })
@@ -2205,13 +2204,13 @@ async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
             ..Default::default()
         };
         assert!(
-            cloud139_core::client::api::HttpClientWrapper::new()
+            cloud139::client::api::HttpClientWrapper::new()
                 .list_personal_files(&config, "/")
                 .await
                 .is_err()
         );
         assert!(
-            cloud139_core::client::api::get_file_id_by_path(&config, "/missing")
+            cloud139::client::api::get_file_id_by_path(&config, "/missing")
                 .await
                 .is_err()
         );

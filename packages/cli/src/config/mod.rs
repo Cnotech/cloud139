@@ -1,7 +1,7 @@
-use cloud139_core::client::{ClientError, auth};
+use cloud139::client::{ClientError, auth};
 #[cfg(windows)]
-use cloud139_core::config::read_config;
-use cloud139_core::config::{Config, ConfigError, prepare_save_path, save_atomically};
+use cloud139::config::read_config;
+use cloud139::config::{Config, ConfigError, prepare_save_path, save_atomically};
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;

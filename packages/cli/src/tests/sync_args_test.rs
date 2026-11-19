@@ -1,8 +1,8 @@
 use crate::cli::app::{Cli, Commands};
 use crate::commands::sync::SyncArgs;
 use clap::{CommandFactory, Parser};
-use cloud139_core::domain::{SyncDirection, SyncEndpoint};
-use cloud139_core::services::sync_service::{parse_sync_endpoint, sync_direction};
+use cloud139::domain::{SyncDirection, SyncEndpoint};
+use cloud139::services::sync_service::{parse_sync_endpoint, sync_direction};
 
 #[test]
 fn test_sync_args_parse_defaults() {

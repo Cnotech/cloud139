@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 mod client_test_extended {
-    use cloud139_core::client::ClientError;
+    use cloud139::client::ClientError;
 
-    use cloud139_core::utils::{generate_rand_str, sort_json_value_to_string};
+    use cloud139::utils::{generate_rand_str, sort_json_value_to_string};
     use serde_json::json;
 
     #[test]

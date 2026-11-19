@@ -1,7 +1,7 @@
 //! Cursor cycles must fail explicitly, not loop or report a partial scan as complete.
-use cloud139_core::client::api::{HttpClientWrapper, get_file_id_by_path};
-use cloud139_core::services::sync_service::{SyncScanOptions, scan_cloud};
-use cloud139_core::{config::Config, domain::SyncDirection};
+use cloud139::client::api::{HttpClientWrapper, get_file_id_by_path};
+use cloud139::services::sync_service::{SyncScanOptions, scan_cloud};
+use cloud139::{config::Config, domain::SyncDirection};
 use httpmock::prelude::*;
 use serde_json::json;
 use std::time::Duration;
@@ -70,7 +70,7 @@ async fn assert_cycle_fails(operation: &str, cycle: bool) {
     .expect("cursor cycle must terminate promptly");
     let err = result.expect_err("a cyclic listing must not succeed with partial results");
     assert!(err.to_string().contains("分页游标重复"), "{err:#}");
-    assert!(!cloud139_core::utils::retry::is_transient(&err));
+    assert!(!cloud139::utils::retry::is_transient(&err));
     for mock in mocks {
         mock.assert_calls(1);
     }

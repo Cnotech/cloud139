@@ -1,5 +1,5 @@
 [package]
-name = "cloud139-core"
+name = "cloud139"
 description = "Rust client and file operations for China Mobile Cloud Drive"
 license = "MIT"
 repository = "https://github.com/Cnotech/cloud139"

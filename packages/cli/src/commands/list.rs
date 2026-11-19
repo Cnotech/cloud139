@@ -1,8 +1,8 @@
 use crate::debug;
 use crate::presentation::list_renderer;
 use clap::Parser;
-use cloud139_core::config::Config;
-use cloud139_core::services::list_service::ListOptions;
+use cloud139::config::Config;
+use cloud139::services::list_service::ListOptions;
 use std::fs;
 
 #[derive(Parser, Debug, Clone)]
@@ -39,8 +39,7 @@ pub(super) async fn execute(args: ListArgs, config: &Config) -> anyhow::Result<(
         args.path, args.page, args.page_size
     );
     if args.recursive {
-        let results =
-            cloud139_core::services::list_service::list_recursive(config, &args.path).await?;
+        let results = cloud139::services::list_service::list_recursive(config, &args.path).await?;
         for result in &results {
             list_renderer::render_terminal(result);
         }
@@ -53,7 +52,7 @@ pub(super) async fn execute(args: ListArgs, config: &Config) -> anyhow::Result<(
         }
         return Ok(());
     }
-    let result = cloud139_core::services::list(config, &args).await?;
+    let result = cloud139::services::list(config, &args).await?;
     list_renderer::render_terminal(&result);
 
     if let Some(output) = &args.output {
