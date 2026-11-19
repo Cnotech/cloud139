@@ -1,6 +1,6 @@
-use crate::config::{refresh_saved_token, save_config};
+use crate::config::store::{refresh_saved_token, save_config};
 use crate::error::{CommandExit, ConfigWriteError};
-use cloud139::client::auth::RefreshOptions;
+use cloud139::client::auth::refresh::RefreshOptions;
 use cloud139::config::Config;
 use cloud139::error::ClientError;
 use httpmock::prelude::*;
@@ -25,8 +25,8 @@ async fn command_dispatch_uses_its_own_config_path() {
         crate::cli::Cli::parse_from(["cloud139", "sync", "cloud:/", "local", "--verify"]).command
     };
     let (first, second) = tokio::join!(
-        crate::commands::execute(command(), Some(&first)),
-        crate::commands::execute(command(), Some(&second)),
+        crate::commands::dispatch::execute(command(), Some(&first)),
+        crate::commands::dispatch::execute(command(), Some(&second)),
     );
     assert!(matches!(
         first.unwrap_err().downcast_ref::<ClientError>(),

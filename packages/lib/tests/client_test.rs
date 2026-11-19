@@ -1,4 +1,4 @@
-use cloud139::{client::auth, error::ClientError};
+use cloud139::{client::auth::token::parse_login_token, error::ClientError};
 
 #[test]
 fn test_generate_rand_str() {
@@ -96,7 +96,7 @@ fn test_client_error_display() {
 fn test_login_invalid_format() {
     let token =
         base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "invalid_format");
-    let result = auth::parse_login_token(&token);
+    let result = parse_login_token(&token);
     assert!(result.is_err());
 }
 

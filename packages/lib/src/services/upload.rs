@@ -1,5 +1,5 @@
+use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::transfer::put_upload_part;
-use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::api::upload::UploadFile;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
@@ -8,10 +8,10 @@ use crate::models::list::PersonalFileItem;
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::progress::Progress;
 use crate::protocol;
+use crate::services::sync::paths::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::services::sync::remote::remote_sha256;
-use crate::services::sync::{
-    CloudSyncFile, CloudSyncScan, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
-};
+use crate::services::sync::retry::SYNC_LIST_RETRY;
+use crate::services::sync::scan::{CloudSyncFile, CloudSyncScan};
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;
 use crate::utils::{
@@ -357,7 +357,7 @@ pub(super) async fn upload_sync_to_parent(
             })
             .transpose()?
     };
-    let expected_file = scan.and_then(|scan| scan.files.get(rel_path));
+    let expected_file = scan.and_then(|scan| scan.file(rel_path));
     check_destination(&before, file_name, expected_id, expected_file)?;
     anyhow::ensure!(
         replace_directory_id.is_none() || scan.is_some(),

@@ -1,4 +1,4 @@
-use crate::config::save_config;
+use crate::config::store::save_config;
 use crate::error::ConfigWriteError;
 use cloud139::config::Config;
 use std::fs;

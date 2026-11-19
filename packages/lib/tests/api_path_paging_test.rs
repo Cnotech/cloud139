@@ -1,6 +1,6 @@
 //! 路径解析必须翻页：父目录超过一页（>100 子项）时，目标在后续页也要能找到。
 
-use cloud139::client::api::get_file_id_by_path;
+use cloud139::client::api::files::get_file_id_by_path;
 use cloud139::config::Config;
 use httpmock::Method::POST;
 use httpmock::prelude::*;

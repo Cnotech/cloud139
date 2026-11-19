@@ -1,5 +1,5 @@
+use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::listing::ListPageOptions;
-use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::debug;

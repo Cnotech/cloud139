@@ -1,6 +1,6 @@
 //! 分页游标循环时应明确报错，避免无限循环或将部分扫描标为完成。
-use cloud139::client::{api::get_file_id_by_path, http::HttpClientWrapper};
-use cloud139::services::sync::{SyncScanOptions, scan_cloud};
+use cloud139::client::{api::files::get_file_id_by_path, http::HttpClientWrapper};
+use cloud139::services::sync::scan::{SyncScanOptions, scan_cloud};
 use cloud139::{config::Config, models::sync_item::SyncDirection};
 use httpmock::prelude::*;
 use serde_json::json;

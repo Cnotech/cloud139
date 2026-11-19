@@ -5,7 +5,7 @@ use crate::info;
 
 /// 验证 Token 并返回可用配置，供调用方选择保存位置。
 pub async fn login(token: &str) -> anyhow::Result<Config> {
-    let mut config = PersonalConfig::new(crate::client::auth::parse_login_token(token)?)?;
+    let mut config = PersonalConfig::new(crate::client::auth::token::parse_login_token(token)?)?;
     info!("正在校验 Token 可用性 (ls /) ...");
     let host = HttpClientWrapper::new()
         .resolve_personal_cloud_host(config.as_ref())

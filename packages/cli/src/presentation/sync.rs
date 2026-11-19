@@ -1,7 +1,7 @@
 use crate::{success, warn};
 use cloud139::models::sync_item::{SyncAction, SyncSummary};
-use cloud139::services::sync::report::SyncReport;
-use cloud139::services::sync::{SyncOutcome, format_action_line};
+use cloud139::services::sync::plan::SyncOutcome;
+use cloud139::services::sync::report::{SyncReport, format_action_line};
 use serde::Serialize;
 
 pub(crate) fn print_plan(actions: &[SyncAction]) {

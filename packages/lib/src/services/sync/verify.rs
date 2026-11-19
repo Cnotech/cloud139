@@ -1,7 +1,7 @@
-use super::CloudSyncScan;
 use super::executor::{SyncExecuteOptions, make_action_progress};
 use super::remote::{SyncCloud, remote_sha256};
 use super::report::SyncReport;
+use super::scan::CloudSyncScan;
 use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
@@ -218,8 +218,7 @@ impl VerifiedSync<'_> {
         for &path in deletes {
             let id = self
                 .cloud
-                .files
-                .get(path)
+                .file(path)
                 .and_then(|file| file.id.as_deref())
                 .ok_or_else(|| (path, anyhow!("计划删除的文件缺少扫描 ID")))?;
             if retained_ids.contains(id) || !deleted_ids.insert(id) {

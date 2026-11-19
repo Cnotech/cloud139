@@ -1,4 +1,4 @@
-use super::CloudSyncScan;
+use super::scan::CloudSyncScan;
 use crate::error::RetryError;
 use crate::models::sync_item::{ChangeKind, FileEntry, SyncAction, SyncEntryKind};
 use serde::Serialize;
@@ -153,5 +153,33 @@ impl SyncReport {
         }
         self.failures
             .sort_by(|left, right| left.path.cmp(&right.path));
+    }
+}
+
+pub fn format_action_line(action: &SyncAction, dry_run: bool) -> String {
+    let prefix = if dry_run { "(DRY RUN) " } else { "" };
+    match action {
+        SyncAction::Upload {
+            rel_path, change, ..
+        }
+        | SyncAction::Download {
+            rel_path, change, ..
+        } => {
+            format!("{}{} {}", prefix, change_marker(*change), rel_path)
+        }
+        SyncAction::CreateDir { rel_path, .. } => format!("{}cd+++++++++ {}", prefix, rel_path),
+        SyncAction::Delete { rel_path, .. } => format!("{}*deleting   {}", prefix, rel_path),
+        SyncAction::Skip { rel_path } => format!("{}skipping    {}", prefix, rel_path),
+        SyncAction::Conflict { rel_path, reason } => {
+            format!("{prefix}*conflict    {rel_path}：{reason}")
+        }
+    }
+}
+
+fn change_marker(change: ChangeKind) -> &'static str {
+    match change {
+        ChangeKind::New => ">f+++++++++",
+        ChangeKind::SizeOrTime => ">f.st......",
+        ChangeKind::Verify => "?f.sha256..",
     }
 }

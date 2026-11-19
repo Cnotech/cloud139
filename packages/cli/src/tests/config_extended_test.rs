@@ -72,7 +72,7 @@ token_expire_time = 1234567890
 
     #[test]
     fn test_config_config_path() {
-        let path = &crate::config::config_paths(None)[0];
+        let path = &crate::config::paths::config_paths(None)[0];
         let s = path.to_string_lossy();
         assert!(s.contains("cloud139rc.toml"));
     }

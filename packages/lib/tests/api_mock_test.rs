@@ -7,7 +7,7 @@ use cloud139::config::Config;
 async fn test_get_file_id_by_path_root() {
     let config = Config::default();
 
-    let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
+    let result = cloud139::client::api::files::get_file_id_by_path(&config, "/").await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "");
 }
@@ -16,7 +16,7 @@ async fn test_get_file_id_by_path_root() {
 async fn test_get_file_id_by_path_empty() {
     let config = Config::default();
 
-    let result = cloud139::client::api::get_file_id_by_path(&config, "").await;
+    let result = cloud139::client::api::files::get_file_id_by_path(&config, "").await;
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), "");
 }
@@ -26,7 +26,7 @@ async fn test_get_file_id_by_path_with_host_cached() {
     let mut config = Config::default();
     config.personal_cloud_host = Some("https://cached.example.com".to_string());
 
-    let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
+    let result = cloud139::client::api::files::get_file_id_by_path(&config, "/").await;
     assert!(result.is_ok());
 }
 

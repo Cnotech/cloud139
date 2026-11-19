@@ -71,7 +71,7 @@ async fn download_dir_check_stops_at_first_page() {
 
 #[tokio::test]
 async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
-    use cloud139::client::api::get_personal_download_link;
+    use cloud139::client::api::files::get_personal_download_link;
     use httpmock::Method::GET;
 
     let server = MockServer::start();
@@ -121,9 +121,10 @@ async fn public_download_link_preserves_business_error_without_data() {
         when.method(POST).path("/file/getDownloadUrl");
         then.json_body(json!({"success":false,"message":"link denied"}));
     });
-    let error = cloud139::client::api::get_personal_download_link(&config_for(&server), "file")
-        .await
-        .unwrap_err();
+    let error =
+        cloud139::client::api::files::get_personal_download_link(&config_for(&server), "file")
+            .await
+            .unwrap_err();
     assert!(matches!(error, ClientError::Api(message) if message.contains("link denied")));
     request.assert_calls(1);
 }

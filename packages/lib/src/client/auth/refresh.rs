@@ -1,5 +1,6 @@
-use super::RefreshOptions;
 use crate::client::http::insert_static_headers;
+use crate::config::{Config, PersonalConfig};
+use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::xml::escape_text;
@@ -7,11 +8,86 @@ use reqwest::{Client, header::HeaderMap};
 use serde::Deserialize;
 use std::time::Duration;
 
+/// 续期端点及整个 HTTP 请求的超时。
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshOptions<'a> {
+    pub endpoint: Option<&'a str>,
+    pub timeout: Duration,
+}
+
+impl Default for RefreshOptions<'_> {
+    fn default() -> Self {
+        Self {
+            endpoint: None,
+            timeout: Duration::from_secs(10),
+        }
+    }
+}
+
+/// 刷新 Token。默认使用官方端点，可通过 options 指定其他端点。
+pub async fn refresh_token(
+    config: &Config,
+    options: RefreshOptions<'_>,
+) -> Result<Config, ClientError> {
+    refresh_personal_token(PersonalConfig::new(config)?, options).await
+}
+
+async fn refresh_personal_token(
+    config: PersonalConfig<&Config>,
+    options: RefreshOptions<'_>,
+) -> Result<Config, ClientError> {
+    debug!("开始续期 Token account={}", config.account);
+
+    // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
+    // 正是靠它来换取新 token；提前判死会让唯一能自愈的路径失效。
+    let refresh_token = config
+        .refresh_token
+        .as_deref()
+        .ok_or(ClientError::TokenExpired)?;
+
+    let RefreshedToken {
+        token: new_token,
+        expire_seconds,
+    } = request_refresh(&config.account, refresh_token, options).await?;
+
+    let authorization = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        format!(
+            "{}:{}:{}",
+            protocol::PC_TOKEN_PREFIX,
+            config.account,
+            new_token
+        ),
+    );
+
+    debug!("已续期 Token valid_days={}", expire_seconds / 86400);
+
+    let mut new_config = (*config).clone();
+    new_config.authorization = authorization;
+    new_config.refresh_token = Some(new_token);
+    new_config.token_expire_time =
+        Some(chrono::Utc::now().timestamp_millis() + expire_seconds * 1000);
+
+    Ok(new_config)
+}
+
+/// Token 达到续期条件时返回更新后的配置，否则返回 `None`。
+pub async fn refresh_token_if_due(
+    config: &Config,
+    options: RefreshOptions<'_>,
+) -> Result<Option<Config>, ClientError> {
+    let config = PersonalConfig::new(config)?;
+    if !config.is_token_refresh_due() {
+        return Ok(None);
+    }
+    refresh_personal_token(config, options).await.map(Some)
+}
+
 const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
 
-pub(super) struct RefreshedToken {
-    pub(super) token: String,
-    pub(super) expire_seconds: i64,
+struct RefreshedToken {
+    token: String,
+    expire_seconds: i64,
 }
 
 fn build_refresh_headers() -> HeaderMap {
@@ -38,7 +114,7 @@ fn build_refresh_body(account: &str, token: &str) -> String {
     )
 }
 
-pub(super) async fn request(
+async fn request_refresh(
     account: &str,
     token: &str,
     options: RefreshOptions<'_>,

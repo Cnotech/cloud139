@@ -1,4 +1,4 @@
-use super::PersonalClient;
+use super::client::PersonalClient;
 use crate::client::api::response::{is_mutation_successful, require_success};
 use crate::error::ClientError;
 use crate::protocol;

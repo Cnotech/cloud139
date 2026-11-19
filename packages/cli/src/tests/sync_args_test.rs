@@ -2,7 +2,7 @@ use crate::cli::{Cli, Commands, SyncArgs};
 use crate::error::CommandExit;
 use clap::{CommandFactory, Parser};
 use cloud139::models::sync_item::{SyncDirection, SyncEndpoint};
-use cloud139::services::sync::{parse_sync_endpoint, sync_direction};
+use cloud139::services::sync::paths::{parse_sync_endpoint, sync_direction};
 
 #[test]
 fn test_sync_args_parse_defaults() {

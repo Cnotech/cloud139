@@ -9,8 +9,9 @@ pub(super) use windows::ConfigLock;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, save_config};
+    use crate::config::store::save_config;
     use crate::error::ConfigWriteError;
+    use cloud139::config::Config;
     use std::fs;
 
     #[test]
@@ -271,7 +272,7 @@ mod windows {
             &mut self,
             path: &Path,
         ) -> Result<String, ConfigWriteError> {
-            Ok(super::super::read_config(path)?)
+            Ok(cloud139::config::read_config(path)?)
         }
     }
 

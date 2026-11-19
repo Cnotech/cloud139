@@ -48,7 +48,7 @@ mod api_extended_test {
     #[tokio::test]
     async fn test_get_file_id_by_path_root() {
         let config = Config::default();
-        let result = cloud139::client::api::get_file_id_by_path(&config, "/").await;
+        let result = cloud139::client::api::files::get_file_id_by_path(&config, "/").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }
@@ -56,7 +56,7 @@ mod api_extended_test {
     #[tokio::test]
     async fn test_get_file_id_by_path_empty() {
         let config = Config::default();
-        let result = cloud139::client::api::get_file_id_by_path(&config, "").await;
+        let result = cloud139::client::api::files::get_file_id_by_path(&config, "").await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "");
     }

@@ -108,12 +108,12 @@ fn test_default_values() {
 
 #[test]
 fn test_config_path_default() {
-    let path = &config::config_paths(None)[0];
+    let path = &config::paths::config_paths(None)[0];
     assert!(path.ends_with("cloud139rc.toml"));
 }
 
 #[test]
 fn test_global_config_path_contains_config_dir() {
-    let path = &config::config_paths(None)[1];
+    let path = &config::paths::config_paths(None)[1];
     assert!(path.ends_with(std::path::Path::new("cloud139").join("cloud139rc.toml")));
 }

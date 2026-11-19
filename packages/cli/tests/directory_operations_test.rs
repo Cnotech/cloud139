@@ -2177,7 +2177,7 @@ async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
                 .is_err()
         );
         assert!(
-            cloud139::client::api::get_file_id_by_path(&config, "/missing")
+            cloud139::client::api::files::get_file_id_by_path(&config, "/missing")
                 .await
                 .is_err()
         );

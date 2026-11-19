@@ -27,7 +27,7 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
             Err(ClientError::UnsupportedStorage)
         ));
         assert!(matches!(
-            api::get_personal_download_link(&profile, "id").await,
+            api::files::get_personal_download_link(&profile, "id").await,
             Err(ClientError::UnsupportedStorage)
         ));
     }
@@ -36,8 +36,9 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
 #[tokio::test]
 async fn non_personal_config_is_rejected_before_upload_progress_and_sync_work() {
     use cloud139::services::sync::{
-        SyncRequest, SyncScanOptions,
         executor::{SyncExecuteOptions, execute_sync_actions},
+        plan::SyncRequest,
+        scan::SyncScanOptions,
     };
     use cloud139::services::upload::upload_path;
 

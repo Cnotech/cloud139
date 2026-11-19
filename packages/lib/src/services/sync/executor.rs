@@ -1,6 +1,7 @@
 use super::remote::SyncCloud;
-use super::report::SyncReport;
-use super::{CloudSyncScan, format_action_line};
+use super::report::{SyncReport, format_action_line};
+use super::retry::{SYNC_BACKOFF_SECS, SYNC_RETRIES};
+use super::scan::CloudSyncScan;
 use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
@@ -169,9 +170,7 @@ fn record_plan(
                 rel_path, target, ..
             } => {
                 let file = match target {
-                    SyncTarget::Cloud => {
-                        cloud.is_some_and(|scan| scan.files.contains_key(rel_path))
-                    }
+                    SyncTarget::Cloud => cloud.is_some_and(|scan| scan.file(rel_path).is_some()),
                     SyncTarget::Local => local.is_some_and(|scan| scan.contains_file(rel_path)),
                 };
                 if can_delete && file {
@@ -323,12 +322,12 @@ async fn execute_one_action(
             let local_path = local_abs.to_string_lossy().to_string();
             let scanned = cloud
                 .map(|scan| {
-                    let file = scan.files.get(rel_path).context("扫描缺少云端文件")?;
+                    let file = scan.file(rel_path).context("扫描缺少云端文件")?;
                     let id = file.id.as_deref().context("云端文件缺少有效的扫描 ID")?;
                     Ok::<_, anyhow::Error>((scan.host.as_str(), id, file.size))
                 })
                 .transpose()?;
-            crate::utils::retry::with_retries(RETRIES, BACKOFF_SECS, || {
+            crate::utils::retry::with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || {
                 let local_path = local_path.clone();
                 let attempt_pb = pb.clone();
                 async move {
@@ -376,7 +375,7 @@ async fn execute_one_action(
             }
             SyncTarget::Cloud => {
                 remote.delete_extra(rel_path).await?;
-                *file_changed = cloud.is_some_and(|scan| scan.files.contains_key(rel_path));
+                *file_changed = cloud.is_some_and(|scan| scan.file(rel_path).is_some());
             }
         },
         SyncAction::CreateDir {
@@ -397,10 +396,6 @@ async fn execute_one_action(
 
     Ok(())
 }
-
-/// 与 sync 的列表重试保持一致（见 sync::SYNC_RETRIES）。
-const RETRIES: u32 = crate::services::sync::SYNC_RETRIES;
-const BACKOFF_SECS: u64 = crate::services::sync::SYNC_BACKOFF_SECS;
 
 fn remote_parent(remote_abs: &str) -> String {
     let trimmed = remote_abs.trim_end_matches('/');

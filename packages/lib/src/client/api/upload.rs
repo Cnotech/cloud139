@@ -1,4 +1,4 @@
-use super::personal::{ListingRetry, PersonalClient};
+use super::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::response::{
     format_api_error, is_mutation_successful, is_response_successful, json_api_error,
 };

@@ -1,5 +1,6 @@
-use super::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES};
-use crate::client::api::personal::{ListingRetry, PersonalClient};
+use super::retry::{SYNC_BACKOFF_SECS, SYNC_RETRIES};
+use super::scan::{CloudSyncFile, CloudSyncScan};
+use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::services::{directory as dirs, download};
@@ -124,7 +125,7 @@ impl<'a> SyncCloud<'a> {
                     }
                     if let Some(scan) = self.scan {
                         ensure!(
-                            !scan.files.contains_key(&rel_path),
+                            scan.file(&rel_path).is_none(),
                             "云端同名文件阻止创建目录 {path}"
                         );
                     }
@@ -203,8 +204,7 @@ impl<'a> SyncCloud<'a> {
         ensure!(
             current.is_some()
                 && matching.next().is_none()
-                && (folder
-                    || current.map(CloudSyncFile::from).as_ref() == scan.files.get(rel_path)),
+                && (folder || current.map(CloudSyncFile::from).as_ref() == scan.file(rel_path)),
             "提交删除前发现云端条目 {path} 已变更"
         );
         listing.trash(expected_id).await?;

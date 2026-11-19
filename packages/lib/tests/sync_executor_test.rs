@@ -1,8 +1,9 @@
 use cloud139::config::Config;
 use cloud139::models::sync_item::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
 use cloud139::services::sync::{
-    SyncRequest, SyncScanOptions,
     executor::{SyncExecuteOptions, execute_sync_actions},
+    plan::SyncRequest,
+    scan::SyncScanOptions,
 };
 use tempfile::tempdir;
 

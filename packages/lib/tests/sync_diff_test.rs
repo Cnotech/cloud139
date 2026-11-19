@@ -1,7 +1,8 @@
 use cloud139::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
 };
-use cloud139::services::sync::{SyncDiffOptions, compute_diff, format_action_line};
+use cloud139::services::sync::diff::{SyncDiffOptions, compute_diff};
+use cloud139::services::sync::report::format_action_line;
 
 fn entry(path: &str, size: u64, mtime: i64) -> FileEntry {
     FileEntry {

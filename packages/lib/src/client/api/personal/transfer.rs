@@ -1,4 +1,4 @@
-use super::PersonalClient;
+use super::client::PersonalClient;
 use crate::client::api::response::format_api_error;
 use crate::client::http::{HttpClientWrapper, insert_static_headers};
 use crate::error::ClientError;

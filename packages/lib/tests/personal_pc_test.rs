@@ -2,7 +2,7 @@ use cloud139::client::http::HttpClientWrapper;
 use cloud139::{
     client::{
         api::{self, headers},
-        auth,
+        auth::{refresh, token::parse_login_token},
     },
     config::Config,
 };
@@ -40,7 +40,7 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
     let server = MockServer::start();
     let token = base64::engine::general_purpose::STANDARD
         .encode("pc:13800138000:old|1|RCS|9999999999999|signature");
-    let mut config = auth::parse_login_token(&token).unwrap();
+    let mut config = parse_login_token(&token).unwrap();
     config.personal_cloud_host = Some(server.base_url());
     let old_list = server.mock(|when, then| {
         when.method(POST)
@@ -59,9 +59,9 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
             .body("<root><token>old|1|RCS|9999999999999|signature</token><account>13800138000</account><clienttype>656</clienttype></root>");
         then.body("<root><return>0</return><token>new-token</token><expiretime>2592000</expiretime></root>");
     });
-    let refreshed = auth::refresh_token(
+    let refreshed = refresh::refresh_token(
         &config,
-        auth::RefreshOptions {
+        refresh::RefreshOptions {
             endpoint: Some(&server.url("/refresh")),
             ..Default::default()
         },

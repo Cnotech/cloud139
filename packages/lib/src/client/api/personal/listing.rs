@@ -1,4 +1,4 @@
-use super::{ListingRetry, PersonalClient};
+use super::client::{ListingRetry, PersonalClient};
 use crate::client::api::response::require_success;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};

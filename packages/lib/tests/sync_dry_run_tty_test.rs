@@ -4,7 +4,7 @@
 // 这里通过直接调用 format_action_line 检查前缀，而不是模拟 TTY 环境。
 
 use cloud139::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
-use cloud139::services::sync::format_action_line;
+use cloud139::services::sync::report::format_action_line;
 use std::path::PathBuf;
 
 #[test]

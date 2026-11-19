@@ -1,5 +1,5 @@
 //! 云端目录解析、遍历和修改操作的前置检查。
-use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;

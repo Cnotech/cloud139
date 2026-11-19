@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
     logger::init_verbose(&cli.verbose);
     logger::init_core_logger();
 
-    if let Err(err) = commands::execute(cli.command, cli.config.as_deref()).await {
+    if let Err(err) = commands::dispatch::execute(cli.command, cli.config.as_deref()).await {
         let code = err
             .downcast_ref::<CommandExit>()
             .map_or(1, CommandExit::code);

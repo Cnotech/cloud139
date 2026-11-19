@@ -4,7 +4,8 @@ use crate::presentation::sync::{print_outcome, print_plan};
 use cloud139::config::Config;
 use cloud139::progress::ProgressFactory;
 use cloud139::services::sync::executor::SyncExecuteOptions;
-use cloud139::services::sync::{SyncRequest, SyncScanOptions};
+use cloud139::services::sync::plan::SyncRequest;
+use cloud139::services::sync::scan::SyncScanOptions;
 use std::io::IsTerminal;
 
 pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
