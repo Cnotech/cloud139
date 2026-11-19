@@ -1,5 +1,5 @@
 //! Cloud path normalization and cross-platform name validation.
-use crate::error::ClientError;
+use crate::client::ClientError;
 pub use crate::error::invalid;
 
 pub fn validate_name(name: &str) -> Result<(), ClientError> {
@@ -20,7 +20,9 @@ pub fn validate_name(name: &str) -> Result<(), ClientError> {
             && (stem.starts_with("COM") || stem.starts_with("LPT"))
             && matches!(stem.as_bytes()[3], b'1'..=b'9'))
     {
-        return Err(invalid(format!("非法或不安全的名称: {name:?}")));
+        return Err(crate::error::invalid(format!(
+            "非法或不安全的名称: {name:?}"
+        )));
     }
     Ok(())
 }

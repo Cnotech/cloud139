@@ -1,8 +1,7 @@
-use super::sync_service::{
-    CloudSyncScan, SyncScanOptions, compile_exclude_patterns, is_excluded, path_and_ancestors,
-};
+use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
 use crate::domain::{FileEntry, SyncEntryKind};
 use crate::utils::path::{check_destination_collisions, safe_local};
+use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::{
@@ -12,16 +11,21 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry>> {
-    Ok(scan_local_snapshot(root, &options)?.items)
+pub(super) fn scan_items(
+    root: &Path,
+    recursive: bool,
+    exclude: &[String],
+) -> Result<Vec<FileEntry>> {
+    Ok(scan_local_snapshot(root, recursive, exclude)?.items)
 }
 
 pub(super) fn scan_upload_source(
     path: PathBuf,
-    options: &SyncScanOptions,
+    recursive: bool,
+    exclude: &[String],
     delete: bool,
 ) -> Result<(PathBuf, Vec<FileEntry>)> {
-    let scan = scan_local_snapshot(&path, options)?;
+    let scan = scan_local_snapshot(&path, recursive, exclude)?;
     anyhow::ensure!(!scan.single_file || !delete, "单文件同步不支持 --delete");
     let root = if scan.single_file {
         path.parent()
@@ -33,7 +37,7 @@ pub(super) fn scan_upload_source(
     };
     for entry in &scan.items {
         for name in entry.rel_path.split('/') {
-            super::directory_service::validate_name(name)?;
+            remote_path::validate_name(name)?;
         }
     }
     Ok((root, scan.items))
@@ -67,8 +71,8 @@ impl LocalSyncScan {
         Ok(current)
     }
 
-    pub(super) fn validate_destinations(&self, source: &CloudSyncScan, root: &Path) -> Result<()> {
-        if source.items.is_empty() {
+    pub(super) fn validate_destinations(&self, source: &[FileEntry], root: &Path) -> Result<()> {
+        if source.is_empty() {
             return Ok(());
         }
         let mut paths: BTreeMap<&str, bool> = self
@@ -76,7 +80,7 @@ impl LocalSyncScan {
             .iter()
             .map(|(path, metadata)| (path.as_str(), metadata.is_dir()))
             .collect();
-        for entry in &source.items {
+        for entry in source {
             let folder = entry.kind == SyncEntryKind::Directory;
             paths
                 .entry(&entry.rel_path)
@@ -111,19 +115,23 @@ fn same_local_object(original: &fs::Metadata, current: &fs::Metadata) -> bool {
             && original.modified().ok() == current.modified().ok()
 }
 
-pub(super) fn scan_local_target(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
+pub(super) fn scan_local_target(
+    root: &Path,
+    recursive: bool,
+    exclude: &[String],
+) -> Result<LocalSyncScan> {
     safe_local(root)?;
     match fs::symlink_metadata(root) {
-        Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, options),
+        Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, recursive, exclude),
         Ok(_) => Err(anyhow!("本地同步目标必须是目录: {}", root.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LocalSyncScan::default()),
         Err(error) => Err(error.into()),
     }
 }
 
-fn scan_local_snapshot(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
+fn scan_local_snapshot(root: &Path, recursive: bool, exclude: &[String]) -> Result<LocalSyncScan> {
     safe_local(root)?;
-    let patterns = compile_exclude_patterns(&options.exclude)?;
+    let patterns = compile_exclude_patterns(exclude)?;
     let mut scan = LocalSyncScan::default();
     let metadata = fs::symlink_metadata(root)?;
     if metadata.is_file() {
@@ -138,7 +146,7 @@ fn scan_local_snapshot(root: &Path, options: &SyncScanOptions) -> Result<LocalSy
         return Ok(scan);
     }
 
-    scan_local_dir(root, root, options.recursive, &patterns, &mut scan)?;
+    scan_local_dir(root, root, recursive, &patterns, &mut scan)?;
     scan.items
         .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
     Ok(scan)

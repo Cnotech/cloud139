@@ -1,3 +1,4 @@
+use super::RefreshOptions;
 use crate::client::{ClientError, http::insert_static_headers};
 use crate::protocol;
 use crate::utils::xml::escape_text;
@@ -7,25 +8,9 @@ use std::time::Duration;
 
 const DEFAULT_TOKEN_LIFETIME_SECS: i64 = 30 * 24 * 60 * 60;
 
-/// 续期端点及整个 HTTP 请求的超时。
-#[derive(Debug, Clone, Copy)]
-pub struct RefreshOptions<'a> {
-    pub endpoint: Option<&'a str>,
-    pub timeout: Duration,
-}
-
-impl Default for RefreshOptions<'_> {
-    fn default() -> Self {
-        Self {
-            endpoint: None,
-            timeout: Duration::from_secs(10),
-        }
-    }
-}
-
-pub(in crate::client) struct RefreshedToken {
-    pub(in crate::client) token: String,
-    pub(in crate::client) expire_seconds: i64,
+pub(super) struct RefreshedToken {
+    pub(super) token: String,
+    pub(super) expire_seconds: i64,
 }
 
 fn build_refresh_headers() -> HeaderMap {
@@ -52,7 +37,7 @@ fn build_refresh_body(account: &str, token: &str) -> String {
     )
 }
 
-pub(in crate::client) async fn request(
+pub(super) async fn request(
     account: &str,
     token: &str,
     options: RefreshOptions<'_>,

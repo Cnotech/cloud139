@@ -3,18 +3,20 @@ pub mod delete_service;
 pub mod directory_service;
 pub mod download_service;
 pub mod list_service;
+mod local_scan;
 pub mod login_service;
 pub mod mkdir_service;
 pub mod move_service;
 pub mod progress;
 pub mod rename_service;
 pub mod sync_executor;
-mod sync_local;
+mod sync_paths;
 mod sync_remote;
 pub mod sync_report;
 pub mod sync_service;
 mod sync_verify;
-pub mod upload;
+/// 兼容旧版的上传模块路径。上传操作见 [upload_service]。
+pub mod upload {}
 pub mod upload_service;
 
 pub use copy_service::cp;

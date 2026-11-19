@@ -4,9 +4,9 @@ use super::{
 };
 use crate::config::Config;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary};
+use crate::services::local_scan::{LocalSyncScan, scan_local_target, scan_upload_source};
 use crate::services::progress::ProgressFactory;
 use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
-use crate::services::sync_local::{LocalSyncScan, scan_local_target, scan_upload_source};
 use crate::services::sync_report::SyncReport;
 use crate::services::sync_verify::execute_verified_sync;
 use anyhow::{Result, ensure};
@@ -64,7 +64,12 @@ impl SyncRequest {
             (track_paths && !self.verify).then(|| SyncReport::new(self.execution.dry_run, true));
         let (actions, cloud, local, mode) = match (self.source, self.destination) {
             (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
-                let (local_root, source) = scan_upload_source(local_root, &self.scan, self.delete)?;
+                let (local_root, source) = scan_upload_source(
+                    local_root,
+                    self.scan.recursive,
+                    &self.scan.exclude,
+                    self.delete,
+                )?;
                 let objects = source
                     .iter()
                     .filter(|entry| entry.kind == SyncEntryKind::File)
@@ -95,8 +100,9 @@ impl SyncRequest {
             }
             (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
                 let cloud = scan_cloud(&config, &cloud_root, &self.scan, self.direction).await?;
-                let local = scan_local_target(&local_root, &self.scan)?;
-                local.validate_destinations(&cloud, &local_root)?;
+                let local =
+                    scan_local_target(&local_root, self.scan.recursive, &self.scan.exclude)?;
+                local.validate_destinations(&cloud.items, &local_root)?;
                 crate::step!("正在计算同步差异...");
                 let actions =
                     cloud.compute_download_diff(&local, diff_options(local_root, cloud_root));

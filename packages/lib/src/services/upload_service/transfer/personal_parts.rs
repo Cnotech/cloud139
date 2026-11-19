@@ -1,6 +1,6 @@
 use crate::client::{
     ClientError,
-    api::{HttpClientWrapper, put_upload_part},
+    api::{HttpClientWrapper, personal::transfer::put_upload_part},
 };
 
 pub(super) async fn upload_part(

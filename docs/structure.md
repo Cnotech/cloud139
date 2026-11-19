@@ -23,7 +23,7 @@ cloud139/
         │   ├── client/            # API 请求与认证
         │   ├── services/          # 文件操作及同步
         │   ├── domain/            # 业务数据
-        │   ├── error.rs           # 库错误类型和共用错误构造
+        │   ├── error.rs           # 共用错误构造
         │   ├── models/            # API 数据模型
         │   ├── protocol.rs        # 云盘端点、远程返回码和其他协议固定值
         │   └── utils/             # 日志、重试及通用函数
@@ -32,8 +32,8 @@ cloud139/
 
 CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。
 
-`main.rs` 使用 `cli` 解析参数，再调用 `commands::execute` 分发命令。各命令的参数类型定义在 `cli/args.rs`，命令适配器通过 `cli` 导入参数，通过 `config` 和 `presentation` 调用配置与输出功能。命令实现、配置锁和渲染模块各自在所属模块内维护，调用方只使用父模块提供的入口。
+`main.rs` 使用 `cli` 解析参数，再调用 `commands::execute` 分发命令。各命令的参数类型定义在 `cli/args.rs`。命令适配器直接导入参数类型和需要的渲染模块，配置锁通过 `config` 的配置读写流程使用。
 
-`client/api/common/` 实现路由查询、Token 续期等共用接口，与 `client/api/storage/` 中按云盘类型划分的接口并列。两者共用 `client/http/` 提供的 HTTP 客户端、签名请求和请求头拼装。`client/api/mod.rs` 统一重导出调用入口。
+`client/api/headers.rs` 定义路由和个人云请求头及客户端标识。`client/api/route.rs` 负责路由查询，`client/api/personal/` 负责个人云目录和文件请求，`client/api/upload.rs` 负责个人云上传请求。Token 续期位于 `client/auth/`，HTTP 客户端和签名请求发送位于 `client/http.rs`。共用的 API 响应判断位于 `client/api/response.rs`。
 
-同步和上传共用的远端 SHA-256 读取由 `services::sync_remote` 提供。扫描快照、校验执行和上传暂存等内部接口限定在 `services` 内。库在 `models/mod.rs` 和 `utils/mod.rs` 显式列出重导出项，新增子模块成员时可单独决定是否也从父模块公开。
+同步和目录上传共用 `services::local_scan` 的本地扫描。同步扫描使用 `services::sync_paths` 的路径过滤规则，同步和上传共用 `services::sync_remote` 的远端 SHA-256 读取。库的公开入口可显式重导出实现模块的成员，已有路径工具别名保留供外部调用。库内的路径校验直接调用 `utils::remote_path`。

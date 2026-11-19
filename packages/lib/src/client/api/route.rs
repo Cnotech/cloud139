@@ -1,13 +1,9 @@
-use crate::client::{
-    ClientError,
-    http::{HttpClientWrapper, build_signed_headers},
-};
+use crate::client::{ClientError, api::headers::build_route_headers, http::HttpClientWrapper};
 use crate::debug;
 use crate::models::{QueryRoutePolicyResp, RoutePolicy};
 use crate::protocol;
-use reqwest::header::HeaderMap;
 
-pub(in crate::client::api) async fn query_route_policy(
+pub(super) async fn query_route_policy(
     client: &HttpClientWrapper,
     account: &str,
     account_type: i32,
@@ -27,13 +23,4 @@ pub(in crate::client::api) async fn query_route_policy(
         .signed_post(authorization, url, &body, build_route_headers)
         .await?;
     Ok(response.data.route_policy_list)
-}
-
-pub fn build_route_headers(
-    authorization: &str,
-    ts: &str,
-    rand_str: &str,
-    sign: &str,
-) -> Result<HeaderMap, ClientError> {
-    build_signed_headers(protocol::ROUTE_HEADERS, authorization, ts, rand_str, sign)
 }

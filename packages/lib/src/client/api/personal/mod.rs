@@ -1,12 +1,15 @@
+pub(super) mod files;
+pub(crate) mod listing;
+pub(crate) mod transfer;
+
 use crate::client::{
     ClientError,
-    api::common::query_route_policy,
-    http::{HttpClientWrapper, build_signed_headers},
+    api::{headers::build_personal_headers, route::query_route_policy},
+    http::HttpClientWrapper,
 };
 use crate::config::Config;
 use crate::debug;
 use crate::protocol;
-use reqwest::header::HeaderMap;
 use std::{borrow::Cow, time::Duration};
 
 #[derive(Clone, Copy)]
@@ -30,8 +33,8 @@ impl ListingRetry {
 pub(crate) struct PersonalClient<'a> {
     pub(super) config: &'a Config,
     host: Cow<'a, str>,
-    pub(super) http_client: &'a HttpClientWrapper,
-    pub(super) retry: ListingRetry,
+    http_client: &'a HttpClientWrapper,
+    retry: ListingRetry,
 }
 
 impl<'a> PersonalClient<'a> {
@@ -124,19 +127,4 @@ impl HttpClientWrapper {
         self.signed_post(&config.authorization, url, body, build_personal_headers)
             .await
     }
-}
-
-pub fn build_personal_headers(
-    authorization: &str,
-    ts: &str,
-    rand_str: &str,
-    sign: &str,
-) -> Result<HeaderMap, ClientError> {
-    build_signed_headers(
-        protocol::PERSONAL_HEADERS,
-        authorization,
-        ts,
-        rand_str,
-        sign,
-    )
 }

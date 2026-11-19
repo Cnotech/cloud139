@@ -1,12 +1,16 @@
+use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::{ClientError, api};
 use crate::domain::{FileEntry, SyncEntryKind};
 use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::safe_local;
+use crate::utils::remote_path;
 use std::collections::HashMap;
 use std::path::Path;
 
 use super::directory_service as dirs;
+
+pub(super) mod transfer;
 
 pub async fn upload_path(
     config: &crate::config::Config,
@@ -93,15 +97,14 @@ pub async fn upload(
     pb: Option<Progress>,
 ) -> Result<(), ClientError> {
     config.require_personal()?;
-    dirs::validate_name(file_name)?;
+    remote_path::validate_name(file_name)?;
     if file_size < 0 {
         return Err(invalid("无效文件大小"));
     }
     checked_upload_size(local_path)?;
-    let remote_path = dirs::normalize(remote_path)?;
+    let remote_path = remote_path::normalize(remote_path)?;
     let http_client = api::HttpClientWrapper::new();
-    let listing =
-        api::PersonalClient::connect(config, &http_client, api::ListingRetry::DIRECTORY).await?;
+    let listing = PersonalClient::connect(config, &http_client, ListingRetry::DIRECTORY).await?;
     let parent = dirs::directory_with_listing(&listing, &remote_path).await?;
     upload_file(&listing, local_path, &parent, file_name, force, pb).await
 }
@@ -114,20 +117,13 @@ pub async fn upload_directory(
     contents: bool,
     force: bool,
 ) -> anyhow::Result<()> {
-    use super::sync_service::{SyncScanOptions, scan_local};
     config.require_personal()?;
     safe_local(local)?;
     if !local.is_dir() {
         return Err(invalid("递归上传源必须是目录").into());
     }
-    let entries = scan_local(
-        local,
-        SyncScanOptions {
-            recursive: true,
-            exclude: vec![],
-        },
-    )?;
-    let remote = dirs::normalize(remote)?;
+    let entries = super::local_scan::scan_items(local, true, &[])?;
+    let remote = remote_path::normalize(remote)?;
     let root = if contents {
         remote
     } else {
@@ -135,13 +131,13 @@ pub async fn upload_directory(
             .file_name()
             .and_then(|s| s.to_str())
             .ok_or(ClientError::InvalidFilePath)?;
-        dirs::validate_name(name)?;
+        remote_path::validate_name(name)?;
         format!("{}/{}", remote.trim_end_matches('/'), name)
     };
     // Validate the complete local plan before any cloud mutation.
     for entry in &entries {
         for name in entry.rel_path.split('/') {
-            dirs::validate_name(name)?;
+            remote_path::validate_name(name)?;
         }
         safe_local(&local.join(&entry.rel_path))?;
     }
@@ -159,8 +155,7 @@ async fn upload_personal_directory(
         return Ok(());
     }
     let http_client = api::HttpClientWrapper::new();
-    let listing =
-        api::PersonalClient::connect(config, &http_client, api::ListingRetry::DIRECTORY).await?;
+    let listing = PersonalClient::connect(config, &http_client, ListingRetry::DIRECTORY).await?;
     let root_id = dirs::ensure_personal_dir(&listing, root, true).await?;
     let mut directories = HashMap::from([(root.to_owned(), root_id)]);
     let mut uploaded = 0;
@@ -212,7 +207,7 @@ async fn upload_personal_directory(
 }
 
 async fn upload_file(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     path: &Path,
     parent_id: &str,
     name: &str,
@@ -233,7 +228,7 @@ async fn upload_file(
         }
     }
     let saved_name =
-        super::upload::upload_to_parent(listing, path, parent_id, name, size, pb.clone()).await?;
+        transfer::upload_to_parent(listing, path, parent_id, name, size, pb.clone()).await?;
     crate::success!("上传完成: {saved_name}");
     if let Some(pb) = pb {
         pb.finish();

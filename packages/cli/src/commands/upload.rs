@@ -1,4 +1,4 @@
-use crate::cli::UploadArgs;
+use crate::cli::args::UploadArgs;
 use cloud139::config::Config;
 use std::io::IsTerminal;
 
@@ -11,7 +11,7 @@ pub(super) async fn execute(args: UploadArgs, config: &Config) -> anyhow::Result
         args.force,
         |name, size| {
             if progress {
-                crate::presentation::make_progress(name, size)
+                crate::presentation::progress::make_progress(name, size)
             } else {
                 None
             }

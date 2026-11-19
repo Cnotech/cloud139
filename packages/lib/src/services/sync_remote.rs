@@ -2,7 +2,11 @@ use super::{
     directory_service as dirs,
     sync_service::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
 };
-use crate::utils::{remote_path::cloud_child_path, retry::with_retries};
+use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::utils::{
+    remote_path::{self, cloud_child_path},
+    retry::with_retries,
+};
 use crate::{client::api, config::Config};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};
@@ -51,7 +55,7 @@ impl<'a> SyncCloud<'a> {
         }
     }
 
-    pub(super) async fn listing(&self) -> Result<api::PersonalClient<'_>> {
+    pub(super) async fn listing(&self) -> Result<PersonalClient<'_>> {
         let host = self
             .host
             .get_or_try_init(|| async {
@@ -63,16 +67,16 @@ impl<'a> SyncCloud<'a> {
                     .await
             })
             .await?;
-        Ok(api::PersonalClient::with_host(
+        Ok(PersonalClient::with_host(
             self.config,
             host.as_str(),
             &self.client,
-            api::ListingRetry::DIRECTORY,
+            ListingRetry::DIRECTORY,
         ))
     }
 
     pub(super) async fn ensure_directory(&self, absolute: &str) -> Result<String> {
-        let normalized = dirs::normalize(absolute)?;
+        let normalized = remote_path::normalize(absolute)?;
         let root = self.scan.map_or("/", |scan| scan.root.as_str());
         let relative = if normalized == root {
             ""

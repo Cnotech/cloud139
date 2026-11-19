@@ -1,15 +1,5 @@
 use crate::client::ClientError;
 
-pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
-    if custom_size != 0 {
-        return custom_size;
-    }
-    if size / (1024 * 1024 * 1024) > 30 {
-        return 512 * 1024 * 1024;
-    }
-    100 * 1024 * 1024
-}
-
 pub(crate) fn part_offset_and_size(index: i64, part_size: i64, file_size: i64) -> (i64, i64) {
     let offset = index * part_size;
     (offset, part_size.min(file_size - offset))

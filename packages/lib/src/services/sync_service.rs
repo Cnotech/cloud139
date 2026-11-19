@@ -1,22 +1,27 @@
-use super::sync_local::LocalSyncScan;
-pub use super::sync_local::scan_local;
-use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
+use super::local_scan::{LocalSyncScan, scan_items};
+use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
+use crate::client::api::HttpClientWrapper;
+use crate::client::api::personal::listing::ListPageOptions;
+use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
 use crate::utils::path::rel_to_local;
 use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
-pub use crate::utils::remote_path::{cloud_child_path, normalize_cloud_path};
+use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
-pub use execution::{SyncOutcome, SyncPlan, SyncRequest};
 use futures_util::TryStreamExt;
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::pin;
 
 mod execution;
+
+// 兼容现有的 sync_service 导入路径。
+pub use crate::utils::remote_path::{cloud_child_path, normalize_cloud_path};
+pub use execution::{SyncOutcome, SyncPlan, SyncRequest};
 
 #[derive(Debug, Clone)]
 pub struct SyncDiffOptions {
@@ -28,7 +33,7 @@ pub struct SyncDiffOptions {
 
 pub fn parse_sync_endpoint(value: &str) -> SyncEndpoint {
     if let Some(rest) = value.strip_prefix("cloud:") {
-        return SyncEndpoint::Cloud(normalize_cloud_path(rest));
+        return SyncEndpoint::Cloud(remote_path::normalize_cloud_path(rest));
     }
     SyncEndpoint::Local(PathBuf::from(value))
 }
@@ -256,14 +261,14 @@ fn transfer_action(
         SyncDirection::LocalToCloud => SyncAction::Upload {
             rel_path: entry.rel_path.clone(),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
-            remote_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
+            remote_abs: remote_path::cloud_child_path(&options.cloud_root, &entry.rel_path),
             size: entry.size,
             change,
             replace_directory_id,
         },
         SyncDirection::CloudToLocal => SyncAction::Download {
             rel_path: entry.rel_path.clone(),
-            remote_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
+            remote_abs: remote_path::cloud_child_path(&options.cloud_root, &entry.rel_path),
             local_abs: rel_to_local(&options.local_root, &entry.rel_path),
             size: entry.size,
             change,
@@ -277,7 +282,7 @@ fn delete_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction {
         SyncDirection::LocalToCloud => SyncAction::Delete {
             rel_path: entry.rel_path.clone(),
             target: SyncTarget::Cloud,
-            target_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
+            target_abs: remote_path::cloud_child_path(&options.cloud_root, &entry.rel_path),
         },
         SyncDirection::CloudToLocal => SyncAction::Delete {
             rel_path: entry.rel_path.clone(),
@@ -294,7 +299,7 @@ fn create_dir_action(entry: &FileEntry, options: &SyncDiffOptions) -> SyncAction
         SyncDirection::LocalToCloud => SyncAction::CreateDir {
             rel_path: entry.rel_path.clone(),
             target: SyncTarget::Cloud,
-            target_abs: cloud_child_path(&options.cloud_root, &entry.rel_path),
+            target_abs: remote_path::cloud_child_path(&options.cloud_root, &entry.rel_path),
         },
         SyncDirection::CloudToLocal => SyncAction::CreateDir {
             rel_path: entry.rel_path.clone(),
@@ -340,36 +345,8 @@ pub struct SyncScanOptions {
     pub exclude: Vec<String>,
 }
 
-pub(super) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
-    exclude
-        .iter()
-        .map(|pattern| {
-            Pattern::new(pattern).map_err(|err| anyhow!("无效 exclude glob `{}`: {}", pattern, err))
-        })
-        .collect()
-}
-
-pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
-    let options = glob::MatchOptions {
-        case_sensitive: true,
-        require_literal_separator: true,
-        require_literal_leading_dot: false,
-    };
-    patterns.iter().any(|pattern| {
-        // Direct match
-        if pattern.matches_with(rel_path, options) {
-            return true;
-        }
-        // Also check if pattern like "dir/**" matches "dir" (the directory itself)
-        // This ensures --exclude target/** also excludes the target directory
-        let pattern_str = pattern.as_str();
-        if let Some(prefix) = pattern_str.strip_suffix("/**")
-            && rel_path == prefix
-        {
-            return true;
-        }
-        false
-    })
+pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry>> {
+    scan_items(root, options.recursive, &options.exclude)
 }
 
 pub fn personal_item_to_file_entry(
@@ -423,12 +400,6 @@ fn is_recovery_name(name: &str) -> bool {
 
 fn is_recovery_path(path: &str) -> bool {
     path.split('/').any(is_recovery_name)
-}
-
-pub(super) fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
-    std::iter::successors(Some(path), |path| {
-        path.rsplit_once('/').map(|(parent, _)| parent)
-    })
 }
 
 #[derive(Default)]
@@ -517,7 +488,7 @@ impl CloudSyncScan {
 
     pub(super) async fn confirm_subtree(
         &self,
-        listing: &crate::client::api::PersonalClient<'_>,
+        listing: &crate::client::api::personal::PersonalClient<'_>,
         root_path: &str,
         root_id: &str,
     ) -> Result<()> {
@@ -587,7 +558,7 @@ pub async fn scan_cloud(
     direction: SyncDirection,
 ) -> Result<CloudSyncScan> {
     config.require_personal()?;
-    let cloud_root = super::directory_service::normalize(cloud_root)?;
+    let cloud_root = remote_path::normalize(cloud_root)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, SYNC_LIST_RETRY).await?;
     let root_id = super::directory_service::directory_with_listing(&listing, &cloud_root).await?;
@@ -639,7 +610,7 @@ impl CloudScanner {
                     .name
                     .as_deref()
                     .ok_or_else(|| anyhow!("云端条目缺少名称"))?;
-                super::directory_service::validate_name(name)?;
+                remote_path::validate_name(name)?;
                 let rel_path = if rel_parent.is_empty() {
                     name.to_owned()
                 } else {
@@ -712,26 +683,5 @@ impl CloudScanner {
             }
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_excluded_double_star_matches_nested_path() {
-        let patterns = compile_exclude_patterns(&["target/**".to_string()]).unwrap();
-        assert!(is_excluded("target/debug/app", &patterns));
-        assert!(is_excluded("target/build", &patterns));
-        assert!(!is_excluded("src/main.rs", &patterns));
-    }
-
-    #[test]
-    fn test_is_excluded_single_star_does_not_cross_dirs() {
-        let patterns = compile_exclude_patterns(&["*.log".to_string()]).unwrap();
-        assert!(is_excluded("app.log", &patterns));
-        assert!(is_excluded("debug.log", &patterns));
-        assert!(!is_excluded("dir/app.log", &patterns));
     }
 }

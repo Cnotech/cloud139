@@ -1,4 +1,4 @@
-use crate::cli::RenameArgs;
+use crate::cli::args::RenameArgs;
 use cloud139::config::Config;
 
 pub(super) async fn execute(args: RenameArgs, config: &Config) -> anyhow::Result<()> {

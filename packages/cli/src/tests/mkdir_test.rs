@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::MkdirArgs;
+use crate::cli::args::MkdirArgs;
 use cloud139::services::mkdir_service;
 
 #[test]

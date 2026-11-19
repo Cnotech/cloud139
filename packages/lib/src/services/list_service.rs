@@ -1,8 +1,11 @@
-use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
+use crate::client::api::HttpClientWrapper;
+use crate::client::api::personal::listing::ListPageOptions;
+use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::debug;
 use crate::domain::file_item::{EntryKind, FileItem};
 use crate::protocol;
-use crate::utils::parse_personal_time;
+use crate::utils::remote_path;
+use crate::utils::time::parse_personal_time;
 use futures_util::TryStreamExt;
 use std::pin::pin;
 
@@ -28,7 +31,7 @@ pub async fn list<'a>(
     if args.page < 1 || args.page_size < 1 {
         anyhow::bail!("页码和每页数量必须大于 0");
     }
-    let path = super::directory_service::normalize(args.path)?;
+    let path = remote_path::normalize(args.path)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let parent = super::directory_service::directory_with_listing(&listing, &path).await?;
@@ -87,7 +90,7 @@ pub async fn list_recursive(
     root: &str,
 ) -> anyhow::Result<Vec<ListResult>> {
     use super::directory_service as dirs;
-    let root = dirs::normalize(root)?;
+    let root = remote_path::normalize(root)?;
     let entries = dirs::tree(config, &root).await?;
     let mut grouped = std::collections::BTreeMap::<String, Vec<FileItem>>::new();
     grouped.insert(root, vec![]);

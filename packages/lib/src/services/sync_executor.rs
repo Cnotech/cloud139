@@ -2,7 +2,7 @@ use super::progress::{Progress, ProgressFactory};
 use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
-use crate::services::sync_local::LocalSyncScan;
+use crate::services::local_scan::LocalSyncScan;
 use crate::services::sync_service::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;
 use anyhow::{Context, Result, ensure};
@@ -279,7 +279,9 @@ async fn execute_one_action(
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             let parent_id = remote.ensure_directory(&remote_dir).await?;
             let listing = remote.listing().await?;
-            use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
+            use crate::services::upload_service::transfer::{
+                SyncUploadPlan, upload_sync_to_parent,
+            };
             upload_sync_to_parent(
                 config,
                 local_abs,

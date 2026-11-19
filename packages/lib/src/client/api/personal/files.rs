@@ -1,10 +1,9 @@
-use super::client::{ListingRetry, PersonalClient};
+use super::{ListingRetry, PersonalClient};
+use crate::client::api::response::{is_mutation_successful, require_success};
 use crate::client::{ClientError, http::HttpClientWrapper};
 use crate::config::Config;
 use crate::debug;
-use crate::error::require_success;
 use crate::protocol;
-use crate::utils::api_response::is_mutation_successful;
 
 impl PersonalClient<'_> {
     pub(crate) async fn file_detail(

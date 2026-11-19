@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::domain::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
 use crate::services::sync_service::CloudSyncScan;
-use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
+use crate::services::upload_service::transfer::{SyncUploadPlan, upload_sync_to_parent};
 use crate::utils::remote_path::cloud_child_path;
 use anyhow::{Context, Result, anyhow, ensure};
 use std::collections::{BTreeMap, HashSet};

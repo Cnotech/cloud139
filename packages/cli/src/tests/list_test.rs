@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use crate::cli::ListArgs;
-use crate::presentation::format_size;
+use crate::cli::args::ListArgs;
+use crate::presentation::list_renderer::format_size;
 use cloud139::utils::parse_personal_time;
 
 #[test]

@@ -15,7 +15,7 @@ pub(crate) fn format_size(size: i64) -> String {
     }
 }
 
-pub(crate) fn render_terminal(result: &ListResult) {
+pub(crate) fn render_list(result: &ListResult) {
     print!("\n文件列表 ({}):", result.path);
     print!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
     print!("{}", "-".repeat(80));
@@ -60,7 +60,7 @@ struct JsonFileItem {
     content_hash_algorithm: Option<String>,
 }
 
-pub(crate) fn json_output(result: &ListResult, pagination: Option<(i32, i32)>) -> impl Serialize {
+pub(crate) fn list_json(result: &ListResult, pagination: Option<(i32, i32)>) -> impl Serialize {
     let (page, page_size) = match pagination {
         Some((page, page_size)) => (Some(page), Some(page_size)),
         None => (None, None),

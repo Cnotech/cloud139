@@ -1,9 +1,26 @@
 use crate::client::ClientError;
-use crate::client::api::refresh;
-pub use crate::client::api::refresh::RefreshOptions;
 use crate::config::Config;
 use crate::debug;
 use crate::protocol;
+use std::time::Duration;
+
+mod refresh;
+
+/// 续期端点及整个 HTTP 请求的超时。
+#[derive(Debug, Clone, Copy)]
+pub struct RefreshOptions<'a> {
+    pub endpoint: Option<&'a str>,
+    pub timeout: Duration,
+}
+
+impl Default for RefreshOptions<'_> {
+    fn default() -> Self {
+        Self {
+            endpoint: None,
+            timeout: Duration::from_secs(10),
+        }
+    }
+}
 
 pub fn parse_login_token(token: &str) -> Result<Config, ClientError> {
     let token = token

@@ -1,8 +1,11 @@
 use crate::client::ClientError;
 use crate::debug;
 use crate::protocol;
-use crate::utils::generate_rand_str;
-use reqwest::{Client, ClientBuilder, RequestBuilder, header::HeaderMap};
+use crate::utils::rand::generate_rand_str;
+use reqwest::{
+    Client, ClientBuilder, RequestBuilder,
+    header::{HeaderMap, HeaderValue},
+};
 use std::time::Duration;
 
 type SignedHeaderBuilder = fn(&str, &str, &str, &str) -> Result<HeaderMap, ClientError>;
@@ -63,41 +66,34 @@ fn build_signed_post(
     let payload = body.to_string();
     let sign = crate::utils::crypto::calc_sign(&payload, &ts, &nonce);
     let mut headers = build_headers(authorization, &ts, &nonce, &sign)?;
-    headers.entry(reqwest::header::CONTENT_TYPE).or_insert(
-        reqwest::header::HeaderValue::from_static(protocol::JSON_CONTENT_TYPE),
-    );
+    headers
+        .entry(reqwest::header::CONTENT_TYPE)
+        .or_insert(HeaderValue::from_static(protocol::JSON_CONTENT_TYPE));
 
     Ok(client.post(url).headers(headers).body(payload))
 }
 
+pub(super) fn insert_static_headers(
+    headers: &mut HeaderMap,
+    values: &[(&'static str, &'static str)],
+) {
+    for &(name, value) in values {
+        headers.insert(name, HeaderValue::from_static(value));
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::headers::build_signed_headers;
     use super::*;
+    use crate::client::api::headers::{build_personal_headers, build_route_headers};
 
     #[test]
     fn signature_matches_the_serialized_request_body() {
         let body = serde_json::json!({ "name": "带引号的\"文件\"", "size": 42 });
         let client = HttpClientWrapper::new();
         let builders: [(SignedHeaderBuilder, &str); 2] = [
-            (
-                |authorization, ts, nonce, sign| {
-                    build_signed_headers(
-                        &[("content-type", "application/json;charset=UTF-8")],
-                        authorization,
-                        ts,
-                        nonce,
-                        sign,
-                    )
-                },
-                "application/json;charset=UTF-8",
-            ),
-            (
-                |authorization, ts, nonce, sign| {
-                    build_signed_headers(&[], authorization, ts, nonce, sign)
-                },
-                "application/json",
-            ),
+            (build_route_headers, "application/json;charset=UTF-8"),
+            (build_personal_headers, "application/json"),
         ];
         for (build_headers, content_type) in builders {
             let request = build_signed_post(

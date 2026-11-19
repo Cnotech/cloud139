@@ -1,18 +1,43 @@
-use super::client::{ListingRetry, PersonalClient};
+use super::personal::{ListingRetry, PersonalClient};
+use crate::client::api::response::{
+    format_api_error, is_mutation_successful, is_response_successful, json_api_error,
+};
 use crate::client::http::HttpClientWrapper;
-use crate::error::{json_api_error, upload_creation_error};
-use crate::utils::api_response::{is_mutation_successful, is_response_successful};
 use crate::utils::remote_file::is_non_root_file_id;
-pub use crate::utils::upload_parts::get_part_size;
 use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};
 use crate::{
     client::ClientError,
     config::Config,
     debug,
-    models::{PersonalPartInfo, PersonalUploadResp},
+    models::{BaseResp, PersonalPartInfo, PersonalUploadResp},
     protocol,
 };
 use std::{collections::HashMap, ops::Range, path::Path};
+
+fn upload_creation_error(response: &BaseResp, file_size: i64) -> ClientError {
+    let code = response.code.as_deref();
+    let message = format_api_error(
+        "创建上传任务失败",
+        response.message.as_deref().unwrap_or("未知错误"),
+        code,
+    );
+    let message = if code == Some(protocol::UPLOAD_ENTITLEMENT_ERROR_CODE) {
+        format!("{message}；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
+    } else {
+        message
+    };
+    ClientError::Api(message)
+}
+
+pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
+    if custom_size != 0 {
+        return custom_size;
+    }
+    if size / (1024 * 1024 * 1024) > 30 {
+        return 512 * 1024 * 1024;
+    }
+    100 * 1024 * 1024
+}
 
 pub(crate) struct UploadFile<'a> {
     pub(crate) local_path: &'a Path,

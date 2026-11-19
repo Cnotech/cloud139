@@ -1,4 +1,6 @@
 use super::directory_service as dirs;
+use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::utils::remote_path;
 use crate::{
     client::{ClientError, api},
     config::Config,
@@ -10,10 +12,10 @@ pub async fn rename(
     force: bool,
 ) -> Result<(), ClientError> {
     config.require_personal()?;
-    let source = dirs::non_root(source)?;
-    dirs::validate_name(target)?;
+    let source = remote_path::non_root(source)?;
+    remote_path::validate_name(target)?;
     let client = api::HttpClientWrapper::new();
-    let personal = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let (entry, _) = dirs::resolve_entry(&personal, &source).await?;
     let (parent, name) = source.rsplit_once('/').unwrap();
     if name == target {

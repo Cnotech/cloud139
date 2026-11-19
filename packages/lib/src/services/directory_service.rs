@@ -1,10 +1,13 @@
-//! Shared path validation, directory traversal, and mutation preflight.
+//! Remote directory resolution, traversal, and mutation preflight.
+use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::{ClientError, api};
 use crate::config::Config;
 use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
+use crate::utils::remote_path;
 use std::collections::HashSet;
 
+// 兼容现有的 directory_service 导入路径。
 pub use crate::error::invalid;
 pub use crate::utils::path::safe_local;
 pub use crate::utils::remote_path::{non_root, normalize, validate_name};
@@ -17,12 +20,12 @@ pub struct RemoteEntry {
 
 pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientError> {
     config.require_personal()?;
-    let path = normalize(path)?;
+    let path = remote_path::normalize(path)?;
     if path == "/" {
         return Ok(remote_root().0);
     }
     let client = api::HttpClientWrapper::new();
-    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     resolve_entry(&listing, &path).await.map(|(entry, _)| entry)
 }
 
@@ -37,7 +40,7 @@ fn remote_root() -> (RemoteEntry, Option<i64>) {
 }
 
 pub(super) async fn resolve_entry(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     path: &str,
 ) -> Result<(RemoteEntry, Option<i64>), ClientError> {
     match listing.resolve_path(path).await? {
@@ -52,7 +55,7 @@ pub(super) async fn resolve_entry(
 
 fn require_directory(entry: RemoteEntry) -> Result<String, ClientError> {
     if !entry.folder {
-        return Err(invalid("目标路径不是目录"));
+        return Err(crate::error::invalid("目标路径不是目录"));
     }
     Ok(entry.id)
 }
@@ -62,7 +65,7 @@ pub async fn directory(config: &Config, path: &str) -> Result<String, ClientErro
 }
 
 pub(super) async fn directory_with_listing(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     path: &str,
 ) -> Result<String, ClientError> {
     let (entry, _) = resolve_entry(listing, path).await?;
@@ -70,7 +73,7 @@ pub(super) async fn directory_with_listing(
 }
 
 pub(super) async fn confirm_directory(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     path: &str,
     expected_id: &str,
 ) -> anyhow::Result<()> {
@@ -83,7 +86,7 @@ pub(super) async fn confirm_directory(
 }
 
 pub(super) async fn ensure_personal_dir(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     path: &str,
     parents: bool,
 ) -> Result<String, ClientError> {
@@ -94,7 +97,7 @@ pub(super) async fn ensure_personal_dir(
         let last = parts.peek().is_none();
         let id = ensure_personal_child_dir(listing, &parent_id, name, parents, last).await?;
         if !seen_ids.insert(id.clone()) {
-            return Err(invalid("路径解析返回根目录别名或目录循环"));
+            return Err(crate::error::invalid("路径解析返回根目录别名或目录循环"));
         }
         parent_id = id;
     }
@@ -102,7 +105,7 @@ pub(super) async fn ensure_personal_dir(
 }
 
 pub(super) async fn ensure_personal_child_dir(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     parent_id: &str,
     name: &str,
     parents: bool,
@@ -110,10 +113,12 @@ pub(super) async fn ensure_personal_child_dir(
 ) -> Result<String, ClientError> {
     let item = if let Some(item) = listing.find_child(parent_id, name).await? {
         if !item.is_folder() {
-            return Err(invalid(format!("已有同名文件: {name}")));
+            return Err(crate::error::invalid(format!("已有同名文件: {name}")));
         }
         if last && !parents {
-            return Err(invalid("目录已存在；如需已有目录成功，请使用 -p"));
+            return Err(crate::error::invalid(
+                "目录已存在；如需已有目录成功，请使用 -p",
+            ));
         }
         item
     } else {
@@ -125,9 +130,9 @@ pub(super) async fn ensure_personal_child_dir(
         let item = listing
             .find_child(parent_id, name)
             .await?
-            .ok_or_else(|| invalid("创建后无法确认目录名称"))?;
+            .ok_or_else(|| crate::error::invalid("创建后无法确认目录名称"))?;
         if !item.is_folder() {
-            return Err(invalid("创建后目录类型冲突"));
+            return Err(crate::error::invalid("创建后目录类型冲突"));
         }
         item
     };
@@ -148,15 +153,15 @@ pub async fn children(
     config: &Config,
     path: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
-    let path = normalize(path)?;
+    let path = remote_path::normalize(path)?;
     let client = api::HttpClientWrapper::new();
-    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let id = directory_with_listing(&listing, &path).await?;
     children_by_id(&listing, &id).await
 }
 
 async fn children_by_id(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     id: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
     listing
@@ -166,7 +171,7 @@ async fn children_by_id(
         .map(|item| {
             let folder = item.is_folder();
             let modified =
-                crate::utils::parse_personal_time(item.modified_time().unwrap_or_default());
+                crate::utils::time::parse_personal_time(item.modified_time().unwrap_or_default());
             Ok((
                 item.name.ok_or(ClientError::InvalidFilePath)?,
                 RemoteEntry {
@@ -184,9 +189,9 @@ async fn children_by_id(
 }
 
 pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientError> {
-    let root = normalize(root)?;
+    let root = remote_path::normalize(root)?;
     let client = api::HttpClientWrapper::new();
-    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let root_id = directory_with_listing(&listing, &root).await?;
     Ok(tree_with_listing(&listing, root, root_id)
         .await?
@@ -196,7 +201,7 @@ pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientE
 }
 
 pub(super) async fn tree_with_listing(
-    listing: &api::PersonalClient<'_>,
+    listing: &PersonalClient<'_>,
     root: String,
     root_id: String,
 ) -> Result<Vec<(TreeEntry, String)>, ClientError> {
@@ -205,13 +210,13 @@ pub(super) async fn tree_with_listing(
     let mut entries = Vec::new();
     while let Some((path, id, depth)) = pending.pop() {
         if depth > 256 || !seen.insert(id.clone()) {
-            return Err(invalid("目录循环或层级过深"));
+            return Err(crate::error::invalid("目录循环或层级过深"));
         }
         let mut names = HashSet::new();
         for (name, item, size, modified) in children_by_id(listing, &id).await? {
-            validate_name(&name)?;
+            remote_path::validate_name(&name)?;
             if !names.insert(name.clone()) {
-                return Err(invalid("服务端返回重复名称"));
+                return Err(crate::error::invalid("服务端返回重复名称"));
             }
             let child = format!("{}/{name}", path.trim_end_matches('/'));
             if item.folder {
@@ -227,7 +232,7 @@ pub(super) async fn tree_with_listing(
                 item.id,
             ));
             if entries.len() > 100_000 {
-                return Err(invalid("目录条目超过安全上限 100000"));
+                return Err(crate::error::invalid("目录条目超过安全上限 100000"));
             }
         }
     }
@@ -246,18 +251,18 @@ pub async fn transfer(
     if sources.is_empty() {
         return Err(ClientError::NoSourceFiles);
     }
-    let target = normalize(target)?;
+    let target = remote_path::normalize(target)?;
     let sources = sources
         .iter()
-        .map(|s| non_root(s))
+        .map(|s| remote_path::non_root(s))
         .collect::<Result<Vec<_>, _>>()?;
     for source in &sources {
         if target == *source || target.starts_with(&format!("{source}/")) {
-            return Err(invalid("不能复制或移动到自身或子目录"));
+            return Err(crate::error::invalid("不能复制或移动到自身或子目录"));
         }
     }
     let client = api::HttpClientWrapper::new();
-    let listing = api::PersonalClient::connect(config, &client, api::ListingRetry::None).await?;
+    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let target_id = directory_with_listing(&listing, &target).await?;
     let existing = listing.list_files(&target_id).await?;
     let mut names = HashSet::new();
@@ -266,10 +271,10 @@ pub async fn transfer(
         let (entry, _) = resolve_entry(&listing, source).await?;
         let name = source.rsplit('/').next().unwrap();
         if !names.insert(name.to_owned()) {
-            return Err(invalid("多个源条目同名"));
+            return Err(crate::error::invalid("多个源条目同名"));
         }
         if target_id == entry.id {
-            return Err(invalid("目标是源目录自身"));
+            return Err(crate::error::invalid("目标是源目录自身"));
         }
         if moving
             && source
@@ -277,7 +282,7 @@ pub async fn transfer(
                 .map(|(p, _)| if p.is_empty() { "/" } else { p })
                 == Some(target.as_str())
         {
-            return Err(invalid("源目录和目标目录相同"));
+            return Err(crate::error::invalid("源目录和目标目录相同"));
         }
         if let Some(conflict) = existing.iter().find(|i| i.name.as_deref() == Some(name))
             && (entry.folder || conflict.is_folder() || !force)

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::CpArgs;
+use crate::cli::args::CpArgs;
 use cloud139::client::ClientError;
 use cloud139::config::Config;
 use cloud139::services::copy_service;

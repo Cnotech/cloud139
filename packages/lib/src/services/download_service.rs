@@ -1,9 +1,12 @@
 use crate::client::ClientError;
-use crate::client::api::{DownloadLink, HttpClientWrapper, ListingRetry, PersonalClient};
+use crate::client::api::HttpClientWrapper;
+use crate::client::api::personal::transfer::DownloadLink;
+use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::config::Config;
 use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};
+use crate::utils::remote_path;
 use anyhow::Result;
 use sha2::{Digest, Sha256};
 use std::io::{ErrorKind, Write};
@@ -29,7 +32,7 @@ async fn download_personal(
                 .unwrap_or(remote_path)
                 .to_string()
         });
-        super::directory_service::validate_name(&file_name)?;
+        remote_path::validate_name(&file_name)?;
         let file_path = local_path_obj.join(&file_name);
         write_download(link, &file_path, pb, listed_size).await?;
     } else {
@@ -186,8 +189,8 @@ pub async fn download_path(
     recursive: bool,
 ) -> Result<()> {
     config.require_personal()?;
-    let remote = super::directory_service::normalize(remote)?;
-    let local = crate::utils::resolve_local_path(&remote, local);
+    let remote = remote_path::normalize(remote)?;
+    let local = crate::utils::path::resolve_local_path(&remote, local);
     crate::debug!("准备下载文件 remote={} local={}", remote, local);
     crate::step!("开始下载到: {:?}", local);
     download_normalized(config, remote, &local, None, recursive).await
@@ -202,7 +205,7 @@ pub async fn download(
     recursive: bool,
 ) -> Result<()> {
     config.require_personal()?;
-    let remote = super::directory_service::normalize(remote)?;
+    let remote = remote_path::normalize(remote)?;
     download_normalized(config, remote, local, pb, recursive).await
 }
 

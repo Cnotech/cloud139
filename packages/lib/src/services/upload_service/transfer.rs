@@ -1,4 +1,8 @@
-use super::SyncUploadPlan;
+mod personal_parts;
+
+use super::checked_upload_size;
+use crate::client::api::personal::{ListingRetry, PersonalClient};
+use crate::client::api::upload::UploadFile;
 use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
 use crate::protocol;
@@ -6,9 +10,9 @@ use crate::services::directory_service;
 use crate::services::progress::Progress;
 use crate::services::sync_remote::remote_sha256;
 use crate::services::sync_service::{
-    CloudSyncFile, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
+    CloudSyncFile, CloudSyncScan, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
 };
-use crate::services::upload_service::checked_upload_size;
+use crate::utils::remote_path;
 use crate::utils::{
     crypto::is_sha256_hex,
     remote_file::is_non_root_file_id,
@@ -16,6 +20,18 @@ use crate::utils::{
 };
 use anyhow::Context;
 use tokio::io::{AsyncSeekExt, SeekFrom};
+
+pub(in crate::services) struct SyncUploadPlan<'a> {
+    pub(in crate::services) host: &'a str,
+    pub(in crate::services) scan: Option<&'a CloudSyncScan>,
+    pub(in crate::services) rel_path: &'a str,
+    pub(in crate::services) parent_id: &'a str,
+    pub(in crate::services) remote_parent: &'a str,
+    pub(in crate::services) file_name: &'a str,
+    pub(in crate::services) replace_directory_id: Option<&'a str>,
+    pub(in crate::services) hash_missing: Option<&'a mut bool>,
+    pub(in crate::services) file_changed: &'a mut bool,
+}
 
 fn finish_upload(name: &str, pb: &Option<Progress>) {
     crate::success!("上传完成: {name}");
@@ -43,7 +59,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         file_changed,
     } = plan;
     let file_size = checked_upload_size(local_path)?;
-    directory_service::validate_name(file_name)?;
+    remote_path::validate_name(file_name)?;
     // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
     // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
     let verify_content_addressed = hash_missing.is_some() && is_sha256_hex(file_name);
@@ -62,7 +78,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
         crate::utils::rand::generate_rand_str(24)
     );
     let client = api::HttpClientWrapper::new();
-    let personal = api::PersonalClient::with_host(config, host, &client, api::ListingRetry::None);
+    let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let before = personal.list_files(parent_id).await?;
     if before
         .iter()
@@ -194,8 +210,8 @@ fn check_destination(
     Ok(())
 }
 
-pub(in crate::services) async fn upload_to_parent(
-    personal: &api::PersonalClient<'_>,
+pub(super) async fn upload_to_parent(
+    personal: &PersonalClient<'_>,
     local_path: &std::path::Path,
     parent_file_id: &str,
     file_name: &str,
@@ -215,7 +231,7 @@ pub(in crate::services) async fn upload_to_parent(
         return Ok(name);
     }
     let files = personal
-        .with_listing_retry(api::ListingRetry::None)
+        .with_listing_retry(ListingRetry::None)
         .list_files(parent_file_id)
         .await?;
     files
@@ -233,7 +249,7 @@ struct UploadReceipt {
 }
 
 async fn transfer_to_parent(
-    personal: &api::PersonalClient<'_>,
+    personal: &PersonalClient<'_>,
     local_path: &std::path::Path,
     parent_file_id: &str,
     file_name: &str,
@@ -253,7 +269,7 @@ async fn transfer_to_parent(
             .await
             .map_err(|error| ClientError::Other(format!("计算文件哈希失败: {error}")))??;
     let response = personal
-        .create_upload(api::UploadFile {
+        .create_upload(UploadFile {
             local_path,
             file_name,
             file_size,
@@ -289,7 +305,7 @@ async fn transfer_to_parent(
 }
 
 struct UploadPartsParams<'a> {
-    personal: &'a api::PersonalClient<'a>,
+    personal: &'a PersonalClient<'a>,
     local_path: &'a std::path::Path,
     upload_id: &'a str,
     file_id: &'a str,
@@ -345,7 +361,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             part.seek(SeekFrom::Start(offset as u64)).await?;
             let part_number = (i + 1) as i32;
             crate::debug!("正在上传分片 part={}/{}", part_number, part_count);
-            super::personal_parts::upload_part(
+            personal_parts::upload_part(
                 &data_client,
                 &upload_urls,
                 part_number,
@@ -363,7 +379,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
 }
 
 async fn install_uploaded_file(
-    personal: &api::PersonalClient<'_>,
+    personal: &PersonalClient<'_>,
     parent_file_id: &str,
     file_id: &str,
     file_name: &str,
@@ -444,7 +460,7 @@ async fn install_uploaded_file(
 }
 
 async fn confirm_uploaded_name(
-    personal: &api::PersonalClient<'_>,
+    personal: &PersonalClient<'_>,
     parent_id: &str,
     file_id: &str,
     name: &str,
@@ -499,12 +515,8 @@ mod tests {
             ..Default::default()
         };
         let client = api::HttpClientWrapper::new();
-        let personal = api::PersonalClient::with_host(
-            &config,
-            server.base_url(),
-            &client,
-            api::ListingRetry::None,
-        );
+        let personal =
+            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         for gib in [5_i64, 8, 50, 500] {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
@@ -514,7 +526,7 @@ mod tests {
                 then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
             });
             let response = personal
-                .create_upload(api::UploadFile {
+                .create_upload(UploadFile {
                     local_path: std::path::Path::new("large.bin"),
                     file_name: "large.bin",
                     file_size: size,
@@ -535,7 +547,7 @@ mod tests {
             then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
         });
         let error = personal
-            .create_upload(api::UploadFile {
+            .create_upload(UploadFile {
                 local_path: std::path::Path::new("small.bin"),
                 file_name: "small.bin",
                 file_size: 1,
@@ -563,12 +575,8 @@ mod tests {
                 authorization: format!("fictional-{plan}-token"),
                 ..Default::default()
             };
-            let personal = api::PersonalClient::with_host(
-                &config,
-                server.base_url(),
-                &client,
-                api::ListingRetry::None,
-            );
+            let personal =
+                PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
             for size in [5 * gib, 5 * gib + 1, 8 * gib, 8 * gib + 1] {
                 let accepted = size <= limit;
                 let part_size = 100 * 1024 * 1024;
@@ -600,7 +608,7 @@ mod tests {
                     });
                 });
                 let result = personal
-                    .create_upload(api::UploadFile {
+                    .create_upload(UploadFile {
                         local_path: std::path::Path::new("boundary.bin"),
                         file_name: "boundary.bin",
                         file_size: size,
@@ -663,12 +671,8 @@ mod tests {
             })
             .collect();
         let client = api::HttpClientWrapper::new();
-        let personal = api::PersonalClient::with_host(
-            &config,
-            server.base_url(),
-            &client,
-            api::ListingRetry::None,
-        );
+        let personal =
+            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         upload_parts(UploadPartsParams {
             personal: &personal,
             local_path: source.path(),
@@ -708,12 +712,8 @@ mod tests {
             then.json_body(json!({"success":true}));
         });
         let client = api::HttpClientWrapper::new();
-        let personal = api::PersonalClient::with_host(
-            &config,
-            server.base_url(),
-            &client,
-            api::ListingRetry::None,
-        );
+        let personal =
+            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         let error = upload_parts(UploadPartsParams {
             personal: &personal,
             local_path: source.path(),
@@ -761,12 +761,8 @@ mod tests {
             then.json_body(json!({"success":true}));
         });
         let client = api::HttpClientWrapper::new();
-        let personal = api::PersonalClient::with_host(
-            &config,
-            server.base_url(),
-            &client,
-            api::ListingRetry::None,
-        );
+        let personal =
+            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
         let files = personal.list_files("/").await.unwrap();
         let mut file_changed = false;
         let error = install_uploaded_file(
@@ -822,12 +818,8 @@ mod tests {
                 then.json_body(json!({"success":true}));
             });
             let client = api::HttpClientWrapper::new();
-            let personal = api::PersonalClient::with_host(
-                &config,
-                server.base_url(),
-                &client,
-                api::ListingRetry::None,
-            );
+            let personal =
+                PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
             let files = personal.list_files("/").await.unwrap();
             let mut file_changed = false;
             let result = install_uploaded_file(

@@ -1,10 +1,10 @@
-use crate::cli::DeleteArgs;
+use crate::cli::args::DeleteArgs;
 use crate::{debug, info, success, warn};
 use cloud139::client::ClientError;
 use cloud139::config::Config;
 
 pub(super) fn preflight(args: &DeleteArgs) -> anyhow::Result<()> {
-    cloud139::services::directory_service::non_root(&args.path)?;
+    cloud139::utils::remote_path::non_root(&args.path)?;
     if !args.yes {
         warn!("此操作会将文件或目录移动到回收站");
         info!("使用 --yes 参数确认删除；目录还需要 -r");

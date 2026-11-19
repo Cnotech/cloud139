@@ -1,4 +1,4 @@
-use crate::cli::{Cli, Commands, SyncArgs};
+use crate::cli::{Cli, Commands, args::SyncArgs};
 use crate::error::CommandExit;
 use clap::{CommandFactory, Parser};
 use cloud139::domain::{SyncDirection, SyncEndpoint};

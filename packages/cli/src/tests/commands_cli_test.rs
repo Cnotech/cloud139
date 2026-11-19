@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use crate::cli::CpArgs;
-use crate::cli::DeleteArgs;
-use crate::cli::MvArgs;
+use crate::cli::args::CpArgs;
+use crate::cli::args::DeleteArgs;
+use crate::cli::args::MvArgs;
 use clap::Parser;
 
 #[test]

@@ -1,6 +1,6 @@
-use crate::cli::SyncArgs;
+use crate::cli::args::SyncArgs;
 use crate::error::CommandExit;
-use crate::presentation::{print_outcome, print_plan};
+use crate::presentation::sync_renderer::{print_outcome, print_plan};
 use cloud139::config::Config;
 use cloud139::services::progress::ProgressFactory;
 use cloud139::services::sync_executor::SyncExecuteOptions;
@@ -40,7 +40,7 @@ pub(super) async fn execute(
         print_plan(plan.actions());
     }
     let progress: Option<&ProgressFactory<'_>> = if show_progress(&args) {
-        Some(&crate::presentation::make_progress)
+        Some(&crate::presentation::progress::make_progress)
     } else {
         None
     };
