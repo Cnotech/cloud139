@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod lock;
-#[cfg(test)]
-mod tests;
 use lock::ConfigLock;
 
 const CONFIG_FILE: &str = "cloud139rc.toml";

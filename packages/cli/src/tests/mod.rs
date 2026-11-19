@@ -8,6 +8,7 @@ mod commands_list_test;
 mod commands_test;
 mod config_atomic_test;
 mod config_extended_test;
+mod config_startup_test;
 mod config_test;
 mod cp_test;
 mod delete_test;
