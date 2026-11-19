@@ -1,7 +1,7 @@
 use super::{HttpClientWrapper, headers::build_upload_part_headers};
 use crate::client::ClientError;
 use futures_util::Stream;
-use reqwest::{Body, Response};
+use reqwest::{Body, Response, StatusCode};
 use std::io;
 
 pub(crate) struct DownloadLink<'a> {
@@ -71,10 +71,11 @@ impl HttpClientWrapper {
             .await
             .map_err(reqwest::Error::without_url)?;
 
-        let status = response.status().as_u16();
-        if status != 200 {
+        let status = response.status();
+        if status != StatusCode::OK {
             return Err(ClientError::Api(format!(
-                "分片 {part_number} 上传失败: HTTP {status}"
+                "分片 {part_number} 上传失败: HTTP {}",
+                status.as_u16()
             )));
         }
         Ok(())

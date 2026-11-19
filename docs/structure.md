@@ -23,6 +23,7 @@ cloud139/
         │   ├── services/          # 文件操作及同步
         │   ├── domain/            # 业务数据
         │   ├── models/            # API 数据模型
+        │   ├── protocol.rs        # 云盘端点、远程返回码和其他协议固定值
         │   └── utils/             # 日志、重试及通用函数
         └── tests/                 # 库集成测试
 ```

@@ -2,10 +2,9 @@ use super::{DownloadLink, HttpClientWrapper};
 use crate::client::ClientError;
 use crate::config::Config;
 use crate::models::{PersonalFileItem, PersonalListData, PersonalListResp};
+use crate::protocol;
 use futures_util::{Stream, TryStreamExt};
 use std::{borrow::Cow, collections::HashSet, pin::pin, time::Duration};
-
-pub(super) const CREATE_FILE: &str = "/file/create";
 
 #[derive(Clone, Copy)]
 pub(crate) enum ListingRetry {
@@ -35,7 +34,7 @@ impl Default for ListPageOptions {
     fn default() -> Self {
         Self {
             size: 100,
-            thumbnails: Some(&["Small", "Large"]),
+            thumbnails: Some(protocol::STANDARD_THUMBNAILS),
         }
     }
 }
@@ -102,7 +101,7 @@ impl<'a> PersonalClient<'a> {
 
         let response: Response = self
             .request(
-                "/file/getDownloadUrl",
+                protocol::DOWNLOAD_URL,
                 &serde_json::json!({ "fileId": file_id }),
             )
             .await?;
@@ -132,7 +131,10 @@ impl<'a> PersonalClient<'a> {
         file_id: &str,
     ) -> Result<crate::models::QueryFileData, ClientError> {
         let response: crate::models::QueryFileResp = self
-            .request("/file/query", &serde_json::json!({ "fileId": file_id }))
+            .request(
+                protocol::QUERY_FILE,
+                &serde_json::json!({ "fileId": file_id }),
+            )
             .await?;
         require_success(response.base, "获取文件详情失败")?;
         Ok(response.data)
@@ -145,9 +147,9 @@ impl<'a> PersonalClient<'a> {
     ) -> Result<(), ClientError> {
         let response: crate::models::PersonalUploadResp = self
             .request(
-                CREATE_FILE,
+                protocol::CREATE_FILE,
                 &serde_json::json!({
-                    "parentFileId": parent_id, "name": name, "description": "", "type": "folder"
+                    "parentFileId": parent_id, "name": name, "description": "", "type": protocol::FILE_TYPE_FOLDER
                 }),
             )
             .await?;
@@ -157,7 +159,7 @@ impl<'a> PersonalClient<'a> {
     pub(crate) async fn rename(&self, file_id: &str, name: &str) -> Result<(), ClientError> {
         let response: crate::models::PersonalUploadResp = self
             .request(
-                "/file/update",
+                protocol::UPDATE_FILE,
                 &serde_json::json!({ "fileId": file_id, "name": name, "description": "" }),
             )
             .await?;
@@ -167,7 +169,7 @@ impl<'a> PersonalClient<'a> {
     pub(crate) async fn trash(&self, file_id: &str) -> Result<(), ClientError> {
         let response: serde_json::Value = self
             .request(
-                "/recyclebin/batchTrash",
+                protocol::BATCH_TRASH,
                 &serde_json::json!({ "fileIds": [file_id] }),
             )
             .await?;
@@ -188,7 +190,7 @@ impl<'a> PersonalClient<'a> {
         file_ids: &[String],
         target_id: &str,
     ) -> Result<(), ClientError> {
-        self.transfer_files("/file/batchMove", file_ids, target_id)
+        self.transfer_files(protocol::BATCH_MOVE, file_ids, target_id)
             .await
     }
 
@@ -197,7 +199,7 @@ impl<'a> PersonalClient<'a> {
         file_ids: &[String],
         target_id: &str,
     ) -> Result<(), ClientError> {
-        self.transfer_files("/file/batchCopy", file_ids, target_id)
+        self.transfer_files(protocol::BATCH_COPY, file_ids, target_id)
             .await
     }
 
@@ -232,7 +234,7 @@ impl<'a> PersonalClient<'a> {
             return Err(invalid("目录层级过深"));
         }
         let mut current: Option<PersonalFileItem> = None;
-        let mut seen = HashSet::from(["/".to_owned()]);
+        let mut seen = HashSet::from([protocol::ROOT_FILE_ID.to_owned()]);
         for part in path.split('/').filter(|name| !name.is_empty()) {
             let parent = match &current {
                 Some(item) if item.is_folder() => item
@@ -240,7 +242,7 @@ impl<'a> PersonalClient<'a> {
                     .as_deref()
                     .ok_or(ClientError::InvalidFilePath)?,
                 Some(_) => return Err(invalid("父路径不是目录")),
-                None => "/",
+                None => protocol::ROOT_FILE_ID,
             };
             let item = self
                 .find_child(parent, part)
@@ -313,15 +315,15 @@ impl<'a> PersonalClient<'a> {
         options: ListPageOptions,
     ) -> Result<PersonalListData, ClientError> {
         let mut body = serde_json::json!({
-            "orderBy": "updated_at",
-            "orderDirection": "DESC",
+            "orderBy": protocol::LIST_ORDER_FIELD,
+            "orderDirection": protocol::LIST_ORDER_DIRECTION,
             "pageInfo": { "pageCursor": cursor, "pageSize": options.size },
             "parentFileId": parent_id,
         });
         if let Some(styles) = options.thumbnails {
             body["imageThumbnailStyleList"] = serde_json::json!(styles);
         }
-        let request = || self.request::<PersonalListResp>("/file/list", &body);
+        let request = || self.request::<PersonalListResp>(protocol::LIST_FILES, &body);
         // Retry this request before the pager advances the cursor.
         let response = match self.retry {
             ListingRetry::None => request().await?,

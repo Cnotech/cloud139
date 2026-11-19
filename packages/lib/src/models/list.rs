@@ -1,6 +1,7 @@
 use serde::Deserialize;
 
 use super::common::BaseResp;
+use crate::protocol;
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalListResp {
@@ -56,7 +57,9 @@ impl PersonalFileItem {
     pub fn is_folder(&self) -> bool {
         matches!(
             self.file_type.as_deref(),
-            Some("folder") | Some("dir") | Some("1")
+            Some(protocol::FILE_TYPE_FOLDER)
+                | Some(protocol::FILE_TYPE_DIR)
+                | Some(protocol::FILE_TYPE_DIRECTORY_CODE)
         )
     }
 }

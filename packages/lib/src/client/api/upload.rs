@@ -1,10 +1,11 @@
-use super::personal::{CREATE_FILE, mutation_succeeded};
+use super::personal::mutation_succeeded;
 use super::{HttpClientWrapper, ListingRetry, PersonalClient};
 use crate::{
     client::ClientError,
     config::Config,
     debug,
     models::{PersonalPartInfo, PersonalUploadResp},
+    protocol,
 };
 use std::{collections::HashMap, ops::Range, path::Path};
 
@@ -39,9 +40,10 @@ impl PersonalClient<'_> {
     ) -> Result<CreatedUpload, ClientError> {
         let file_size = file.file_size;
         let body = build_upload_body(file)?;
-        let response: PersonalUploadResp = self.request(CREATE_FILE, &body).await?;
+        let response: PersonalUploadResp = self.request(protocol::CREATE_FILE, &body).await?;
         if !response.base.success {
-            let quota_hint = if response.base.code.as_deref() == Some("04010319") {
+            let code = response.base.code.as_deref();
+            let quota_hint = if code == Some(protocol::UPLOAD_ENTITLEMENT_ERROR_CODE) {
                 format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
             } else {
                 String::new()
@@ -49,11 +51,7 @@ impl PersonalClient<'_> {
             return Err(ClientError::Api(format!(
                 "创建上传任务失败: {}{}{}",
                 response.base.message.as_deref().unwrap_or("未知错误"),
-                response
-                    .base
-                    .code
-                    .as_deref()
-                    .map(|code| format!("（错误码: {code}）"))
+                code.map(|code| format!("（错误码: {code}）"))
                     .unwrap_or_default(),
                 quota_hint,
             )));
@@ -63,7 +61,7 @@ impl PersonalClient<'_> {
             .ok_or_else(|| ClientError::Api("服务端未返回上传结果".into()))?;
         let file_id = data
             .file_id
-            .filter(|id| !id.is_empty() && id != "/")
+            .filter(|id| !id.is_empty() && id != protocol::ROOT_FILE_ID)
             .ok_or_else(|| ClientError::Api("服务端未返回新文件 ID".into()))?;
         let pending = match data.part_infos.filter(|parts| !parts.is_empty()) {
             Some(parts) => {
@@ -103,11 +101,11 @@ impl PersonalClient<'_> {
             "partInfos": build_part_infos(parts, part_size, file_size),
             "commonAccountInfo": {
                 "account": self.config.account,
-                "accountType": 1
+                "accountType": protocol::PERSONAL_ACCOUNT_TYPE
             }
         });
 
-        let resp_json: serde_json::Value = self.request("/file/getUploadUrl", &body).await?;
+        let resp_json: serde_json::Value = self.request(protocol::UPLOAD_URL, &body).await?;
 
         if resp_json["success"].as_bool() != Some(true) {
             return Err(ClientError::Api(format!(
@@ -144,12 +142,12 @@ impl PersonalClient<'_> {
 
         let body = serde_json::json!({
             "contentHash": content_hash,
-            "contentHashAlgorithm": "SHA256",
+            "contentHashAlgorithm": protocol::CONTENT_HASH_SHA256,
             "uploadId": upload_id,
             "fileId": file_id,
         });
 
-        let resp_json: serde_json::Value = self.request("/file/complete", &body).await?;
+        let resp_json: serde_json::Value = self.request(protocol::COMPLETE_UPLOAD, &body).await?;
         if !mutation_succeeded(&resp_json) {
             let message = resp_json["message"]
                 .as_str()
@@ -178,15 +176,15 @@ fn build_upload_body(file: UploadFile<'_>) -> Result<serde_json::Value, ClientEr
 
     Ok(serde_json::json!({
         "contentHash": content_hash,
-        "contentHashAlgorithm": "SHA256",
+        "contentHashAlgorithm": protocol::CONTENT_HASH_SHA256,
         "contentType": content_type,
         "parallelUpload": false,
-        "partInfos": build_part_infos(0..part_count.min(PART_BATCH_SIZE), part_size, file_size),
+        "partInfos": build_part_infos(0..part_count.min(protocol::UPLOAD_PARTS_PER_REQUEST), part_size, file_size),
         "size": file_size,
         "parentFileId": parent_file_id,
         "name": file_name,
-        "type": "file",
-        "fileRenameMode": "auto_rename"
+        "type": protocol::FILE_TYPE_FILE,
+        "fileRenameMode": protocol::UPLOAD_AUTO_RENAME
     }))
 }
 
@@ -199,8 +197,6 @@ pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
     }
     100 * 1024 * 1024
 }
-
-pub(crate) const PART_BATCH_SIZE: i64 = 100;
 
 pub(crate) fn part_offset_and_size(index: i64, part_size: i64, file_size: i64) -> (i64, i64) {
     let offset = index * part_size;
@@ -271,8 +267,8 @@ pub async fn get_upload_urls(
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let mut upload_urls = HashMap::new();
 
-    for batch_start in (0..part_count).step_by(PART_BATCH_SIZE as usize) {
-        let batch_end = (batch_start + PART_BATCH_SIZE).min(part_count);
+    for batch_start in (0..part_count).step_by(protocol::UPLOAD_PARTS_PER_REQUEST as usize) {
+        let batch_end = (batch_start + protocol::UPLOAD_PARTS_PER_REQUEST).min(part_count);
         upload_urls.extend(
             personal
                 .upload_urls(

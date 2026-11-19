@@ -1,8 +1,7 @@
-use crate::client::api::upload::{
-    PART_BATCH_SIZE, UploadFile, checked_part_count, part_offset_and_size,
-};
+use crate::client::api::upload::{UploadFile, checked_part_count, part_offset_and_size};
 use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
+use crate::protocol;
 
 use crate::services::progress::Progress;
 use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
@@ -84,7 +83,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
             .map(|item| {
                 item.file_id
                     .as_deref()
-                    .filter(|id| !id.is_empty() && *id != "/")
+                    .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID)
                     .context("旧条目缺少文件 ID")
             })
             .transpose()?
@@ -336,8 +335,8 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     }
     let part_count = checked_part_count(file_size, part_size)?;
 
-    for batch_start in (0..part_count).step_by(PART_BATCH_SIZE as usize) {
-        let batch_end = (batch_start + PART_BATCH_SIZE).min(part_count);
+    for batch_start in (0..part_count).step_by(protocol::UPLOAD_PARTS_PER_REQUEST as usize) {
+        let batch_end = (batch_start + protocol::UPLOAD_PARTS_PER_REQUEST).min(part_count);
         let upload_urls = if batch_start == 0 {
             params
                 .initial_parts
@@ -406,7 +405,7 @@ async fn install_uploaded_file(
         let old_id = item
             .file_id
             .as_deref()
-            .filter(|id| !id.is_empty() && *id != "/" && *id != file_id)
+            .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID && *id != file_id)
             .ok_or(ClientError::InvalidFilePath)?;
         if conflicts.next().is_some() || item.is_folder().then_some(old_id) != replace_directory_id
         {

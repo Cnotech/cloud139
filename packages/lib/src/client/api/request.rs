@@ -1,11 +1,10 @@
 use super::headers::{build_personal_headers, build_route_headers};
 use crate::client::ClientError;
 use crate::debug;
+use crate::protocol;
 use crate::utils::generate_rand_str;
 use reqwest::{Client, ClientBuilder, RequestBuilder};
 use std::time::Duration;
-
-const REFRESH_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
 pub struct HttpClientWrapper {
     pub client: reqwest::Client,
@@ -42,7 +41,7 @@ pub(super) fn refresh_http_client(timeout: Duration) -> Result<Client, ClientErr
     Ok(Client::builder()
         .connect_timeout(Duration::from_secs(3).min(timeout))
         .timeout(timeout)
-        .user_agent(REFRESH_USER_AGENT)
+        .user_agent(protocol::TOKEN_REFRESH_USER_AGENT)
         .build()?)
 }
 
@@ -58,8 +57,10 @@ fn build_signed_post(
     client: &Client,
     endpoint: SignedEndpoint,
 ) -> Result<RequestBuilder, ClientError> {
-    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let nonce = generate_rand_str(16);
+    let ts = chrono::Local::now()
+        .format(protocol::SIGNATURE_TIME_FORMAT)
+        .to_string();
+    let nonce = generate_rand_str(protocol::SIGNATURE_NONCE_LENGTH);
     let payload = body.to_string();
     let sign = crate::utils::crypto::calc_sign(&payload, &ts, &nonce);
     let mut headers = match endpoint {
@@ -67,7 +68,7 @@ fn build_signed_post(
         SignedEndpoint::Personal => build_personal_headers(authorization, &ts, &nonce, &sign),
     }?;
     headers.entry(reqwest::header::CONTENT_TYPE).or_insert(
-        reqwest::header::HeaderValue::from_static("application/json"),
+        reqwest::header::HeaderValue::from_static(protocol::JSON_CONTENT_TYPE),
     );
 
     Ok(client.post(url).headers(headers).body(payload))

@@ -1,6 +1,7 @@
 use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
 use crate::debug;
 use crate::domain::file_item::{EntryKind, FileItem};
+use crate::protocol;
 use crate::utils::parse_personal_time;
 use futures_util::TryStreamExt;
 use std::pin::pin;
@@ -31,10 +32,10 @@ pub async fn list<'a>(
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let parent = super::directory_service::directory_with_listing(&listing, &path).await?;
-    let thumbnails: &[&str] = if config.use_large_thumbnail {
-        &["Small", "Large", "Original"]
+    let thumbnails = if config.use_large_thumbnail {
+        protocol::THUMBNAILS_WITH_ORIGINAL
     } else {
-        &["Small", "Large"]
+        protocol::STANDARD_THUMBNAILS
     };
     let mut pages = pin!(listing.pages(
         &parent,

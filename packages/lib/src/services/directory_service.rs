@@ -1,6 +1,7 @@
 //! Shared path validation, directory traversal, and mutation preflight.
 use crate::client::{ClientError, api};
 use crate::config::Config;
+use crate::protocol;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -26,7 +27,7 @@ pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientE
 fn remote_root() -> (RemoteEntry, Option<i64>) {
     (
         RemoteEntry {
-            id: "/".into(),
+            id: protocol::ROOT_FILE_ID.into(),
             folder: true,
         },
         None,
@@ -84,7 +85,7 @@ pub(super) async fn ensure_personal_dir(
     path: &str,
     parents: bool,
 ) -> Result<String, ClientError> {
-    let mut parent_id = "/".to_owned();
+    let mut parent_id = protocol::ROOT_FILE_ID.to_owned();
     let mut parts = path.split('/').filter(|part| !part.is_empty()).peekable();
     let mut seen_ids = HashSet::from([parent_id.clone()]);
     while let Some(name) = parts.next() {
@@ -129,7 +130,7 @@ pub(super) async fn ensure_personal_child_dir(
         item
     };
     item.file_id
-        .filter(|id| !id.is_empty() && id != "/")
+        .filter(|id| !id.is_empty() && id != protocol::ROOT_FILE_ID)
         .ok_or(ClientError::InvalidFilePath)
 }
 

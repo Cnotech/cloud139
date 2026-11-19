@@ -1,11 +1,10 @@
-use self::endpoints::ROUTE_POLICY_URL;
 use self::request::{SignedEndpoint, signed_post};
 use crate::client::ClientError;
 use crate::config::Config;
 use crate::debug;
 use crate::models::QueryRoutePolicyResp;
+use crate::protocol;
 
-mod endpoints;
 pub mod headers;
 mod personal;
 pub(super) mod refresh;
@@ -38,16 +37,16 @@ impl HttpClientWrapper {
         config: &Config,
     ) -> Result<String, ClientError> {
         config.require_personal()?;
-        let url = ROUTE_POLICY_URL;
+        let url = protocol::ROUTE_POLICY_URL;
         debug!("查询个人云路由 url={}", url);
 
         let body = serde_json::json!({
             "userInfo": {
-                "userType": 1,
-                "accountType": 1,
+                "userType": protocol::ROUTE_USER_TYPE,
+                "accountType": protocol::PERSONAL_ACCOUNT_TYPE,
                 "accountName": config.account
             },
-            "modAddrType": 1
+            "modAddrType": protocol::ROUTE_ADDRESS_TYPE
         });
 
         let route_resp: QueryRoutePolicyResp = signed_post(
@@ -63,7 +62,7 @@ impl HttpClientWrapper {
             .data
             .route_policy_list
             .into_iter()
-            .find(|p| p.mod_name.as_deref() == Some("personal"))
+            .find(|p| p.mod_name.as_deref() == Some(protocol::PERSONAL_MODULE))
             .map(|p| p.https_url.unwrap_or_default())
             .ok_or_else(|| ClientError::Other("未找到个人云地址".into()))?;
 

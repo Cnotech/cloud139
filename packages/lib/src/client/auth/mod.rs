@@ -3,9 +3,12 @@ use crate::client::api::refresh;
 pub use crate::client::api::refresh::RefreshOptions;
 use crate::config::Config;
 use crate::debug;
+use crate::protocol;
 
 pub fn parse_login_token(token: &str) -> Result<Config, ClientError> {
-    let token = token.strip_prefix("Basic ").unwrap_or(token);
+    let token = token
+        .strip_prefix(protocol::BASIC_AUTH_PREFIX)
+        .unwrap_or(token);
     debug!("开始解析 Token");
     let (account, refresh_token, expire_time) = parse_token(token)?;
     Ok(Config {
@@ -70,7 +73,12 @@ pub async fn refresh_token(
 
     let authorization = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        format!("pc:{}:{}", config.account, new_token),
+        format!(
+            "{}:{}:{}",
+            protocol::PC_TOKEN_PREFIX,
+            config.account,
+            new_token
+        ),
     );
 
     debug!("已续期 Token valid_days={}", expire_seconds / 86400);

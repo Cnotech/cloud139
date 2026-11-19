@@ -5,6 +5,7 @@ use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
+use crate::protocol;
 use anyhow::{Result, anyhow};
 pub use execution::{SyncOutcome, SyncPlan, SyncRequest};
 use futures_util::TryStreamExt;
@@ -474,7 +475,7 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
         let id = item
             .file_id
             .as_ref()
-            .filter(|id| !id.is_empty() && *id != "/")
+            .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID)
             .cloned();
         let size = item.size.and_then(|size| u64::try_from(size).ok());
         let sha256 = item
@@ -485,8 +486,9 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
                 item.content_hash_algorithm
                     .as_deref()
                     .is_some_and(|algorithm| {
-                        algorithm.trim().eq_ignore_ascii_case("SHA256")
-                            || algorithm.trim().eq_ignore_ascii_case("SHA-256")
+                        let algorithm = algorithm.trim();
+                        algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256)
+                            || algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256_ALIAS)
                     })
                     && hash.len() == 64
                     && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -689,7 +691,7 @@ impl CloudScanner {
                     let child_id = item
                         .file_id
                         .as_deref()
-                        .filter(|id| !id.is_empty() && *id != "/");
+                        .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID);
                     if !self.upload_target && self.recursive && child_id.is_none() {
                         return Err(anyhow!("云端目录缺少有效 ID: {rel_path}"));
                     }

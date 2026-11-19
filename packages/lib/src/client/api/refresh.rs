@@ -1,7 +1,6 @@
-use super::{
-    endpoints::AUTH_TOKEN_REFRESH_URL, headers::build_refresh_headers, request::refresh_http_client,
-};
+use super::{headers::build_refresh_headers, request::refresh_http_client};
 use crate::client::ClientError;
+use crate::protocol;
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -37,9 +36,10 @@ fn build_refresh_body(account: &str, token: &str) -> String {
     }
 
     format!(
-        "<root><token>{}</token><account>{}</account><clienttype>656</clienttype></root>",
+        "<root><token>{}</token><account>{}</account><clienttype>{}</clienttype></root>",
         escape_text(token),
-        escape_text(account)
+        escape_text(account),
+        protocol::TOKEN_REFRESH_CLIENT_TYPE,
     )
 }
 
@@ -48,7 +48,7 @@ pub(in crate::client) async fn request(
     token: &str,
     options: RefreshOptions<'_>,
 ) -> Result<RefreshedToken, ClientError> {
-    let url = options.endpoint.unwrap_or(AUTH_TOKEN_REFRESH_URL);
+    let url = options.endpoint.unwrap_or(protocol::AUTH_TOKEN_REFRESH_URL);
     let client = refresh_http_client(options.timeout)?;
     let text = client
         .post(url)
@@ -83,7 +83,7 @@ fn parse_refresh_response(text: &str) -> Result<RefreshedToken, ClientError> {
     let refresh_resp: RefreshResp = serde_xml_rs::from_str(text)
         .map_err(|error| ClientError::Other(format!("无法解析 Token 续期响应，{error}")))?;
 
-    if refresh_resp.return_code != "0" {
+    if refresh_resp.return_code != protocol::TOKEN_REFRESH_SUCCESS_CODE {
         return Err(ClientError::Other(format!(
             "续期 Token 失败 code={} desc={}",
             refresh_resp.return_code, refresh_resp.desc
