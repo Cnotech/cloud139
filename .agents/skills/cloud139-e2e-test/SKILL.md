@@ -302,7 +302,7 @@ cleanup sub agent 先审核台账、登记的精确 CLOUD、创建成功证据�
 |------|-----------|--------|
 | 13.1 | `cargo test --locked --offline --test directory_operations_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求 |
 | 13.2 | `cargo test --locked --offline --test directory_operations_test removed_options_fail_before_config_changes` | 已移除的参数在解析阶段返回退出码 2，原配置不变 |
-| 13.3 | 上述目录用例及 `cargo test --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环均报错；不将不完整列表当成功 |
+| 13.3 | 上述目录用例及 `cargo test -p cloud139-core --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环均报错；不将不完整列表当成功 |
 | 13.4 | 恶意服务端文件名、绝对路径、穿越、Windows 设备名、源/目标 symlink | 拒绝前不写出本轮本地临时根、不覆盖受保护文件；symlink 相关平台限制明确记录 |
 | 13.5 | 上传中途失败、批量条目 success=false、HTTP 错误/下载断流、无数据或失败列表 | 失败返回非零并准确报告已完成部分；不静默 Skip，不把错误当空目录，不自动重试不确定写请求 |
 | 13.6 | Config 优先级、失败登录、刷新/并发写回；CLI 缺参数 | 全用虚构凭证/loopback 和临时配置验证，缺参数为 clap 退出码 2；不通过修改真实 Token 测试失败 |

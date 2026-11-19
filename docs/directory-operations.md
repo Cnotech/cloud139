@@ -44,8 +44,8 @@
 
 ```bash
 cargo fmt --all -- --check
-cargo test --locked --offline --no-fail-fast
-cargo clippy --locked --offline --all-targets
+cargo test --workspace --locked --offline --no-fail-fast
+cargo clippy --workspace --locked --offline --all-targets
 ```
 
 ## 目录 E2E 计划入口

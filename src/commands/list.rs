@@ -1,8 +1,8 @@
-use crate::config::Config;
 use crate::debug;
 use crate::presentation::list_renderer;
-use crate::services::list_service::ListOptions;
 use clap::Parser;
+use cloud139_core::config::Config;
+use cloud139_core::services::list_service::ListOptions;
 use std::fs;
 
 #[derive(Parser, Debug, Clone)]
@@ -33,17 +33,14 @@ impl<'a> From<&'a ListArgs> for ListOptions<'a> {
     }
 }
 
-pub async fn execute(args: ListArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: ListArgs, config: &Config) -> anyhow::Result<()> {
+pub(super) async fn execute(args: ListArgs, config: &Config) -> anyhow::Result<()> {
     debug!(
         "准备列出云端目录 path={} page={} page_size={}",
         args.path, args.page, args.page_size
     );
     if args.recursive {
-        let results = crate::services::list_service::list_recursive(config, &args.path).await?;
+        let results =
+            cloud139_core::services::list_service::list_recursive(config, &args.path).await?;
         for result in &results {
             list_renderer::render_terminal(result);
         }
@@ -56,7 +53,7 @@ pub(super) async fn execute_with_config(args: ListArgs, config: &Config) -> anyh
         }
         return Ok(());
     }
-    let result = crate::services::list(config, &args).await?;
+    let result = cloud139_core::services::list(config, &args).await?;
     list_renderer::render_terminal(&result);
 
     if let Some(output) = &args.output {

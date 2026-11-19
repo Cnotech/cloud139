@@ -1,9 +1,10 @@
 use crate::commands::CommandExit;
-use crate::config::Config;
 use crate::presentation::sync_renderer::{print_outcome, print_plan};
-use crate::services::sync_executor::{MAX_JOBS, SyncExecuteOptions};
-use crate::services::sync_service::{SyncRequest, SyncScanOptions};
 use clap::Parser;
+use cloud139_core::config::Config;
+use cloud139_core::services::progress::ProgressFactory;
+use cloud139_core::services::sync_executor::{MAX_JOBS, SyncExecuteOptions};
+use cloud139_core::services::sync_service::{SyncRequest, SyncScanOptions};
 use std::io::IsTerminal;
 
 fn parse_jobs(value: &str) -> Result<usize, String> {
@@ -47,14 +48,8 @@ pub struct SyncArgs {
     pub json: bool,
 }
 
-pub async fn execute(args: SyncArgs) -> anyhow::Result<()> {
-    let request = preflight(&args)?;
-    let config = Config::load_personal()?;
-    execute_with_config(args, request, config).await
-}
-
 pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
-    let progress = !args.json && std::io::stderr().is_terminal();
+    let progress = show_progress(args);
     SyncRequest::new(
         &args.src,
         &args.dest,
@@ -65,7 +60,6 @@ pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
         SyncExecuteOptions {
             dry_run: args.dry_run,
             jobs: args.jobs,
-            progress,
             print_actions: !progress && !args.dry_run,
         },
         args.delete,
@@ -74,7 +68,7 @@ pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
     .map_err(|error| CommandExit::new(2, error.to_string()))
 }
 
-pub(super) async fn execute_with_config(
+pub(super) async fn execute(
     args: SyncArgs,
     request: SyncRequest,
     config: Config,
@@ -86,11 +80,20 @@ pub(super) async fn execute_with_config(
     if args.dry_run {
         print_plan(plan.actions());
     }
-    let outcome = plan.execute().await?;
+    let progress: Option<&ProgressFactory<'_>> = if show_progress(&args) {
+        Some(&crate::presentation::progress::make_progress)
+    } else {
+        None
+    };
+    let outcome = plan.execute_with_progress(progress).await?;
     let failed = outcome.failed();
     print_outcome(outcome, &args.src, &args.dest, args.dry_run, args.json)?;
     if !args.dry_run && failed > 0 {
         return Err(CommandExit::new(1, format!("同步未完成: {failed} 个失败")).into());
     }
     Ok(())
+}
+
+fn show_progress(args: &SyncArgs) -> bool {
+    !args.json && std::io::stderr().is_terminal()
 }

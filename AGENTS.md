@@ -11,45 +11,19 @@
 cargo build
 
 # 运行所有测试
-cargo test
+cargo test --workspace
 
 # 代码质量检查
-cargo clippy
+cargo clippy --workspace
 ```
 
 更多命令见 [docs/commands.md](docs/commands.md)
 
 ### 项目结构
 
-```
-src/
-├── main.rs               # 程序入口
-├── lib.rs                # 库入口
-├── cli/                  # CLI 层：命令行参数定义
-├── application/          # 应用层：业务逻辑服务
-│   └── services/         # 业务服务实现
-│       ├── login / list / download / upload / delete
-│       ├── mkdir / mv / cp / rename / sync
-│       └── upload/       # 个人云上传流程
-├── domain/               # 领域层：核心业务模型
-├── presentation/         # 展示层：输出格式化、进度条
-├── commands/             # 命令层：命令执行逻辑
-├── client/               # 基础设施：API 客户端
-├── models/               # 数据模型（API 请求/响应）
-├── config/               # 配置管理
-└── utils/                # 工具函数
-```
+根目录 package `cloud139` 提供 CLI。参数定义在 `src/cli/`，命令适配在 `src/commands/`，展示在 `src/presentation/`，配置路径和跨进程锁在 `src/config/`。
 
-详细结构见 [docs/structure.md](docs/structure.md)
-
-### 架构分层
-
-- **CLI 层 (cli/)**: 定义命令行参数结构，使用 clap 解析
-- **应用层 (application/)**: 业务逻辑服务，协调领域对象和基础设施
-- **领域层 (domain/)**: 核心业务模型，不依赖外部
-- **展示层 (presentation/)**: 输出格式化、错误展示
-- **命令层 (commands/)**: 适配器，连接 CLI 层和应用层
-- **基础设施层 (client/)**: API 客户端、外部服务交互
+库 package `cloud139-core` 位于 `crates/cloud139-core/`，负责配置读写、认证、API 请求和文件操作。CLI 显式传递配置或路径，并将服务结果转换成命令行输出。详见 [项目结构](docs/structure.md)。
 
 ### 代码风格
 
@@ -70,10 +44,10 @@ clap, reqwest, tokio, serde, thiserror 等
 
 ### 日志打印规范
 
-- 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用 `src/utils/logger.rs` 提供的日志宏
+- 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用各 package 的日志宏。CLI 由 `src/logger.rs` 输出，库通过 `utils/logger.rs` 交给宿主处理。
 - 常用宏：`success!`（绿，成功）、`step!`（蓝，步骤）、`info!`（青，提示）、`warn!`（黄，警告）、`error!`（红，错误）、`debug!`（灰，调试）
 - 自有日志正文使用简体中文，调试字段沿用稳定的英文 `key=value`。
-- 进度条场景下使用 `pb_*` / `mp_*` 系列函数，避免破坏进度条布局
+- CLI 日志输出会协调进度条重绘。库通过传入的进度回调报告传输进展。
 
 详细规范见 [docs/logging.md](docs/logging.md)
 

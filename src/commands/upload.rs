@@ -1,6 +1,6 @@
-use crate::config::Config;
 use clap::Parser;
-use indicatif::MultiProgress;
+use cloud139_core::config::Config;
+use std::io::IsTerminal;
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -21,18 +21,20 @@ pub struct UploadArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: UploadArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: UploadArgs, config: &Config) -> anyhow::Result<()> {
-    let progress = MultiProgress::new();
-    crate::services::upload_service::upload_path(
+pub(super) async fn execute(args: UploadArgs, config: &Config) -> anyhow::Result<()> {
+    let progress = std::io::stderr().is_terminal();
+    cloud139_core::services::upload_service::upload_path(
         config,
         &args.local_path,
         &args.remote_path,
         args.force,
-        |name, size| crate::presentation::make_upload_progress(&progress, name, size),
+        |name, size| {
+            if progress {
+                crate::presentation::progress::make_progress(name, size)
+            } else {
+                None
+            }
+        },
     )
     .await
 }

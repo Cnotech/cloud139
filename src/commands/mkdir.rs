@@ -1,6 +1,6 @@
-use crate::config::Config;
-use crate::services::mkdir_service::{MkdirMode, mkdir};
 use clap::Parser;
+use cloud139_core::config::Config;
+use cloud139_core::services::mkdir_service::{MkdirMode, mkdir};
 
 #[derive(Parser, Debug, Clone)]
 pub struct MkdirArgs {
@@ -11,11 +11,7 @@ pub struct MkdirArgs {
     pub path: String,
 }
 
-pub async fn execute(args: MkdirArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: MkdirArgs, config: &Config) -> anyhow::Result<()> {
+pub(super) async fn execute(args: MkdirArgs, config: &Config) -> anyhow::Result<()> {
     let mode = if args.parents {
         MkdirMode::Parents
     } else {

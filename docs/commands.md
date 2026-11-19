@@ -13,33 +13,33 @@ cargo build --release
 ## 测试
 
 ```bash
-# 运行所有测试
-cargo test
+# 运行 workspace 的所有测试
+cargo test --workspace
 
 # 运行单个测试
-cargo test test_parse_path_root
+cargo test --workspace explicit_config_paths_keep_parallel_accounts_separate
 
-# 运行指定测试文件
-cargo test --test commands_test
+# 运行 CLI 命令测试
+cargo test -p cloud139 --bin cloud139 commands_test
 
 # 运行集成测试
-cargo test --test api_test
+cargo test -p cloud139-core --test api_test
 
 # 显示测试输出
-cargo test -- --nocapture
+cargo test --workspace -- --nocapture
 ```
 
 ## 代码检查
 
 ```bash
 # Clippy 检查
-cargo clippy
+cargo clippy --workspace
 
 # 格式化检查
-cargo fmt --check
+cargo fmt --all -- --check
 
 # 格式化代码
-cargo fmt
+cargo fmt --all
 ```
 
 ## 开发常用命令

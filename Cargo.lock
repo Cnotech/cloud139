@@ -324,21 +324,44 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 name = "cloud139"
 version = "3.0.0"
 dependencies = [
+ "anyhow",
+ "base64",
+ "chrono",
+ "clap",
+ "cloud139-core",
+ "directories",
+ "filetime",
+ "fs2",
+ "hex",
+ "httpmock",
+ "indicatif",
+ "log",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cloud139-core"
+version = "3.0.0"
+dependencies = [
  "aes",
  "anyhow",
  "base64",
  "cbc",
  "chrono",
- "clap",
  "digest 0.11.2",
- "directories",
  "filetime",
- "fs2",
  "futures-util",
  "glob",
  "hex",
  "httpmock",
- "indicatif",
+ "log",
  "md-5",
  "rand 0.8.5",
  "reqwest",

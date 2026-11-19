@@ -1,38 +1,47 @@
+use cloud139_core::services::progress::{Progress, TransferProgress};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use std::io::IsTerminal;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-/// 创建下载进度条。
-pub fn make_download_progress(remote_path: &str) -> Option<ProgressBar> {
-    if !std::io::stderr().is_terminal() {
-        return None;
+static PROGRESS: OnceLock<MultiProgress> = OnceLock::new();
+
+pub fn suspend(output: impl FnOnce()) {
+    match PROGRESS.get() {
+        Some(progress) => progress.suspend(output),
+        None => output(),
     }
-    let pb = ProgressBar::new(0);
-    let style = ProgressStyle::with_template(
-        "{msg} {bar:24.cyan/blue} {bytes}/{total_bytes} {bytes_per_sec} {eta}",
-    )
-    .unwrap_or_else(|_| ProgressStyle::default_bar());
-    pb.set_style(style);
-    pb.set_message(remote_path.to_string());
-    Some(pb)
 }
 
-/// 创建上传进度条。
-pub fn make_upload_progress(
-    mp: &MultiProgress,
-    file_name: &str,
-    file_size: u64,
-) -> Option<ProgressBar> {
-    if !std::io::stderr().is_terminal() {
-        return None;
-    }
-    let pb = mp.add(ProgressBar::new(file_size));
+pub fn make_progress(name: &str, bytes: u64) -> Option<Progress> {
+    let progress = PROGRESS.get_or_init(MultiProgress::new);
+    let bar = progress.add(ProgressBar::new(bytes));
     let style = ProgressStyle::with_template(
         "{msg} {bar:24.cyan/blue} {bytes}/{total_bytes} {bytes_per_sec} {eta}",
     )
     .unwrap_or_else(|_| ProgressStyle::default_bar());
-    pb.set_style(style);
-    pb.set_message(file_name.to_string());
-    pb.enable_steady_tick(Duration::from_millis(100));
-    Some(pb)
+    bar.set_style(style);
+    bar.set_message(name.to_owned());
+    bar.enable_steady_tick(Duration::from_millis(100));
+    Some(Arc::new(TerminalProgress(bar)))
+}
+
+struct TerminalProgress(ProgressBar);
+
+impl TransferProgress for TerminalProgress {
+    fn reset(&self) {
+        self.0.set_position(0);
+        self.0.reset_eta();
+    }
+
+    fn set_length(&self, bytes: u64) {
+        self.0.set_length(bytes);
+    }
+
+    fn inc(&self, bytes: u64) {
+        self.0.inc(bytes);
+    }
+
+    fn finish(&self) {
+        self.0.finish_and_clear();
+    }
 }

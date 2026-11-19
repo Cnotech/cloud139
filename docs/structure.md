@@ -1,51 +1,26 @@
 # 项目结构
 
 ```
-src/
-├── main.rs                    # 程序入口
-├── lib.rs                     # 库入口
-├── cli/                       # CLI 层：命令行参数定义
-├── services/                  # 应用层：业务逻辑服务
-│   └── upload/                # 个人云上传流程
-├── domain/                    # 领域层：核心业务模型
-├── presentation/              # 展示层：输出格式化、进度条
-├── commands/                  # 命令层：命令执行逻辑
-├── client/                    # 基础设施：API 客户端
-│   ├── api/                   # 端点、请求构造、协议解析与流式传输
-│   └── auth/                  # 登录配置与 Token 续期策略
-├── models/                    # 数据模型（API 请求/响应）
-├── config/                    # 配置管理
-└── utils/                     # 工具函数
+cloud139/
+├── Cargo.toml                    # Workspace 与 CLI package
+├── src/
+│   ├── main.rs                    # CLI 入口
+│   ├── cli/                       # clap 参数定义
+│   ├── commands/                  # 调用服务、映射退出码
+│   ├── config/                    # CLI 配置路径、续期写回及跨进程锁
+│   ├── logger.rs                  # 终端日志输出
+│   └── presentation/             # JSON、文本与进度条
+└── crates/cloud139-core/
+    ├── Cargo.toml                 # 库 package
+    ├── src/
+    │   ├── lib.rs                 # 库入口
+    │   ├── config.rs              # 显式路径的配置读写
+    │   ├── client/                # API 请求与认证
+    │   ├── services/              # 文件操作及同步
+    │   ├── domain/                # 业务数据
+    │   ├── models/                # API 数据模型
+    │   └── utils/                 # 日志、重试及通用函数
+    └── tests/                     # 库集成测试
 ```
 
-## 架构分层说明
-
-### 1. CLI 层 (cli/)
-- 使用 clap 定义命令行参数结构
-- `app.rs` 中定义 `Cli` 和 `Commands` 枚举
-- 解析用户输入，传递给命令层
-
-### 2. 命令层 (commands/)
-- 包含各命令的 Args 定义和 thin execute 适配器
-- 连接 CLI 层和应用层
-- 调用应用层服务执行业务逻辑
-
-### 3. 应用层 (services/)
-- 包含业务逻辑服务
-- 协调领域对象和基础设施
-- 实现核心业务用例
-- `upload/` 子模块处理分片读取、进度和同步上传
-
-### 4. 领域层 (domain/)
-- 核心业务模型
-- 不依赖外部框架或基础设施
-- 包含业务规则和验证
-
-### 5. 展示层 (presentation/)
-- 输出格式化
-- 进度条展示
-- 用户界面相关逻辑
-
-### 6. 基础设施层 (client/)
-- `client/api/` 集中实现云盘 API，包括端点、请求头、签名、请求体和响应解析
-- 业务服务通过文件操作方法和传输接口调用 API，负责路径校验、本地读写、进度和同步流程
+CLI 单向依赖 `cloud139-core`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。

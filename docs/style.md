@@ -35,7 +35,7 @@ use crate::{error, info, success, warn};
 ### 条件操作
 
 - 条件操作先写动作和对象，再用 `_if_<具体条件>` 标明执行条件。避免用 `maybe_` 或 `_if_needed` 代替具体条件。
-- 将调用方需要知道的副作用写进名称。`refresh_token_if_due` 返回更新后的配置，`refresh_and_save_token_if_due` 还会把结果写回配置文件。
+- 将调用方需要知道的副作用写进名称。`refresh_token_if_due` 返回更新后的配置，`refresh_saved_token` 还会把结果写回配置文件。
 - 只返回布尔值的判断用 `is_` 或 `has_` 等谓词，如 `is_token_refresh_due`。在文档中说明具体触发条件。
 
 ### 破坏性变更
@@ -59,8 +59,9 @@ pub enum ClientError {
 }
 
 // 在函数中返回 Result，使用 ? 操作符传播错误
-pub async fn execute(args: Args) -> Result<(), ClientError> {
-    let config = crate::config::Config::load().map_err(ClientError::Config)?;
+pub async fn execute(path: &std::path::Path) -> Result<(), ClientError> {
+    let config = crate::config::Config::load_from_path(path)?;
+    config.require_personal()?;
     Ok(())
 }
 

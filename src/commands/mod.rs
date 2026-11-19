@@ -10,17 +10,22 @@ pub mod sync;
 pub mod upload;
 
 use crate::cli::app::Commands;
-use crate::client::{ClientError, auth};
-use crate::config::{Config, ConfigError, config_load_candidates};
-use std::{fmt, path::PathBuf};
+use crate::config::{config_paths, refresh_saved_token};
+use cloud139_core::client::{ClientError, auth};
+use cloud139_core::config::{Config, ConfigError};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 /// 校验配置和命令参数，再续期并执行命令。
-pub async fn execute(command: Commands) -> anyhow::Result<()> {
+pub(crate) async fn execute(command: Commands, config_path: Option<&Path>) -> anyhow::Result<()> {
+    let paths = config_paths(config_path);
     if let Commands::Login(args) = command {
-        return login::execute(args).await;
+        return login::execute(args, &paths[0]).await;
     }
 
-    let loaded = Config::load_from_candidates(&config_load_candidates());
+    let loaded = Config::load_from_candidates(&paths);
     if let Ok((config, _)) = &loaded {
         config.require_personal()?;
     }
@@ -28,20 +33,20 @@ pub async fn execute(command: Commands) -> anyhow::Result<()> {
     // Future 在命令参数通过前置检查后才会开始续期。
     let config = prepare_config(loaded);
     match command {
-        Commands::Ls(args) => list::execute_with_config(args, &config.await?).await,
-        Commands::Upload(args) => upload::execute_with_config(args, &config.await?).await,
-        Commands::Download(args) => download::execute_with_config(args, &config.await?).await,
+        Commands::Ls(args) => list::execute(args, &config.await?).await,
+        Commands::Upload(args) => upload::execute(args, &config.await?).await,
+        Commands::Download(args) => download::execute(args, &config.await?).await,
         Commands::Rm(args) => {
             delete::preflight(&args)?;
-            delete::execute_with_config(args, &config.await?).await
+            delete::execute(args, &config.await?).await
         }
-        Commands::Mkdir(args) => mkdir::execute_with_config(args, &config.await?).await,
-        Commands::Mv(args) => mv::execute_with_config(args, &config.await?).await,
-        Commands::Cp(args) => cp::execute_with_config(args, &config.await?).await,
-        Commands::Rename(args) => rename::execute_with_config(args, &config.await?).await,
+        Commands::Mkdir(args) => mkdir::execute(args, &config.await?).await,
+        Commands::Mv(args) => mv::execute(args, &config.await?).await,
+        Commands::Cp(args) => cp::execute(args, &config.await?).await,
+        Commands::Rename(args) => rename::execute(args, &config.await?).await,
         Commands::Sync(args) => {
             let request = sync::preflight(&args)?;
-            sync::execute_with_config(args, request, config.await?).await
+            sync::execute(args, request, config.await?).await
         }
         Commands::Login(_) => unreachable!("登录已单独处理"),
     }
@@ -55,12 +60,14 @@ async fn prepare_config(
         return Ok(config);
     }
 
-    match auth::refresh_saved_token(&path, auth::RefreshOptions::default()).await {
+    match refresh_saved_token(&path, auth::RefreshOptions::default()).await {
         Err(ClientError::UnsupportedStorage) => return Err(ClientError::UnsupportedStorage),
         Err(err) => crate::warn!("自动续期检查失败: {err}"),
         Ok(()) => {}
     }
-    Config::load_personal()
+    let config = Config::load_from_path(&path)?;
+    config.require_personal()?;
+    Ok(config)
 }
 
 /// 带自定义退出码的命令错误。

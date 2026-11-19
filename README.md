@@ -498,46 +498,40 @@ token_expire_time = 1775454807088
 | `storage_type` | String | 必填，个人云使用 `personal_new` |
 | `custom_upload_part_size` | Number | 自定义分片大小（字节），0表示使用默认值 |
 | `use_large_thumbnail` | Boolean | 是否使用大缩略图 |
-| `personal_cloud_host` | String | 个人云API服务器地址 |
+| `personal_cloud_host` | String | 个人云 API 服务器地址，登录成功时写入 |
 | `refresh_token` | String | 刷新Token，用于自动续期 |
 | `token_expire_time` | Number | Token过期时间（毫秒时间戳） |
 
+## Rust 库
+
+在其他 Rust 项目的 `Cargo.toml` 中加入依赖，路径指向检出的库目录。
+
+```toml
+[dependencies]
+cloud139-core = { path = "../cloud139/crates/cloud139-core" }
+```
+
+```rust,no_run
+use cloud139_core::{
+    config::Config,
+    services::{ListResult, list, list_service::ListOptions},
+};
+use std::path::Path;
+
+async fn list_backup() -> Result<ListResult, Box<dyn std::error::Error>> {
+    let config = Config::load_from_path(Path::new("backup-account.toml"))?;
+    Ok(list(&config, ListOptions { path: "/backup", page: 1, page_size: 100 }).await?)
+}
+```
+
+每次读取、保存或发起操作都可以指定自己的配置。库的登录和续期接口返回 `Config`，由调用方决定何时保存。异步云盘操作运行在 Tokio 上。库通过 `log` 发出日志，宿主可选择如何接收。多个进程需要对同一份文件执行读改写时，由宿主负责跨进程协调。CLI 使用配置锁串行执行续期和写回。
+
 ## 项目结构
 
-```
-cloud139/
-├── Cargo.toml           # 项目配置
-├── LICENSE              # MIT 许可证
-├── cloud139rc.toml      # 本地配置文件（可选，存在时优先生效）
-└── src/
-    ├── main.rs          # 入口文件
-    ├── lib.rs           # 库入口
-    ├── client/          # API客户端
-    │   ├── api.rs       # API接口
-    │   ├── auth.rs      # 认证模块
-    │   └── mod.rs
-    ├── commands/        # 命令实现
-    │   ├── login.rs
-    │   ├── list.rs
-    │   ├── upload.rs
-    │   ├── download.rs
-    │   ├── delete.rs
-    │   ├── mkdir.rs
-    │   ├── mv.rs
-    │   ├── cp.rs
-    │   ├── rename.rs
-    │   └── mod.rs
-    ├── config/          # 配置管理
-    │   └── mod.rs
-    ├── models/          # 数据模型
-    │   ├── types.rs
-    │   └── mod.rs
-    └── utils/           # 工具函数
-        ├── crypto.rs    # 加密相关
-        ├── logger.rs    # 日志
-        ├── width.rs     # 终端宽度
-        └── mod.rs
-```
+| Package | 位置 | 职责 |
+|---------|------|------|
+| `cloud139` | 仓库根目录 | CLI、配置路径选择和跨进程锁、终端和 JSON 输出 |
+| `cloud139-core` | `crates/cloud139-core` | 认证、配置读写、云盘请求和文件操作 |
 
 ## 技术栈
 

@@ -4,10 +4,10 @@
 
 ## 1. 核心原则
 
-- **禁止裸打印**：代码中禁止使用 `println!` / `eprintln!` / `log::` 系列进行输出，统一使用 `src/utils/logger.rs` 提供的宏与辅助函数。
+- **禁止裸打印**：代码中禁止使用 `println!` / `eprintln!` / `log::` 系列进行输出，统一使用 CLI 或库提供的日志宏。
 - **状态语义化**：每条输出必须让玩家（用户）明确知道当前是「正在进行」「已完成」「需要关注」还是「出错了」。
 - **视觉一致性**：同一级别使用统一颜色与前缀，避免各行其是。
-- **进度条安全**：在含进度条（`ProgressBar` / `MultiProgress`）的交互中，必须通过 `pb_*` / `mp_*` 函数输出，防止日志撕裂进度条。
+- **进度条安全**：CLI 日志器在输出文本时协调 `MultiProgress` 重绘。
 - **克制输出**：非必要不刷屏，非调试不暴露内部实现细节（Token、URL 参数、完整 JSON 等）。
 - **日志语言**：CLI 自有日志正文统一使用简体中文，覆盖调试日志和进度条日志。
 
@@ -74,52 +74,7 @@ debug!("正在上传分片 file_id={} part={}/{}", file_id, index, total);
 
 ## 4. 进度条感知日志
 
-当命令使用 `indicatif` 进度条时，普通宏会直接覆盖或撕裂进度条渲染区域，必须使用以下封装函数。
-
-### 4.1 单进度条 (`Option<ProgressBar>`)
-
-使用 `pb_*` 系列函数；当传入 `None` 时自动降级为对应宏。
-
-```rust
-use crate::utils::logger::{pb_step, pb_success, pb_error};
-
-pub async fn download(pb: &Option<ProgressBar>) -> Result<()> {
-    pb_step("开始下载...", pb);
-    // ... 执行下载 ...
-    pb_success("下载完成!", pb);
-    Ok(())
-}
-```
-
-| 函数 | 条件输出 | 说明 |
-|---|---|---|
-| `pb_debug(msg, &pb)` | 仅在 `-v debug` | 调试日志 |
-| `pb_info(msg, &pb)` | 始终 | 普通提示 |
-| `pb_step(msg, &pb)` | 始终 | 步骤提示 |
-| `pb_success(msg, &pb)` | 始终 | 成功提示 |
-| `pb_warn(msg, &pb)` | 始终 | 警告 |
-| `pb_error(msg, &pb)` | 始终 | 错误 |
-
-### 4.2 多进度条 (`&MultiProgress`)
-
-并发下载/上传等多任务场景使用 `mp_*` 系列。
-
-```rust
-use crate::utils::logger::mp_info;
-use indicatif::MultiProgress;
-
-let mp = MultiProgress::new();
-mp_info("所有任务已启动", &mp);
-```
-
-| 函数 | 说明 |
-|---|---|
-| `mp_debug(msg, mp)` | 调试（需 `-v debug`） |
-| `mp_info(msg, mp)` | 普通提示 |
-| `mp_step(msg, mp)` | 步骤提示 |
-| `mp_success(msg, mp)` | 成功提示 |
-| `mp_warn(msg, mp)` | 警告 |
-| `mp_error(msg, mp)` | 错误 |
+库通过日志宏向 `log` 发出记录，CLI 负责把记录渲染到终端。传输通过 `TransferProgress` 报告进度，CLI 提供 `indicatif` 实现。交互期间，CLI 日志器暂停进度条重绘以输出文本，输出后再恢复。
 
 ## 5. 错误信息规范
 
@@ -160,7 +115,7 @@ debug!("续期响应头 headers={:?}", headers_with_cookie);
 - **有始有终**：进度条创建后必须调用 `finish()` / `finish_with_message()`，避免僵尸进度条。
 - **粒度合理**：分片上传时按分片数更新，而非每秒刷新；总进度与当前分片进度二选一，避免双层进度条视觉混乱。
 - **失败清理**：任务异常退出时，调用 `abandon_with_message()` 或打印错误后 finish，不要让进度条卡住。
-- **与日志共存**：进度条刷新期间的所有文本输出，必须通过 `pb_*` / `mp_*` 系列函数。
+- **与日志共存**：进度条刷新期间继续使用统一日志宏，由 CLI 日志器协调输出。
 
 ### 7.2 样式建议
 
@@ -186,7 +141,6 @@ pb.set_style(
 | 警告 | `warn!("云端已存在同名文件")` | `println!("警告: 云端已存在同名文件")` |
 | 错误 | `error!("请使用 --force 参数确认继续")` | `println!("错误: 请使用 --force 参数确认继续")` |
 | 调试 | `debug!("已生成同步计划 actions={}", actions.len())` | `info!("diff_result: {:?}", diff)` |
-| 进度条中输出 | `pb_step("正在连接...", &pb)` | `step!("正在连接...")` |
 | 重复标签 | `error!("文件不存在")` | `error!("错误: 文件不存在")` |
 
 ## 9. 参考与最佳实践
@@ -197,4 +151,4 @@ pb.set_style(
 
 ---
 
-> 规范维护：当新增日志宏或调整颜色语义时，同步更新本文档与 `src/utils/logger.rs`。
+> 规范维护：当新增日志宏或调整颜色语义时，同步更新本文档与 CLI 的 `src/logger.rs`。

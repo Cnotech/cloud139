@@ -1,5 +1,5 @@
 //! Stateful loopback-only regression tests. No real 139 credentials or endpoints.
-use cloud139::{
+use cloud139_core::{
     client::ClientError,
     config::Config,
     services::{self, directory_service as dirs},
@@ -1500,15 +1500,13 @@ async fn recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles() {
 async fn ordinary_ls_rejects_cursor_cycles() {
     let server = Server::new();
     server.state.lock().unwrap().cycle = true;
-    let args = cloud139::commands::list::ListArgs {
-        path: "/".into(),
+    let args = cloud139_core::services::list_service::ListOptions {
+        path: "/",
         page: 1,
         page_size: 100,
-        output: None,
-        recursive: false,
     };
     assert!(
-        services::list(&server.config(), &args)
+        services::list(&server.config(), args)
             .await
             .unwrap_err()
             .to_string()
@@ -2053,7 +2051,8 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
                 assert_eq!(parent, root_id);
                 source.path().join(name)
             };
-            let hash = cloud139::utils::crypto::calc_file_sha256(local.to_str().unwrap()).unwrap();
+            let hash =
+                cloud139_core::utils::crypto::calc_file_sha256(local.to_str().unwrap()).unwrap();
             assert_eq!(body["contentHash"], hash);
             (parent, name)
         })
@@ -2187,19 +2186,6 @@ async fn symlinks_in_upload_and_download_are_rejected() {
     );
 }
 
-#[test]
-fn recursive_cli_flags_parse() {
-    use clap::Parser;
-    assert!(cloud139::commands::list::ListArgs::parse_from(["ls", "-R"]).recursive);
-    assert!(
-        cloud139::commands::download::DownloadArgs::parse_from(["download", "-r", "/dir"])
-            .recursive
-    );
-    assert!(cloud139::commands::mkdir::MkdirArgs::parse_from(["mkdir", "-p", "/a/b"]).parents);
-    let args = cloud139::commands::delete::DeleteArgs::parse_from(["rm", "-r", "--yes", "/dir"]);
-    assert!(args.recursive && args.yes);
-}
-
 #[tokio::test]
 async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
     use httpmock::prelude::*;
@@ -2219,13 +2205,13 @@ async fn failed_or_missing_listing_data_is_never_treated_as_empty() {
             ..Default::default()
         };
         assert!(
-            cloud139::client::api::HttpClientWrapper::new()
+            cloud139_core::client::api::HttpClientWrapper::new()
                 .list_personal_files(&config, "/")
                 .await
                 .is_err()
         );
         assert!(
-            cloud139::client::api::get_file_id_by_path(&config, "/missing")
+            cloud139_core::client::api::get_file_id_by_path(&config, "/missing")
                 .await
                 .is_err()
         );

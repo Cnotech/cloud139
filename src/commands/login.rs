@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::Path;
 
 #[derive(Parser, Debug, Clone)]
 pub struct LoginArgs {
@@ -11,7 +12,10 @@ pub struct LoginArgs {
     pub token: String,
 }
 
-pub async fn execute(args: LoginArgs) -> anyhow::Result<()> {
-    crate::services::login_service::login(&args.token).await?;
+pub(super) async fn execute(args: LoginArgs, path: &Path) -> anyhow::Result<()> {
+    let config = cloud139_core::services::login_service::login(&args.token).await?;
+    crate::config::save_config(&config, path)?;
+    crate::success!("Token 验证成功!");
+    crate::success!("配置文件已保存到: {}", path.display());
     Ok(())
 }

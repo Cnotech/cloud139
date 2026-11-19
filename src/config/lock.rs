@@ -8,7 +8,7 @@ pub(super) use windows::ConfigLock;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ConfigError};
+    use crate::config::{Config, ConfigWriteError, save_config};
     use std::fs;
 
     #[test]
@@ -27,7 +27,7 @@ mod tests {
         use std::time::{Duration, Instant};
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        Config::default().save_to(&path).unwrap();
+        save_config(&Config::default(), &path).unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "config::lock::tests::lock_holder_child"])
             .env("CLOUD139_TEST_LOCK_PATH", &path)
@@ -43,7 +43,7 @@ mod tests {
         child.kill().unwrap();
         child.wait().unwrap();
         assert!(ready, "child did not acquire the config lock");
-        assert!(matches!(result, Err(ConfigError::Busy)));
+        assert!(matches!(result, Err(ConfigWriteError::Busy)));
         assert!(ConfigLock::acquire(&path).is_ok());
         assert!(!path.with_extension("toml.lock").exists());
     }
@@ -53,12 +53,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let first = dir.path().join("first.toml");
         let second = dir.path().join("second.toml");
-        Config::default().save_to(&first).unwrap();
-        Config::default().save_to(&second).unwrap();
+        save_config(&Config::default(), &first).unwrap();
+        save_config(&Config::default(), &second).unwrap();
         let first_lock = ConfigLock::acquire(&first).unwrap();
         assert!(matches!(
             ConfigLock::acquire(&first),
-            Err(ConfigError::Busy)
+            Err(ConfigWriteError::Busy)
         ));
         let second_lock = ConfigLock::acquire(&second).unwrap();
         drop(first_lock);
@@ -73,19 +73,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         let alias = dir.path().join("alias.toml");
-        Config::default().save_to(&path).unwrap();
+        save_config(&Config::default(), &path).unwrap();
         std::os::unix::fs::symlink(&path, &alias).unwrap();
         let _lock = ConfigLock::acquire(&path).unwrap();
         assert!(matches!(
             ConfigLock::acquire(&alias),
-            Err(ConfigError::Busy)
+            Err(ConfigWriteError::Busy)
         ));
     }
 }
 
 #[cfg(unix)]
 mod unix {
-    use crate::config::ConfigError;
+    use crate::config::ConfigWriteError;
     use fs2::FileExt;
     use std::fs::{self, File, OpenOptions};
     use std::io::{self, Read, Seek};
@@ -97,7 +97,7 @@ mod unix {
     }
 
     impl ConfigLock {
-        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigError> {
+        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
             // 另一个写入者可能在 open 与 flock 之间原子替换配置。
             // 有界重试，避免一直追逐被外部程序反复替换的文件。
             for _ in 0..16 {
@@ -106,10 +106,10 @@ mod unix {
                     return Ok(lock);
                 }
             }
-            Err(ConfigError::Busy)
+            Err(ConfigWriteError::Busy)
         }
 
-        fn acquire_open_file(path: &Path, file: File) -> Result<Option<Self>, ConfigError> {
+        fn acquire_open_file(path: &Path, file: File) -> Result<Option<Self>, ConfigWriteError> {
             if !file.metadata()?.is_file() {
                 return Err(
                     io::Error::new(io::ErrorKind::InvalidInput, "配置路径不是普通文件").into(),
@@ -124,28 +124,28 @@ mod unix {
             match result {
                 Ok(()) => Ok(Some(lock)),
                 Err(err) if err.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
-                    Err(ConfigError::Busy)
+                    Err(ConfigWriteError::Busy)
                 }
                 Err(err) => Err(err.into()),
             }
         }
 
-        fn is_current(&self, path: &Path) -> Result<bool, ConfigError> {
+        fn is_current(&self, path: &Path) -> Result<bool, ConfigWriteError> {
             let current = fs::metadata(path)?;
             let locked = self.file.metadata()?;
             Ok(current.dev() == locked.dev() && current.ino() == locked.ino())
         }
 
-        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigError> {
+        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigWriteError> {
             if !self.is_current(path)? {
-                return Err(ConfigError::Changed);
+                return Err(ConfigWriteError::Changed);
             }
             // 通过持锁句柄读取，也兼容会强制执行文件锁的文件系统。
             self.file.rewind()?;
             let mut content = String::new();
             self.file.read_to_string(&mut content)?;
             if !self.is_current(path)? {
-                return Err(ConfigError::Changed);
+                return Err(ConfigWriteError::Changed);
             }
             Ok(content)
         }
@@ -174,7 +174,10 @@ mod unix {
             let mut current = ConfigLock::acquire(&path).unwrap();
             assert_eq!(current.read_to_string(&path).unwrap(), "new");
             drop(old_lock);
-            assert!(matches!(ConfigLock::acquire(&path), Err(ConfigError::Busy)));
+            assert!(matches!(
+                ConfigLock::acquire(&path),
+                Err(ConfigWriteError::Busy)
+            ));
         }
 
         #[test]
@@ -188,7 +191,7 @@ mod unix {
             fs::rename(replacement, &path).unwrap();
             assert!(matches!(
                 lock.read_to_string(&path),
-                Err(ConfigError::Changed)
+                Err(ConfigWriteError::Changed)
             ));
         }
     }
@@ -196,7 +199,7 @@ mod unix {
 
 #[cfg(windows)]
 mod windows {
-    use crate::config::ConfigError;
+    use crate::config::ConfigWriteError;
     use sha2::{Digest, Sha256};
     #[cfg(test)]
     use std::fs;
@@ -213,7 +216,7 @@ mod windows {
         worker: Option<JoinHandle<()>>,
     }
 
-    fn mutex_name(path: &Path) -> Result<String, ConfigError> {
+    fn mutex_name(path: &Path) -> Result<String, ConfigWriteError> {
         let path = super::super::prepare_save_path(path)?;
         // canonicalize 解析符号链接、相对路径及已有文件的路径别名。
         // 大小写归一避免首次创建前后因拼写大小写不同而使用不同互斥量。
@@ -225,7 +228,7 @@ mod windows {
     }
 
     impl ConfigLock {
-        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigError> {
+        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
             let name = mutex_name(path)?;
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
             let (release_tx, release_rx) = mpsc::channel();
@@ -259,7 +262,7 @@ mod windows {
             }
         }
 
-        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigError> {
+        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigWriteError> {
             Ok(super::super::read_config(path)?)
         }
     }
@@ -277,7 +280,7 @@ mod windows {
     struct MutexOwner(OwnedHandle);
 
     impl MutexOwner {
-        fn acquire(name: &str) -> Result<Self, ConfigError> {
+        fn acquire(name: &str) -> Result<Self, ConfigWriteError> {
             let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
             // SAFETY: 名称以 NUL 结尾且在调用期间有效；不继承句柄。
             let raw = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
@@ -289,7 +292,7 @@ mod windows {
             // SAFETY: 句柄有效；零超时保持原有的非阻塞行为。
             match unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } {
                 WAIT_OBJECT_0 | WAIT_ABANDONED => Ok(Self(handle)),
-                WAIT_TIMEOUT => Err(ConfigError::Busy),
+                WAIT_TIMEOUT => Err(ConfigWriteError::Busy),
                 _ => Err(io::Error::last_os_error().into()),
             }
         }
@@ -328,7 +331,10 @@ mod windows {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("config.toml");
             let lock = ConfigLock::acquire(&path).unwrap();
-            assert!(matches!(ConfigLock::acquire(&path), Err(ConfigError::Busy)));
+            assert!(matches!(
+                ConfigLock::acquire(&path),
+                Err(ConfigWriteError::Busy)
+            ));
             thread::spawn(move || drop(lock)).join().unwrap();
             assert!(ConfigLock::acquire(&path).is_ok());
             assert!(fs::read_dir(dir.path()).unwrap().next().is_none());

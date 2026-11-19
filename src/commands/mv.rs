@@ -1,5 +1,5 @@
-use crate::config::Config;
 use clap::Parser;
+use cloud139_core::config::Config;
 
 #[derive(Parser, Debug, Clone)]
 pub struct MvArgs {
@@ -17,11 +17,8 @@ pub struct MvArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: MvArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: MvArgs, config: &Config) -> anyhow::Result<()> {
-    crate::services::move_service::mv(config, &args.source, &args.target, args.force).await?;
+pub(super) async fn execute(args: MvArgs, config: &Config) -> anyhow::Result<()> {
+    cloud139_core::services::move_service::mv(config, &args.source, &args.target, args.force)
+        .await?;
     Ok(())
 }

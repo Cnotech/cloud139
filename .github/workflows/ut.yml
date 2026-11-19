@@ -26,4 +26,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Run tests
-        run: cargo test --locked --no-fail-fast
+        run: cargo test --workspace --locked --no-fail-fast

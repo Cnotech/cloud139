@@ -2,7 +2,7 @@
 
 ## 强制要求
 
-- 禁止直接使用 `println!` / `eprintln!` / `log::`，统一使用 `src/utils/logger.rs` 提供的日志宏
+- 禁止直接使用 `println!` / `eprintln!` / `log::`，统一使用各 package 的日志宏
 - 错误类型需要实现 `Error` trait（推荐使用 `thiserror`）
 - async 函数使用 `tokio` 运行时
 - 配置文件使用 TOML 格式
@@ -12,7 +12,7 @@
 - 遵循分层架构，避免跨层依赖
 - CLI 层 (`cli/`) 只负责参数定义，不直接调用基础设施
 - 命令层 (`commands/`) 作为适配器，连接 CLI 和应用层
-- 应用层 (`application/`) 包含核心业务逻辑
+- 应用层 (`crates/cloud139-core/src/services/`) 包含核心业务逻辑
 - 领域层 (`domain/`) 不依赖外部框架
 - 展示层 (`presentation/`) 只处理输出格式化
 
@@ -31,7 +31,7 @@
 
 ## 测试
 
-- 单元测试写在对应源文件内的 `#[cfg(test)]` 模块
+- 单元测试写在对应 package 的 `#[cfg(test)]` 模块
 - 集成测试放在 `tests/` 目录（如有）
 - 测试可能需要真实 API 调用或 mock（使用 `httpmock`）
 
@@ -39,5 +39,5 @@
 
 - CLI 自有日志正文使用简体中文，包括调试日志
 - 调试字段使用稳定的英文 `key=value`，详见 [日志规范](logging.md)
-- 进度条场景必须使用 `pb_*` / `mp_*` 系列函数
+- CLI 日志输出会协调进度条重绘，库通过进度回调报告传输进展
 - 敏感信息（Token、Cookie）不得打印到日志

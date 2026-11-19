@@ -1,11 +1,11 @@
-use cloud139::{client::ClientError, config::Config};
+use cloud139_core::{client::ClientError, config::Config};
 use std::process::Command;
 
 const EXPECTED: &str = "未实现：当前仅支持个人云";
 
 #[tokio::test]
 async fn non_personal_api_requests_are_rejected_before_transport() {
-    use cloud139::{client::api, services};
+    use cloud139_core::{client::api, services};
     for storage in ["family", "group", "unknown", "personal", ""] {
         let profile = Config {
             storage_type: storage.into(),

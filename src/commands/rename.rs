@@ -1,5 +1,5 @@
-use crate::config::Config;
 use clap::Parser;
+use cloud139_core::config::Config;
 
 #[derive(Parser, Debug, Clone)]
 pub struct RenameArgs {
@@ -17,11 +17,8 @@ pub struct RenameArgs {
     pub force: bool,
 }
 
-pub async fn execute(args: RenameArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: RenameArgs, config: &Config) -> anyhow::Result<()> {
-    crate::services::rename_service::rename(config, &args.source, &args.target, args.force).await?;
+pub(super) async fn execute(args: RenameArgs, config: &Config) -> anyhow::Result<()> {
+    cloud139_core::services::rename_service::rename(config, &args.source, &args.target, args.force)
+        .await?;
     Ok(())
 }

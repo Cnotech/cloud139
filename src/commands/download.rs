@@ -1,7 +1,7 @@
-use crate::config::Config;
-use crate::services::download_service::download_path;
 use crate::success;
 use clap::Parser;
+use cloud139_core::config::Config;
+use cloud139_core::services::download_service::download_path;
 
 #[derive(Parser, Debug)]
 pub struct DownloadArgs {
@@ -15,11 +15,7 @@ pub struct DownloadArgs {
     pub local_path: Option<String>,
 }
 
-pub async fn execute(args: DownloadArgs) -> anyhow::Result<()> {
-    execute_with_config(args, &Config::load_personal()?).await
-}
-
-pub(super) async fn execute_with_config(args: DownloadArgs, config: &Config) -> anyhow::Result<()> {
+pub(super) async fn execute(args: DownloadArgs, config: &Config) -> anyhow::Result<()> {
     download_path(config, &args.remote_path, &args.local_path, args.recursive).await?;
     success!("下载完成!");
     Ok(())
