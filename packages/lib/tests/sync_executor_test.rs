@@ -1,6 +1,9 @@
 use cloud139::config::Config;
 use cloud139::models::sync_item::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
-use cloud139::services::sync::executor::{SyncExecuteOptions, execute_sync_actions};
+use cloud139::services::sync::{
+    SyncRequest, SyncScanOptions,
+    executor::{SyncExecuteOptions, execute_sync_actions},
+};
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -151,9 +154,24 @@ async fn sync_executor_rejects_invalid_concurrency_before_execution() {
         .unwrap();
 
     for jobs in [0, 33] {
-        let error = execute_sync_actions(&config, vec![], SyncExecuteOptions { jobs, ..options })
+        let invalid = SyncExecuteOptions { jobs, ..options };
+        let error = execute_sync_actions(&config, vec![], invalid)
             .await
             .unwrap_err();
+        assert!(error.to_string().contains("1 和 32"));
+        let error = SyncRequest::new(
+            "local",
+            "cloud:/",
+            SyncScanOptions {
+                recursive: true,
+                exclude: Vec::new(),
+            },
+            invalid,
+            false,
+            false,
+        )
+        .err()
+        .expect("无效并发数不应创建同步请求");
         assert!(error.to_string().contains("1 和 32"));
     }
 }

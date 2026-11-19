@@ -4,7 +4,7 @@ use crate::client::api::response::{
 };
 use crate::client::http::HttpClientWrapper;
 use crate::utils::remote_file::is_non_root_file_id;
-use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};
+use crate::utils::upload_parts::UploadLayout;
 use crate::{
     config::{Config, PersonalConfig},
     debug,
@@ -45,10 +45,9 @@ pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
 pub(crate) struct UploadFile<'a> {
     pub(crate) local_path: &'a Path,
     pub(crate) file_name: &'a str,
-    pub(crate) file_size: i64,
+    pub(crate) layout: UploadLayout,
     pub(crate) parent_file_id: &'a str,
     pub(crate) content_hash: &'a str,
-    pub(crate) part_size: i64,
 }
 
 pub(crate) struct CreatedUpload {
@@ -71,8 +70,8 @@ impl PersonalClient<'_> {
         &self,
         file: UploadFile<'_>,
     ) -> Result<CreatedUpload, ClientError> {
-        let file_size = file.file_size;
-        let body = build_upload_body(file)?;
+        let file_size = file.layout.file_size();
+        let body = build_upload_body(file);
         let response: PersonalUploadResp = self.request(protocol::CREATE_FILE, &body).await?;
         if !response.base.success {
             return Err(upload_creation_error(&response.base, file_size));
@@ -111,15 +110,14 @@ impl PersonalClient<'_> {
         file_id: &str,
         upload_id: &str,
         parts: Range<i64>,
-        part_size: i64,
-        file_size: i64,
+        layout: UploadLayout,
     ) -> Result<HashMap<i32, String>, ClientError> {
         let mut upload_urls = HashMap::new();
 
         let body = serde_json::json!({
             "fileId": file_id,
             "uploadId": upload_id,
-            "partInfos": build_part_infos(parts, part_size, file_size),
+            "partInfos": build_part_infos(parts, layout),
             "commonAccountInfo": {
                 "account": self.config.account,
                 "accountType": protocol::PERSONAL_ACCOUNT_TYPE
@@ -180,37 +178,34 @@ impl PersonalClient<'_> {
     }
 }
 
-fn build_upload_body(file: UploadFile<'_>) -> Result<serde_json::Value, ClientError> {
+fn build_upload_body(file: UploadFile<'_>) -> serde_json::Value {
     let UploadFile {
         local_path,
         file_name,
-        file_size,
+        layout,
         parent_file_id,
         content_hash,
-        part_size,
     } = file;
-    let part_count = checked_part_count(file_size, part_size)?;
-
     let content_type = get_content_type(local_path);
 
-    Ok(serde_json::json!({
+    serde_json::json!({
         "contentHash": content_hash,
         "contentHashAlgorithm": protocol::CONTENT_HASH_SHA256,
         "contentType": content_type,
         "parallelUpload": false,
-        "partInfos": build_part_infos(0..part_count.min(protocol::UPLOAD_PARTS_PER_REQUEST), part_size, file_size),
-        "size": file_size,
+        "partInfos": build_part_infos(0..layout.part_count().min(protocol::UPLOAD_PARTS_PER_REQUEST), layout),
+        "size": layout.file_size(),
         "parentFileId": parent_file_id,
         "name": file_name,
         "type": protocol::FILE_TYPE_FILE,
         "fileRenameMode": protocol::UPLOAD_AUTO_RENAME
-    }))
+    })
 }
 
-fn build_part_infos(parts: Range<i64>, part_size: i64, file_size: i64) -> Vec<serde_json::Value> {
+fn build_part_infos(parts: Range<i64>, layout: UploadLayout) -> Vec<serde_json::Value> {
     parts
         .map(|index| {
-            let (offset, size) = part_offset_and_size(index, part_size, file_size);
+            let (offset, size) = layout.part_offset_and_size(index);
             serde_json::json!({
                 "partNumber": (index + 1) as i32,
                 "partSize": size,
@@ -255,6 +250,10 @@ pub async fn get_upload_urls(
     file_size: i64,
 ) -> Result<HashMap<i32, String>, ClientError> {
     let config = PersonalConfig::new(config)?;
+    let layout = UploadLayout::new(file_size, part_size)?;
+    if !(0..=layout.part_count()).contains(&part_count) {
+        return Err(ClientError::Api("请求的分片数量超出文件分片范围".into()));
+    }
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let mut upload_urls = HashMap::new();
@@ -263,13 +262,7 @@ pub async fn get_upload_urls(
         let batch_end = (batch_start + protocol::UPLOAD_PARTS_PER_REQUEST).min(part_count);
         upload_urls.extend(
             personal
-                .upload_urls(
-                    file_id,
-                    upload_id,
-                    batch_start..batch_end,
-                    part_size,
-                    file_size,
-                )
+                .upload_urls(file_id, upload_id, batch_start..batch_end, layout)
                 .await?,
         );
     }

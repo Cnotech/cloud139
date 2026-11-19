@@ -1,6 +1,36 @@
+use cloud139::config::Config;
 use cloud139::models::list::PersonalFileItem;
-use cloud139::services::sync::personal_item_to_file_entry;
+use cloud139::models::sync_item::SyncDirection;
+use cloud139::services::sync::{SyncScanOptions, personal_item_to_file_entry, scan_cloud};
 use cloud139::utils::remote_path::{cloud_child_path, normalize_cloud_path};
+use httpmock::MockServer;
+
+#[tokio::test]
+async fn invalid_exclude_is_rejected_before_resolving_cloud_root() {
+    let server = MockServer::start();
+    let requests = server.mock(|when, then| {
+        when.any_request();
+        then.status(400);
+    });
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let error = scan_cloud(
+        &config,
+        "/folder",
+        &SyncScanOptions {
+            recursive: true,
+            exclude: vec!["[".into()],
+        },
+        SyncDirection::CloudToLocal,
+    )
+    .await
+    .err()
+    .expect("无效排除规则不应开始云端扫描");
+    assert!(error.to_string().contains("无效 exclude glob"));
+    requests.assert_calls(0);
+}
 
 fn item(
     name: &str,

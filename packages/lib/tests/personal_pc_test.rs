@@ -170,6 +170,36 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
 }
 
 #[tokio::test]
+async fn invalid_upload_part_layout_is_rejected_before_request() {
+    let server = MockServer::start();
+    let requests = server.mock(|when, then| {
+        when.any_request();
+        then.status(400);
+    });
+    let config = Config::default();
+    for (count, part_size, file_size, expected) in [
+        (2, 2, 2, "请求的分片数量超出文件分片范围"),
+        (-1, 2, 2, "请求的分片数量超出文件分片范围"),
+        (1, 0, 2, "上传分片大小必须大于 0"),
+        (1, 1, i64::MAX, "上传分片数量超出协议范围"),
+    ] {
+        let error = api::upload::get_upload_urls(
+            &config,
+            &server.base_url(),
+            "file",
+            "upload",
+            count,
+            part_size,
+            file_size,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains(expected));
+    }
+    requests.assert_calls(0);
+}
+
+#[tokio::test]
 async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
     use cloud139::models::sync_item::{ChangeKind, SyncAction};
     use cloud139::services::sync::executor::{SyncExecuteOptions, execute_sync_actions};

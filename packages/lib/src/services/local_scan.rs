@@ -1,4 +1,4 @@
-use super::sync::paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
+use super::sync::paths::{is_excluded, path_and_ancestors};
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::utils::path::{check_destination_collisions, safe_local};
 use crate::utils::remote_path;
@@ -14,18 +14,18 @@ use std::{
 pub(super) fn scan_items(
     root: &Path,
     recursive: bool,
-    exclude: &[String],
+    patterns: &[Pattern],
 ) -> Result<Vec<FileEntry>> {
-    Ok(scan_local_snapshot(root, recursive, exclude)?.items)
+    Ok(scan_local_snapshot(root, recursive, patterns)?.items)
 }
 
 pub(super) fn scan_upload_source(
     path: PathBuf,
     recursive: bool,
-    exclude: &[String],
+    patterns: &[Pattern],
     delete: bool,
 ) -> Result<(PathBuf, Vec<FileEntry>)> {
-    let scan = scan_local_snapshot(&path, recursive, exclude)?;
+    let scan = scan_local_snapshot(&path, recursive, patterns)?;
     anyhow::ensure!(!scan.single_file || !delete, "单文件同步不支持 --delete");
     let root = if scan.single_file {
         path.parent()
@@ -118,20 +118,23 @@ fn same_local_object(original: &fs::Metadata, current: &fs::Metadata) -> bool {
 pub(super) fn scan_local_target(
     root: &Path,
     recursive: bool,
-    exclude: &[String],
+    patterns: &[Pattern],
 ) -> Result<LocalSyncScan> {
     safe_local(root)?;
     match fs::symlink_metadata(root) {
-        Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, recursive, exclude),
+        Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, recursive, patterns),
         Ok(_) => Err(anyhow!("本地同步目标必须是目录: {}", root.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(LocalSyncScan::default()),
         Err(error) => Err(error.into()),
     }
 }
 
-fn scan_local_snapshot(root: &Path, recursive: bool, exclude: &[String]) -> Result<LocalSyncScan> {
+fn scan_local_snapshot(
+    root: &Path,
+    recursive: bool,
+    patterns: &[Pattern],
+) -> Result<LocalSyncScan> {
     safe_local(root)?;
-    let patterns = compile_exclude_patterns(exclude)?;
     let mut scan = LocalSyncScan::default();
     let metadata = fs::symlink_metadata(root)?;
     if metadata.is_file() {
@@ -140,13 +143,13 @@ fn scan_local_snapshot(root: &Path, recursive: bool, exclude: &[String]) -> Resu
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow!("无法读取文件名: {}", root.display()))?;
-        if !is_excluded(name, &patterns) {
+        if !is_excluded(name, patterns) {
             scan.items.push(local_entry(name.to_owned(), &metadata));
         }
         return Ok(scan);
     }
 
-    scan_local_dir(root, root, recursive, &patterns, &mut scan)?;
+    scan_local_dir(root, root, recursive, patterns, &mut scan)?;
     scan.items
         .sort_by(|left, right| left.rel_path.cmp(&right.rel_path));
     Ok(scan)

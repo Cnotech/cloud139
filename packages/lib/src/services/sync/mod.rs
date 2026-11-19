@@ -35,7 +35,8 @@ pub struct SyncRequest {
     source: SyncEndpoint,
     destination: SyncEndpoint,
     direction: SyncDirection,
-    scan: SyncScanOptions,
+    recursive: bool,
+    exclude: Vec<Pattern>,
     execution: SyncExecuteOptions,
     delete: bool,
     verify: bool,
@@ -80,12 +81,15 @@ impl SyncRequest {
                 "--verify 要求目标路径以 cloud: 开头"
             );
             ensure!(execution.jobs == 1, "--verify 只允许 -j 1");
+        } else {
+            execution.validate()?;
         }
         Ok(Self {
-            source,
-            destination,
+            source: normalize_sync_endpoint(source)?,
+            destination: normalize_sync_endpoint(destination)?,
             direction,
-            scan,
+            recursive: scan.recursive,
+            exclude: compile_exclude_patterns(&scan.exclude)?,
             execution,
             delete,
             verify,
@@ -104,12 +108,8 @@ impl SyncRequest {
             (track_paths && !self.verify).then(|| SyncReport::new(self.execution.dry_run, true));
         let (actions, cloud, local, mode) = match (self.source, self.destination) {
             (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
-                let (local_root, source) = scan_upload_source(
-                    local_root,
-                    self.scan.recursive,
-                    &self.scan.exclude,
-                    self.delete,
-                )?;
+                let (local_root, source) =
+                    scan_upload_source(local_root, self.recursive, &self.exclude, self.delete)?;
                 let objects = source
                     .iter()
                     .filter(|entry| entry.kind == SyncEntryKind::File)
@@ -118,9 +118,14 @@ impl SyncRequest {
                     !self.verify || !self.delete || objects > 0,
                     "--verify --delete 要求同步范围内至少有一个源文件"
                 );
-                let cloud =
-                    scan_personal_cloud(config.as_ref(), &cloud_root, &self.scan, self.direction)
-                        .await?;
+                let cloud = scan_personal_cloud(
+                    config.as_ref(),
+                    &cloud_root,
+                    self.recursive,
+                    &self.exclude,
+                    self.direction,
+                )
+                .await?;
                 crate::step!("正在计算同步差异...");
                 let actions = cloud.compute_upload_diff(
                     &source,
@@ -141,11 +146,15 @@ impl SyncRequest {
                 (actions, cloud, None, mode)
             }
             (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
-                let cloud =
-                    scan_personal_cloud(config.as_ref(), &cloud_root, &self.scan, self.direction)
-                        .await?;
-                let local =
-                    scan_local_target(&local_root, self.scan.recursive, &self.scan.exclude)?;
+                let cloud = scan_personal_cloud(
+                    config.as_ref(),
+                    &cloud_root,
+                    self.recursive,
+                    &self.exclude,
+                    self.direction,
+                )
+                .await?;
+                let local = scan_local_target(&local_root, self.recursive, &self.exclude)?;
                 local.validate_destinations(&cloud.items, &local_root)?;
                 crate::step!("正在计算同步差异...");
                 let actions =
@@ -245,6 +254,13 @@ pub fn parse_sync_endpoint(value: &str) -> SyncEndpoint {
         return SyncEndpoint::Cloud(remote_path::normalize_cloud_path(rest));
     }
     SyncEndpoint::Local(PathBuf::from(value))
+}
+
+fn normalize_sync_endpoint(endpoint: SyncEndpoint) -> Result<SyncEndpoint> {
+    match endpoint {
+        SyncEndpoint::Cloud(path) => Ok(SyncEndpoint::Cloud(remote_path::normalize(&path)?)),
+        local => Ok(local),
+    }
 }
 
 pub fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDirection> {
@@ -555,7 +571,8 @@ pub struct SyncScanOptions {
 }
 
 pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry>> {
-    scan_items(root, options.recursive, &options.exclude)
+    let patterns = compile_exclude_patterns(&options.exclude)?;
+    scan_items(root, options.recursive, &patterns)
 }
 
 pub fn personal_item_to_file_entry(
@@ -766,30 +783,33 @@ pub async fn scan_cloud(
     options: &SyncScanOptions,
     direction: SyncDirection,
 ) -> Result<CloudSyncScan> {
-    scan_personal_cloud(PersonalConfig::new(config)?, cloud_root, options, direction).await
+    let config = PersonalConfig::new(config)?;
+    let cloud_root = remote_path::normalize(cloud_root)?;
+    let patterns = compile_exclude_patterns(&options.exclude)?;
+    scan_personal_cloud(config, &cloud_root, options.recursive, &patterns, direction).await
 }
 
 async fn scan_personal_cloud(
     config: PersonalConfig<&Config>,
     cloud_root: &str,
-    options: &SyncScanOptions,
+    recursive: bool,
+    patterns: &[Pattern],
     direction: SyncDirection,
 ) -> Result<CloudSyncScan> {
-    let cloud_root = remote_path::normalize(cloud_root)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, SYNC_LIST_RETRY).await?;
-    let root_id = super::directory::directory_with_listing(&listing, &cloud_root).await?;
+    let root_id = super::directory::directory_with_listing(&listing, cloud_root).await?;
     let mut scanner = CloudScanner {
         scan: CloudSyncScan {
             directories: BTreeMap::from([(String::new(), root_id.clone())]),
             host: listing.host().to_string(),
-            root: cloud_root,
+            root: cloud_root.to_owned(),
             ..CloudSyncScan::default()
         },
         seen_objects: BTreeSet::from([root_id.clone()]),
-        recursive: options.recursive,
+        recursive,
         upload_target: direction == SyncDirection::LocalToCloud,
-        patterns: compile_exclude_patterns(&options.exclude)?,
+        patterns,
     };
     scanner.scan_directory(&listing, "", &root_id).await?;
     scanner
@@ -799,15 +819,15 @@ async fn scan_personal_cloud(
     Ok(scanner.scan)
 }
 
-struct CloudScanner {
+struct CloudScanner<'a> {
     scan: CloudSyncScan,
     seen_objects: BTreeSet<String>,
     recursive: bool,
     upload_target: bool,
-    patterns: Vec<Pattern>,
+    patterns: &'a [Pattern],
 }
 
-impl CloudScanner {
+impl CloudScanner<'_> {
     async fn scan_directory(
         &mut self,
         listing: &PersonalClient<'_>,
@@ -833,7 +853,7 @@ impl CloudScanner {
                 } else {
                     format!("{}/{}", rel_parent, name)
                 };
-                if is_excluded(&rel_path, &self.patterns)
+                if is_excluded(&rel_path, self.patterns)
                     || (self.upload_target && is_recovery_name(name))
                 {
                     if self.upload_target {

@@ -20,12 +20,23 @@ pub struct SyncExecuteOptions {
     pub print_actions: bool,
 }
 
+impl SyncExecuteOptions {
+    pub(super) fn validate(&self) -> Result<()> {
+        ensure!(
+            (1..=MAX_JOBS).contains(&self.jobs),
+            "同步并发数量必须介于 1 和 {MAX_JOBS} 之间"
+        );
+        Ok(())
+    }
+}
+
 pub async fn execute_sync_actions(
     config: &Config,
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
     let config = PersonalConfig::new(config)?;
+    options.validate()?;
     execute_scanned_sync(config, actions, options, None, None, None, None).await
 }
 
@@ -38,10 +49,6 @@ pub(super) async fn execute_scanned_sync(
     mut report: Option<&mut SyncReport>,
     progress: Option<&ProgressFactory<'_>>,
 ) -> Result<SyncSummary> {
-    ensure!(
-        (1..=MAX_JOBS).contains(&options.jobs),
-        "同步并发数量必须介于 1 和 {MAX_JOBS} 之间"
-    );
     if options.dry_run {
         if let Some(report) = report {
             record_plan(report, &actions, cloud, local);

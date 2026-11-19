@@ -195,6 +195,16 @@ fn invalid_command_arguments_are_rejected_before_token_refresh() {
             2,
             "--verify 只允许 -j 1",
         ),
+        (
+            &["sync", "local", "cloud:/", "--exclude", "["],
+            2,
+            "无效 exclude glob",
+        ),
+        (
+            &["sync", "local", "cloud:/invalid?"],
+            2,
+            "非法或不安全的名称",
+        ),
         (&["rm", "/file"], 1, "请使用 --yes 参数确认删除"),
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_cloud139"))

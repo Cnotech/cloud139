@@ -15,9 +15,7 @@ use crate::services::sync::{
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;
 use crate::utils::{
-    crypto::is_sha256_hex,
-    remote_file::is_non_root_file_id,
-    upload_parts::{checked_part_count, part_offset_and_size},
+    crypto::is_sha256_hex, remote_file::is_non_root_file_id, upload_parts::UploadLayout,
 };
 use anyhow::Context;
 use std::collections::HashMap;
@@ -162,12 +160,12 @@ async fn upload_personal_tree(
     contents: bool,
     force: bool,
 ) -> anyhow::Result<()> {
+    let remote = remote_path::normalize(remote)?;
     safe_local(local)?;
     if !local.is_dir() {
         return Err(invalid("递归上传源必须是目录").into());
     }
     let entries = super::local_scan::scan_items(local, true, &[])?;
-    let remote = remote_path::normalize(remote)?;
     let root = if contents {
         remote
     } else {
@@ -518,8 +516,7 @@ async fn transfer_to_parent(
         return Err(ClientError::InvalidFilePath);
     }
     let file_size = checked_upload_size(local_path)?;
-    let part_size = personal.upload_part_size(file_size);
-    checked_part_count(file_size, part_size)?;
+    let layout = UploadLayout::new(file_size, personal.upload_part_size(file_size))?;
     crate::debug!("开始计算文件 SHA-256");
     let path = local_path.to_owned();
     let content_hash =
@@ -530,10 +527,9 @@ async fn transfer_to_parent(
         .create_upload(UploadFile {
             local_path,
             file_name,
-            file_size,
+            layout,
             parent_file_id,
             content_hash: &content_hash,
-            part_size,
         })
         .await?;
     let receipt = UploadReceipt {
@@ -549,9 +545,8 @@ async fn transfer_to_parent(
             local_path,
             upload_id: &pending.upload_id,
             file_id: &receipt.id,
-            file_size,
+            layout,
             content_hash: &receipt.sha256,
-            part_size,
             initial_parts: &pending.parts,
             pb,
         })
@@ -567,9 +562,8 @@ struct UploadPartsParams<'a> {
     local_path: &'a std::path::Path,
     upload_id: &'a str,
     file_id: &'a str,
-    file_size: i64,
+    layout: UploadLayout,
     content_hash: &'a str,
-    part_size: i64,
     initial_parts: &'a [crate::models::upload::PersonalPartInfo],
     pb: Option<Progress>,
 }
@@ -579,10 +573,9 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     let local_path = params.local_path;
     let upload_id = params.upload_id;
     let file_id = params.file_id;
-    let file_size = params.file_size;
+    let layout = params.layout;
+    let file_size = layout.file_size();
     let content_hash = params.content_hash;
-    let part_size = params.part_size;
-
     let file = tokio::fs::File::open(local_path).await?;
     let data_client = HttpClientWrapper::new();
     if file.metadata().await?.len() < file_size as u64 {
@@ -592,7 +585,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
         )
         .into());
     }
-    let part_count = checked_part_count(file_size, part_size)?;
+    let part_count = layout.part_count();
 
     for batch_start in (0..part_count).step_by(protocol::UPLOAD_PARTS_PER_REQUEST as usize) {
         let batch_end = (batch_start + protocol::UPLOAD_PARTS_PER_REQUEST).min(part_count);
@@ -604,17 +597,11 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
                 .collect()
         } else {
             personal
-                .upload_urls(
-                    file_id,
-                    upload_id,
-                    batch_start..batch_end,
-                    part_size,
-                    file_size,
-                )
+                .upload_urls(file_id, upload_id, batch_start..batch_end, layout)
                 .await?
         };
         for i in batch_start..batch_end {
-            let (offset, read_size) = part_offset_and_size(i, part_size, file_size);
+            let (offset, read_size) = layout.part_offset_and_size(i);
             let mut part = file.try_clone().await?;
             part.seek(SeekFrom::Start(offset as u64)).await?;
             let part_number = (i + 1) as i32;
@@ -787,11 +774,14 @@ mod tests {
 
     #[test]
     fn part_count_handles_large_sizes_and_rejects_invalid_layouts() {
-        assert_eq!(checked_part_count(i64::MAX, i64::MAX).unwrap(), 1);
-        assert_eq!(checked_part_count(0, 100).unwrap(), 0);
-        assert_eq!(checked_part_count(101, 100).unwrap(), 2);
+        assert_eq!(
+            UploadLayout::new(i64::MAX, i64::MAX).unwrap().part_count(),
+            1
+        );
+        assert_eq!(UploadLayout::new(0, 100).unwrap().part_count(), 0);
+        assert_eq!(UploadLayout::new(101, 100).unwrap().part_count(), 2);
         for (size, part) in [(1, 0), (1, -1), (-1, 100), (i64::MAX, 1)] {
-            assert!(checked_part_count(size, part).is_err());
+            assert!(UploadLayout::new(size, part).is_err());
         }
     }
 
@@ -821,10 +811,9 @@ mod tests {
                 .create_upload(UploadFile {
                     local_path: std::path::Path::new("large.bin"),
                     file_name: "large.bin",
-                    file_size: size,
+                    layout: UploadLayout::new(size, personal.upload_part_size(size)).unwrap(),
                     parent_file_id: "/",
                     content_hash: "fictional-hash",
-                    part_size: personal.upload_part_size(size),
                 })
                 .await
                 .unwrap();
@@ -842,10 +831,9 @@ mod tests {
             .create_upload(UploadFile {
                 local_path: std::path::Path::new("small.bin"),
                 file_name: "small.bin",
-                file_size: 1,
+                layout: UploadLayout::new(1, personal.upload_part_size(1)).unwrap(),
                 parent_file_id: "/",
                 content_hash: "fictional-hash",
-                part_size: personal.upload_part_size(1),
             })
             .await
             .err()
@@ -907,10 +895,9 @@ mod tests {
                     .create_upload(UploadFile {
                         local_path: std::path::Path::new("boundary.bin"),
                         file_name: "boundary.bin",
-                        file_size: size,
+                        layout: UploadLayout::new(size, personal.upload_part_size(size)).unwrap(),
                         parent_file_id: "/",
                         content_hash: "fictional-hash",
-                        part_size: personal.upload_part_size(size),
                     })
                     .await;
                 assert_eq!(result.is_ok(), accepted, "{plan}: {size}");
@@ -978,9 +965,8 @@ mod tests {
             local_path: source.path(),
             upload_id: "upload",
             file_id: "new",
-            file_size: 101,
+            layout: UploadLayout::new(101, 1).unwrap(),
             content_hash: "fictional-hash",
-            part_size: 1,
             initial_parts: &initial,
             pb: None,
         })
@@ -1023,9 +1009,8 @@ mod tests {
             local_path: source.path(),
             upload_id: "upload",
             file_id: "new",
-            file_size: 2,
+            layout: UploadLayout::new(2, 2).unwrap(),
             content_hash: "fictional-hash",
-            part_size: 2,
             initial_parts: &[crate::models::upload::PersonalPartInfo {
                 part_number: 1,
                 upload_url: server.url("/part"),

@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 
-pub(in crate::services) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
+pub(super) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
     exclude
         .iter()
         .map(|pattern| {
