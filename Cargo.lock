@@ -357,6 +357,7 @@ dependencies = [
 name = "cloud139-cli"
 version = "3.0.0"
 dependencies = [
+ "anstream",
  "anyhow",
  "base64",
  "chrono",

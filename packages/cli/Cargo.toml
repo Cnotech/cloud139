@@ -7,6 +7,7 @@ rust-version = "1.88"
 [dependencies]
 cloud139 = { path = "../lib", version = "3.0.0" }
 clap = { version = "4.6", features = ["derive"] }
+anstream = "1"
 anyhow = "1"
 thiserror = "2.0"
 tokio = { version = "1.51", features = ["macros", "rt-multi-thread"] }

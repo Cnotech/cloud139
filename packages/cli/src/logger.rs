@@ -63,9 +63,9 @@ pub fn route_status_to_stderr() {
 pub fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
     crate::presentation::progress::suspend(|| {
         if level == "error" || STATUS_TO_STDERR.load(Ordering::Relaxed) {
-            eprintln!("\x1b[{color}m{level}\x1b[0m {message}");
+            anstream::eprintln!("\x1b[{color}m{level}\x1b[0m {message}");
         } else {
-            println!("\x1b[{color}m{level}\x1b[0m {message}");
+            anstream::println!("\x1b[{color}m{level}\x1b[0m {message}");
         }
     });
 }
