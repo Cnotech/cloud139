@@ -51,48 +51,6 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 >
 > 更多详情可参考：[AList 文档](https://alistgo.com/zh/guide/drivers/139.html#%E6%96%B0%E4%B8%AA%E4%BA%BA%E4%BA%91)
 
-### 从 2.x 升级到 3.0
-
-- 创建目录时去掉 `mkdir -f` 或 `mkdir --force`。需要同时创建父目录时使用 `mkdir -p`。
-- 登录使用 `cloud139 login -t <TOKEN>`。旧脚本可移除 `--storage-type`、`--cloud-id` 和 `--root-folder-id`。
-- `rm --yes` 将文件移到回收站，目录另加 `-r`。`--permanent` 已移除。
-- `sync --jobs` 接受 1 到 32，默认 4。
-- 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
-- Rust 库移除了 `aes_cbc_encrypt`、`aes_cbc_decrypt`、`aes_ecb_decrypt`、`sha1_hash` 和 `calc_file_hash`。仍需兼容旧密文或 SHA-1 摘要的应用可直接依赖对应的算法 crate。新的文件完整性校验可使用 `cloud139::utils::crypto::calc_file_sha256`。
-- Rust 库移除了旧家庭相册请求使用的 `sort_json_value_to_string`。仍需兼容旧请求格式的应用可自行保留原有的对象键排序和字符串解析逻辑。
-- Rust 库移除了 `pkcs7_pad` 和 `pkcs7_unpad`，仍需 PKCS#7 填充的应用可使用加密库提供的填充接口。
-- Rust 库移除了 `utils::width` 下的 `str_width`、`truncate_with_width` 和 `pad_with_width`。应用可以使用字符显示宽度库实现终端对齐。
-- Rust 库移除了 `services::mkdir_service::parse_path`。创建目录时可直接将完整路径传给 `services::mkdir::mkdir`。如需保留旧拆分行为，先对输入调用 `trim()`，再用 `utils::remote_path::non_root` 校验、用 `rsplit_once('/')` 拆分，并将空父路径视为 `/`。
-- Rust 库的导入路径有调整。请按下表从定义模块导入。
-
-| 原导入位置 | 新导入位置 |
-| ---------- | ---------- |
-| `client::ClientError`、`config::ConfigError` | `error::{ClientError, ConfigError}` |
-| `client::api::HttpClientWrapper` | `client::http::HttpClientWrapper` |
-| `client::api` 下的 `get_file_id_by_path`、`get_personal_file_detail`、`get_personal_download_link` | 从 `client::api::files` 导入 |
-| `client::auth` 下的 Token 解析与续期接口 | 从 `client::auth::token` 导入 `parse_login_token`，从 `client::auth::refresh` 导入 `RefreshOptions`、`refresh_token` 和 `refresh_token_if_due` |
-| `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
-| `models` 下的类型 | 按用途从 `models` 的相应子模块导入 |
-| `models::auth` 下的路由策略类型 | `models::route` |
-| `models::common::{ApiResult, CreateBatchOprTaskResp}` | `models::batch_ops` |
-| `models::common::{DownloadUrlResp, DownloadUrlData}` | `models::download` |
-| `models::common` 下的 `CreateFolderResp`、`CreateFolderData`、`QueryFileResp`、`QueryFileData` | `models::files` |
-| `utils::rand::generate_rand_str` | `utils::crypto::generate_rand_str` |
-| `utils::time::parse_personal_time` | `models::list::parse_personal_time` |
-| `utils::crypto::{calc_sign, encode_uri_component}` | `client::http::{calc_sign, encode_uri_component}` |
-| `utils::resolve_local_path`、`utils::path::resolve_local_path` | `services::download::resolve_local_path` |
-| `utils` 下的其他函数 | 按用途从定义所在的子模块导入，例如 `utils::crypto` 或 `utils::path` |
-| `services::copy::cp`、`services::mv::mv` | `services::directory::{cp, mv}` |
-| `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::directory::{cp, mv}`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
-| `services::*_service` 下的类型和函数 | 多数模块名去掉 `_service`，例如 `services::download`。复制和移动入口使用 `services::directory`，同步接口见下方 |
-| `services::sync_executor`、`services::sync_report` | 分别从 `services::sync::executor`、`services::sync::report` 导入 |
-| `services::sync_service` 或 `services::sync` 下的同步类型和函数 | 在 `services::sync` 下，从 `plan` 导入 `SyncRequest`、`SyncPlan`、`SyncOutcome`。扫描接口和类型从 `scan` 导入，差异计算从 `diff` 导入，端点解析从 `paths` 导入，`format_action_line` 从 `report` 导入 |
-| `services::progress` 下的进度接口和类型 | `progress::{TransferProgress, Progress, ProgressFactory}` |
-| `services::directory_service` 下的路径工具 | `utils::path::safe_local` 和 `utils::remote_path::{normalize, non_root, validate_name}` |
-| `services::sync_service::cloud_child_path` | `utils::remote_path::cloud_child_path` |
-| `services::sync_service::normalize_cloud_path`、`utils::remote_path::normalize_cloud_path` | `services::sync::paths::normalize_cloud_path` |
-| `services::directory_service::invalid`、`utils::remote_path::invalid` | `error::invalid` |
-
 ### 基本使用
 
 登录校验通过后保存配置。
