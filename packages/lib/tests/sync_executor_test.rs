@@ -1,6 +1,6 @@
 use cloud139::config::Config;
 use cloud139::models::sync_item::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
-use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
+use cloud139::services::sync::executor::{SyncExecuteOptions, execute_sync_actions};
 use tempfile::tempdir;
 
 #[tokio::test]

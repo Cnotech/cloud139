@@ -1,9 +1,9 @@
-use super::sync_remote::SyncCloud;
-use super::sync_report::SyncReport;
+use super::remote::SyncCloud;
+use super::report::SyncReport;
+use super::{CloudSyncScan, format_action_line};
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::local_scan::LocalSyncScan;
-use crate::services::sync::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
@@ -271,7 +271,7 @@ async fn execute_one_action(
             ..
         } => {
             // Validate the source before creating any missing cloud parents.
-            super::upload::checked_upload_size(local_abs)?;
+            crate::services::upload::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs
                 .file_name()
@@ -325,7 +325,7 @@ async fn execute_one_action(
                 let attempt_pb = pb.clone();
                 async move {
                     if let Some((host, id, size)) = scanned {
-                        super::download::download_scanned_personal(
+                        crate::services::download::download_scanned_personal(
                             config, host, id, local_abs, attempt_pb, size,
                         )
                         .await?;

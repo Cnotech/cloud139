@@ -1,7 +1,7 @@
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 
-pub(super) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
+pub(in crate::services) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern>> {
     exclude
         .iter()
         .map(|pattern| {
@@ -10,7 +10,7 @@ pub(super) fn compile_exclude_patterns(exclude: &[String]) -> Result<Vec<Pattern
         .collect()
 }
 
-pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
+pub(in crate::services) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
     let options = glob::MatchOptions {
         case_sensitive: true,
         require_literal_separator: true,
@@ -33,7 +33,7 @@ pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
     })
 }
 
-pub(super) fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
+pub(in crate::services) fn path_and_ancestors(path: &str) -> impl Iterator<Item = &str> {
     std::iter::successors(Some(path), |path| {
         path.rsplit_once('/').map(|(parent, _)| parent)
     })

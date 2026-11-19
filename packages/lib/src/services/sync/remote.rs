@@ -1,10 +1,8 @@
-use super::{
-    directory as dirs,
-    sync::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
-};
+use super::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES};
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
+use crate::services::{directory as dirs, download};
 use crate::utils::{
     remote_path::{self, cloud_child_path},
     retry::with_retries,
@@ -13,7 +11,7 @@ use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-pub(super) async fn remote_sha256(
+pub(in crate::services) async fn remote_sha256(
     config: &Config,
     host: &str,
     remote: &CloudSyncFile,
@@ -29,7 +27,7 @@ pub(super) async fn remote_sha256(
         .as_deref()
         .context("服务端未返回文件 ID，无法读取远端内容")?;
     with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-        super::download::personal_content_sha256(config, host, id, expected_size)
+        download::personal_content_sha256(config, host, id, expected_size)
             .await
             .map_err(Into::into)
     })

@@ -172,7 +172,7 @@ async fn large_file_upload_urls_include_part_101_and_tail_size() {
 #[tokio::test]
 async fn sync_transfer_and_completion_failures_never_delete_existing_file() {
     use cloud139::models::sync_item::{ChangeKind, SyncAction};
-    use cloud139::services::sync_executor::{SyncExecuteOptions, execute_sync_actions};
+    use cloud139::services::sync::executor::{SyncExecuteOptions, execute_sync_actions};
     for transfer_fails in [true, false] {
         let server = MockServer::start();
         let config = Config {

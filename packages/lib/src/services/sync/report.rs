@@ -1,4 +1,4 @@
-use super::sync::CloudSyncScan;
+use super::CloudSyncScan;
 use crate::error::RetryError;
 use crate::models::sync_item::{ChangeKind, FileEntry, SyncAction, SyncEntryKind};
 use serde::Serialize;

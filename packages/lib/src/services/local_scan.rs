@@ -1,4 +1,4 @@
-use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
+use super::sync::paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::utils::path::{check_destination_collisions, safe_local};
 use crate::utils::remote_path;

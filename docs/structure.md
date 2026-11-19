@@ -38,4 +38,4 @@ CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新�
 
 `models/file_item.rs` 定义列表服务返回的文件条目，`models/sync_item.rs` 定义同步扫描、计划和结果用的类型。云端请求和响应的数据模型按接口用途放在 `models` 的其他文件中。
 
-`services/sync.rs` 定义同步请求、计划和执行入口，`services/upload.rs` 实现文件、目录和分片上传。同步和目录上传共用 `services::local_scan` 的本地扫描。同步扫描使用 `services::sync_paths` 的路径过滤规则，同步和上传共用 `services::sync_remote` 的远端 SHA-256 读取。库内和外部调用方都从定义模块导入，例如从 `error` 导入错误类型、从 `utils::remote_path` 导入远端路径校验。
+`services/sync/mod.rs` 定义同步请求、计划和执行入口。执行器、报告、路径过滤、远端操作和校验都在 `services/sync/` 下。`services/upload.rs` 实现文件、目录和分片上传。同步和目录上传共用 `services::local_scan` 的本地扫描及 `services::sync::paths` 的路径过滤规则，同步和上传共用 `services::sync::remote` 的远端 SHA-256 读取。库内和外部调用方都从定义模块导入，例如从 `error` 导入错误类型、从 `utils::remote_path` 导入远端路径校验。

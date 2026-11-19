@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use cloud139::services::sync_executor::MAX_JOBS;
+use cloud139::services::sync::executor::MAX_JOBS;
 use std::path::PathBuf;
 
 #[derive(Parser)]

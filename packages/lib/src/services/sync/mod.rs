@@ -1,5 +1,14 @@
+pub mod executor;
+pub(super) mod paths;
+pub(super) mod remote;
+pub mod report;
+mod verify;
+
+use self::executor::{SyncExecuteOptions, execute_scanned_sync};
+use self::paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
+use self::report::SyncReport;
+use self::verify::execute_verified_sync;
 use super::local_scan::{LocalSyncScan, scan_items, scan_local_target, scan_upload_source};
-use super::sync_paths::{compile_exclude_patterns, is_excluded, path_and_ancestors};
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
@@ -10,9 +19,6 @@ use crate::models::sync_item::{
     SyncTarget,
 };
 use crate::progress::ProgressFactory;
-use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
-use crate::services::sync_report::SyncReport;
-use crate::services::sync_verify::execute_verified_sync;
 use crate::utils::path::rel_to_local;
 use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
 use crate::utils::remote_path;
@@ -579,8 +585,8 @@ fn parse_cloud_mtime(item: &crate::models::list::PersonalFileItem) -> Option<i64
 /// sync 的请求级重试参数：4 次重试（首次 + 4），退避 2/4/8/16 秒。
 ///
 /// 只作用于**读操作**（列表、下载、路径解析）；上传/建目录等写操作不重试。
-pub(super) const SYNC_RETRIES: u32 = 4;
-pub(super) const SYNC_BACKOFF_SECS: u64 = 2;
+const SYNC_RETRIES: u32 = 4;
+const SYNC_BACKOFF_SECS: u64 = 2;
 
 pub(super) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
     retries: SYNC_RETRIES,
@@ -605,13 +611,13 @@ pub struct CloudSyncScan {
     directories: BTreeMap<String, String>,
     protected: BTreeSet<String>,
     pub(super) files: BTreeMap<String, CloudSyncFile>,
-    pub(super) host: String,
-    pub(super) root: String,
+    host: String,
+    root: String,
 }
 
 #[derive(PartialEq, Eq)]
 pub(super) struct CloudSyncFile {
-    pub(super) id: Option<String>,
+    id: Option<String>,
     pub(super) size: Option<u64>,
     pub(super) sha256: Option<String>,
     modified: Option<String>,
@@ -663,7 +669,7 @@ impl CloudSyncScan {
         )
     }
 
-    pub(super) fn directory_id(&self, rel_path: &str) -> Option<&str> {
+    fn directory_id(&self, rel_path: &str) -> Option<&str> {
         self.directories.get(rel_path).map(String::as_str)
     }
 
@@ -675,7 +681,7 @@ impl CloudSyncScan {
         Ok(self.directory_id(rel_path))
     }
 
-    pub(super) fn descendant_file_paths(&self, root_path: &str) -> impl Iterator<Item = &str> {
+    fn descendant_file_paths(&self, root_path: &str) -> impl Iterator<Item = &str> {
         let prefix = format!("{root_path}/");
         self.files
             .range(prefix.clone()..)

@@ -1,11 +1,11 @@
-use super::sync_remote::{SyncCloud, remote_sha256};
-use super::sync_report::SyncReport;
+use super::CloudSyncScan;
+use super::executor::{SyncExecuteOptions, make_action_progress};
+use super::remote::{SyncCloud, remote_sha256};
+use super::report::SyncReport;
 use crate::config::Config;
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
-use crate::services::sync::CloudSyncScan;
-use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
-use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
+use crate::services::upload::{SyncUploadPlan, checked_upload_size, upload_sync_to_parent};
 use crate::utils::remote_path::cloud_child_path;
 use anyhow::{Context, Result, anyhow, ensure};
 use std::collections::{BTreeMap, HashSet};
@@ -139,7 +139,7 @@ impl VerifiedSync<'_> {
         else {
             unreachable!("only upload actions are verified");
         };
-        let size = super::upload::checked_upload_size(local_abs)? as u64;
+        let size = checked_upload_size(local_abs)? as u64;
         let (parent, name) = parent_and_name(rel_path);
         let remote_parent = cloud_child_path(self.cloud_root, parent);
         let parent_id = self.remote.ensure_directory(&remote_parent).await?;

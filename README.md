@@ -70,6 +70,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `utils` 下的函数 | 按用途从 `utils::{crypto, path, rand, time, width}` 的相应子模块导入 |
 | `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::copy::cp`、`services::mv::mv`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
 | `services::*_service` 下的类型和函数 | 模块名去掉 `_service`，例如 `services::sync::SyncRequest`。移动服务使用 `services::mv` |
+| `services::sync_executor`、`services::sync_report` | 分别从 `services::sync::executor`、`services::sync::report` 导入 |
 | `services::progress` 下的进度接口和类型 | `progress::{TransferProgress, Progress, ProgressFactory}` |
 | `services::directory_service` 下的路径工具 | `utils::path::safe_local` 和 `utils::remote_path::{normalize, non_root, validate_name}` |
 | `services::sync_service` 下的远端路径工具 | `utils::remote_path::{cloud_child_path, normalize_cloud_path}` |

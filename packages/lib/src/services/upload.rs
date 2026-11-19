@@ -7,10 +7,10 @@ use crate::models::list::PersonalFileItem;
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::progress::Progress;
 use crate::protocol;
+use crate::services::sync::remote::remote_sha256;
 use crate::services::sync::{
     CloudSyncFile, CloudSyncScan, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
 };
-use crate::services::sync_remote::remote_sha256;
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;
 use crate::utils::{
