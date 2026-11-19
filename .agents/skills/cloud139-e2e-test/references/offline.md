@@ -38,6 +38,7 @@ cargo test --locked --offline -p cloud139 --test download_dir_paging_test --test
 | 13.5 | 目录用例覆盖上传部分失败、批量条目失败、分页重试与断连、下载大小不符、失败列表和上传回执缺失。看 `upload_and_batch_errors_propagate_partial_failure`、`recursive_upload_retries_the_failed_page_without_replaying_writes`、`recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconnect` 和 `recursive_download_validates_listed_size_without_content_length`。确认已完成部分、重试范围和错误结果。 |
 | 13.8 | `cargo test --locked --offline -p cloud139 --lib services::download::tests` 验证下载断流、错误响应、已有文件及进度重试。[download_dir_paging_test](../../../../packages/lib/tests/download_dir_paging_test.rs) 核对下载链接的业务错误和空 CDN 地址的回退。 |
 | 13.9 | [personal_pc_test](../../../../packages/lib/tests/personal_pc_test.rs) 和 `cargo test --locked --offline -p cloud139 --lib client::api::upload::tests` 核对 PC 请求头、上传权益由远端判断、分片和完成失败时保留原同步目标。用 mock 覆盖大文件权益错误。 |
+| 13.12 | `cargo test --locked --offline -p cloud139 --test personal_pc_test rapid_upload_` 核对 `rapidUpload: true` 且无分片时返回成功，未确认秒传且无分片时返回失败。 |
 
 ## 同步和清理
 

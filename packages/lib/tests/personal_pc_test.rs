@@ -1,4 +1,5 @@
 use cloud139::client::http::HttpClientWrapper;
+use cloud139::services::upload::upload;
 use cloud139::{
     client::{
         api::{self, headers},
@@ -95,6 +96,73 @@ async fn imported_token_and_refreshed_token_both_work_with_pc_file_requests() {
         assert_eq!(response["success"], true);
         request.assert_calls(1);
     }
+}
+
+#[tokio::test]
+async fn rapid_upload_accepts_explicit_confirmation_without_parts() {
+    let server = MockServer::start();
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let list = server.mock(|when, then| {
+        when.method(POST).path("/file/list");
+        then.json_body(json!({"success": true, "data": {"items": []}}));
+    });
+    let create = server.mock(|when, then| {
+        when.method(POST).path("/file/create");
+        then.json_body(json!({"success": true, "data": {
+            "fileId": "new-id", "fileName": "reported.bin", "rapidUpload": true,
+            "partInfos": []
+        }}));
+    });
+    let completion = server.mock(|when, then| {
+        when.method(POST).path("/file/complete");
+        then.status(500);
+    });
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"bytes").unwrap();
+
+    upload(&config, local.path(), "/", "sample.bin", 5, false, None)
+        .await
+        .unwrap();
+
+    list.assert_calls(1);
+    create.assert_calls(1);
+    completion.assert_calls(0);
+}
+
+#[tokio::test]
+async fn upload_rejects_no_parts_without_rapid_upload_confirmation() {
+    let server = MockServer::start();
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let list = server.mock(|when, then| {
+        when.method(POST).path("/file/list");
+        then.json_body(json!({"success": true, "data": {"items": []}}));
+    });
+    let create = server.mock(|when, then| {
+        when.method(POST).path("/file/create");
+        then.json_body(json!({"success": true, "data": {
+            "fileId": "new-id", "fileName": "sample.bin", "rapidUpload": false
+        }}));
+    });
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"bytes").unwrap();
+
+    let error = upload(&config, local.path(), "/", "sample.bin", 5, false, None)
+        .await
+        .unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("服务端未确认秒传，也未返回上传分片")
+    );
+    list.assert_calls(1);
+    create.assert_calls(1);
 }
 
 #[cfg(unix)]

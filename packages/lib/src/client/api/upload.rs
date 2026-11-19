@@ -81,6 +81,7 @@ impl PersonalClient<'_> {
             .file_id
             .filter(|id| is_non_root_file_id(id))
             .ok_or_else(|| ClientError::Api("服务端未返回新文件 ID".into()))?;
+        let rapid_upload_confirmed = data.rapid_upload == Some(true) || data.exist == Some(true);
         let pending = match data.part_infos.filter(|parts| !parts.is_empty()) {
             Some(parts) => {
                 let upload_id = data
@@ -89,7 +90,7 @@ impl PersonalClient<'_> {
                     .ok_or_else(|| ClientError::Api("服务端未返回分片上传 ID".into()))?;
                 Some(PendingUpload { upload_id, parts })
             }
-            None if data.exist == Some(true) || file_size == 0 => None,
+            None if rapid_upload_confirmed || file_size == 0 => None,
             None => {
                 return Err(ClientError::Api(
                     "服务端未确认秒传，也未返回上传分片".into(),
