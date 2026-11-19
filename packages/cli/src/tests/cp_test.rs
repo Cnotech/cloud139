@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
-use crate::commands::cp;
+use crate::cli::CpArgs;
 use cloud139::client::ClientError;
 use cloud139::config::Config;
 use cloud139::services::copy_service;
 
 #[test]
 fn test_cp_args_validation_single_source() {
-    let args = cp::CpArgs {
+    let args = CpArgs {
         source: vec!["/source.txt".to_string()],
         target: "/target/".to_string(),
         force: false,
@@ -19,7 +19,7 @@ fn test_cp_args_validation_single_source() {
 
 #[test]
 fn test_cp_args_validation_multiple_sources() {
-    let args = cp::CpArgs {
+    let args = CpArgs {
         source: vec!["/source1.txt".to_string(), "/source2.txt".to_string()],
         target: "/target/".to_string(),
         force: false,
@@ -31,7 +31,7 @@ fn test_cp_args_validation_multiple_sources() {
 
 #[test]
 fn test_cp_args_with_force() {
-    let args = cp::CpArgs {
+    let args = CpArgs {
         source: vec!["/source.txt".to_string()],
         target: "/target/".to_string(),
         force: true,

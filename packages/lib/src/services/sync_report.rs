@@ -45,7 +45,7 @@ pub struct SyncFileChange {
 }
 
 impl SyncReport {
-    pub(crate) fn new(dry_run: bool, track_paths: bool) -> Self {
+    pub(super) fn new(dry_run: bool, track_paths: bool) -> Self {
         Self {
             dry_run,
             track_paths,
@@ -53,7 +53,7 @@ impl SyncReport {
         }
     }
 
-    pub(crate) fn count_source_files(&mut self, source: &[FileEntry], actions: &[SyncAction]) {
+    pub(super) fn count_source_files(&mut self, source: &[FileEntry], actions: &[SyncAction]) {
         let skipped: HashSet<_> = actions
             .iter()
             .filter_map(|action| match action {

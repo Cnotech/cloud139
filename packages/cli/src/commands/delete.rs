@@ -1,19 +1,7 @@
+use crate::cli::DeleteArgs;
 use crate::{debug, info, success, warn};
-use clap::Parser;
 use cloud139::client::ClientError;
 use cloud139::config::Config;
-
-#[derive(Parser, Debug)]
-pub struct DeleteArgs {
-    #[arg(short = 'r', long, help = "确认递归删除目录（仍需 --yes）")]
-    pub recursive: bool,
-
-    #[arg(help = "远程文件或目录路径")]
-    pub path: String,
-
-    #[arg(short, long, help = "确认删除")]
-    pub yes: bool,
-}
 
 pub(super) fn preflight(args: &DeleteArgs) -> anyhow::Result<()> {
     cloud139::services::directory_service::non_root(&args.path)?;

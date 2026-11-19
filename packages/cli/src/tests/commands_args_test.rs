@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::commands::{cp, rename, upload};
+use crate::cli::{CpArgs, RenameArgs, UploadArgs};
 
 #[test]
 fn test_rename_args_validation() {
-    let args = rename::RenameArgs {
+    let args = RenameArgs {
         source: "/old.txt".to_string(),
         target: "new.txt".to_string(),
         force: false,
@@ -15,7 +15,7 @@ fn test_rename_args_validation() {
 
 #[test]
 fn test_cp_args_validation() {
-    let args = cp::CpArgs {
+    let args = CpArgs {
         source: vec!["/source.txt".to_string()],
         target: "/target/".to_string(),
         force: false,
@@ -27,7 +27,7 @@ fn test_cp_args_validation() {
 
 #[test]
 fn test_cp_args_with_force() {
-    let args = cp::CpArgs {
+    let args = CpArgs {
         source: vec!["/source.txt".to_string()],
         target: "/target/".to_string(),
         force: true,
@@ -37,7 +37,7 @@ fn test_cp_args_with_force() {
 
 #[test]
 fn test_upload_args_validation() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/remote/".to_string(),
         force: false,
@@ -49,7 +49,7 @@ fn test_upload_args_validation() {
 
 #[test]
 fn test_upload_args_with_force() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/remote/".to_string(),
         force: true,
@@ -59,7 +59,7 @@ fn test_upload_args_with_force() {
 
 #[test]
 fn test_upload_args_default_remote_path() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/".to_string(),
         force: false,

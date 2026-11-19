@@ -71,7 +71,7 @@ fn print_json_report(
 }
 
 /// 打印同步结果摘要。
-pub fn print_summary(summary: &SyncSummary, dry_run: bool) {
+fn print_summary(summary: &SyncSummary, dry_run: bool) {
     let mut parts = Vec::new();
     if summary.transferred > 0 {
         parts.push(format!("{} 个文件传输", summary.transferred));

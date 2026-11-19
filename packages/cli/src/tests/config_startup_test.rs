@@ -22,8 +22,7 @@ async fn command_dispatch_uses_its_own_config_path() {
     save_config(&expiring_config("account-b"), &second).unwrap();
 
     let command = || {
-        crate::cli::app::Cli::parse_from(["cloud139", "sync", "cloud:/", "local", "--verify"])
-            .command
+        crate::cli::Cli::parse_from(["cloud139", "sync", "cloud:/", "local", "--verify"]).command
     };
     let (first, second) = tokio::join!(
         crate::commands::execute(command(), Some(&first)),

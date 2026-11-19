@@ -15,23 +15,23 @@ use crate::{
 use std::{collections::HashMap, ops::Range, path::Path};
 
 pub(crate) struct UploadFile<'a> {
-    pub local_path: &'a Path,
-    pub file_name: &'a str,
-    pub file_size: i64,
-    pub parent_file_id: &'a str,
-    pub content_hash: &'a str,
-    pub part_size: i64,
+    pub(crate) local_path: &'a Path,
+    pub(crate) file_name: &'a str,
+    pub(crate) file_size: i64,
+    pub(crate) parent_file_id: &'a str,
+    pub(crate) content_hash: &'a str,
+    pub(crate) part_size: i64,
 }
 
 pub(crate) struct CreatedUpload {
-    pub file_id: String,
-    pub name: Option<String>,
-    pub pending: Option<PendingUpload>,
+    pub(crate) file_id: String,
+    pub(crate) name: Option<String>,
+    pub(crate) pending: Option<PendingUpload>,
 }
 
 pub(crate) struct PendingUpload {
-    pub upload_id: String,
-    pub parts: Vec<PersonalPartInfo>,
+    pub(crate) upload_id: String,
+    pub(crate) parts: Vec<PersonalPartInfo>,
 }
 
 impl PersonalClient<'_> {

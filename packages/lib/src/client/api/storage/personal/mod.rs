@@ -11,3 +11,4 @@ pub(crate) use listing::ListPageOptions;
 pub use listing::get_file_id_by_path;
 pub use transfer::get_personal_download_link;
 pub(crate) use transfer::{DownloadLink, put_upload_part};
+pub(crate) use upload::UploadFile;

@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use crate::commands::upload;
+use crate::cli::UploadArgs;
 use cloud139::client::api::upload::get_part_size;
 
 #[test]
 fn test_upload_args_defaults() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/".to_string(),
         force: false,
@@ -17,7 +17,7 @@ fn test_upload_args_defaults() {
 
 #[test]
 fn test_upload_args_with_force() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/remote/".to_string(),
         force: true,
@@ -27,7 +27,7 @@ fn test_upload_args_with_force() {
 
 #[test]
 fn test_upload_args_default_remote() {
-    let args = upload::UploadArgs {
+    let args = UploadArgs {
         local_path: "/local/file.txt".to_string(),
         remote_path: "/".to_string(),
         force: false,

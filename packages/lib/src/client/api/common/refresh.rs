@@ -24,8 +24,8 @@ impl Default for RefreshOptions<'_> {
 }
 
 pub(in crate::client) struct RefreshedToken {
-    pub token: String,
-    pub expire_seconds: i64,
+    pub(in crate::client) token: String,
+    pub(in crate::client) expire_seconds: i64,
 }
 
 fn build_refresh_headers() -> HeaderMap {

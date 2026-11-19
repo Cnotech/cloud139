@@ -1,15 +1,15 @@
-pub mod cp;
-pub mod delete;
-pub mod download;
-pub mod list;
-pub mod login;
-pub mod mkdir;
-pub mod mv;
-pub mod rename;
-pub mod sync;
-pub mod upload;
+mod cp;
+mod delete;
+mod download;
+mod list;
+mod login;
+mod mkdir;
+mod mv;
+mod rename;
+mod sync;
+mod upload;
 
-use crate::cli::app::Commands;
+use crate::cli::Commands;
 use crate::config::{config_paths, refresh_saved_token};
 use cloud139::client::{ClientError, auth};
 use cloud139::config::{Config, ConfigError};

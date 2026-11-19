@@ -1,3 +1,5 @@
+#![warn(unreachable_pub)]
+
 mod cli;
 mod commands;
 mod config;
@@ -9,7 +11,7 @@ mod presentation;
 mod tests;
 
 use clap::Parser;
-use cli::app::{Cli, Commands};
+use cli::{Cli, Commands};
 use error::CommandExit;
 
 #[tokio::main]

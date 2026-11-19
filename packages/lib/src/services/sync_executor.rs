@@ -2,7 +2,8 @@ use super::progress::{Progress, ProgressFactory};
 use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
-use crate::services::sync_service::{CloudSyncScan, LocalSyncScan, format_action_line};
+use crate::services::sync_local::LocalSyncScan;
+use crate::services::sync_service::{CloudSyncScan, format_action_line};
 use crate::utils::path::safe_local;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
@@ -26,7 +27,7 @@ pub async fn execute_sync_actions(
     execute_scanned_sync(config, actions, options, None, None, None, None).await
 }
 
-pub(crate) async fn execute_scanned_sync(
+pub(super) async fn execute_scanned_sync(
     config: &crate::config::Config,
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
@@ -278,7 +279,7 @@ async fn execute_one_action(
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             let parent_id = remote.ensure_directory(&remote_dir).await?;
             let listing = remote.listing().await?;
-            use crate::services::upload::personal::{SyncUploadPlan, upload_sync_to_parent};
+            use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
             upload_sync_to_parent(
                 config,
                 local_abs,

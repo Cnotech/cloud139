@@ -3,7 +3,7 @@ use cloud139::domain::file_item::EntryKind;
 use cloud139::services::list_service::ListResult;
 use serde::Serialize;
 
-pub fn format_size(size: i64) -> String {
+pub(crate) fn format_size(size: i64) -> String {
     if size < 1024 {
         format!("{} B", size)
     } else if size < 1024 * 1024 {
@@ -15,7 +15,7 @@ pub fn format_size(size: i64) -> String {
     }
 }
 
-pub fn render_terminal(result: &ListResult) {
+pub(crate) fn render_terminal(result: &ListResult) {
     print!("\n文件列表 ({}):", result.path);
     print!("{:<40} {:>15} {:<20}", "名称", "大小", "修改时间");
     print!("{}", "-".repeat(80));
@@ -37,30 +37,30 @@ pub fn render_terminal(result: &ListResult) {
 }
 
 #[derive(Serialize)]
-pub struct JsonListOutput {
-    pub path: String,
+struct JsonListOutput {
+    path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<i32>,
+    page: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub page_size: Option<i32>,
-    pub total: i32,
-    pub items: Vec<JsonFileItem>,
+    page_size: Option<i32>,
+    total: i32,
+    items: Vec<JsonFileItem>,
 }
 
 #[derive(Serialize)]
-pub struct JsonFileItem {
-    pub name: String,
+struct JsonFileItem {
+    name: String,
     #[serde(rename = "type")]
-    pub file_type: String,
-    pub size: i64,
-    pub modified: String,
+    file_type: String,
+    size: i64,
+    modified: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_hash: Option<String>,
+    content_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_hash_algorithm: Option<String>,
+    content_hash_algorithm: Option<String>,
 }
 
-pub fn json_output(result: &ListResult, pagination: Option<(i32, i32)>) -> JsonListOutput {
+pub(crate) fn json_output(result: &ListResult, pagination: Option<(i32, i32)>) -> impl Serialize {
     let (page, page_size) = match pagination {
         Some((page, page_size)) => (Some(page), Some(page_size)),
         None => (None, None),

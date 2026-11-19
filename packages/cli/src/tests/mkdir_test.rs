@@ -1,11 +1,11 @@
 #![allow(dead_code)]
 
-use crate::commands::mkdir;
+use crate::cli::MkdirArgs;
 use cloud139::services::mkdir_service;
 
 #[test]
 fn test_mkdir_args_defaults() {
-    let args = mkdir::MkdirArgs {
+    let args = MkdirArgs {
         parents: false,
         path: "/test".to_string(),
     };

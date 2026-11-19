@@ -20,20 +20,20 @@ impl From<io::Error> for ConfigWriteError {
 
 /// 带自定义退出码的命令错误。
 #[derive(Debug)]
-pub struct CommandExit {
+pub(crate) struct CommandExit {
     code: i32,
     message: String,
 }
 
 impl CommandExit {
-    pub fn new(code: i32, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: i32, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),
         }
     }
 
-    pub fn code(&self) -> i32 {
+    pub(crate) fn code(&self) -> i32 {
         self.code
     }
 }

@@ -1,52 +1,11 @@
+use crate::cli::SyncArgs;
 use crate::error::CommandExit;
-use crate::presentation::sync_renderer::{print_outcome, print_plan};
-use clap::Parser;
+use crate::presentation::{print_outcome, print_plan};
 use cloud139::config::Config;
 use cloud139::services::progress::ProgressFactory;
-use cloud139::services::sync_executor::{MAX_JOBS, SyncExecuteOptions};
+use cloud139::services::sync_executor::SyncExecuteOptions;
 use cloud139::services::sync_service::{SyncRequest, SyncScanOptions};
 use std::io::IsTerminal;
-
-fn parse_jobs(value: &str) -> Result<usize, String> {
-    let jobs = value
-        .parse::<usize>()
-        .map_err(|_| "并发数量必须为正整数".to_string())?;
-    if !(1..=MAX_JOBS).contains(&jobs) {
-        return Err(format!("并发数量必须介于 1 和 {MAX_JOBS} 之间"));
-    }
-    Ok(jobs)
-}
-
-#[derive(Parser, Debug, Clone)]
-pub struct SyncArgs {
-    #[arg(help = "源路径，本地路径或 cloud:/remote/path")]
-    pub src: String,
-
-    #[arg(help = "目标路径，本地路径或 cloud:/remote/path")]
-    pub dest: String,
-
-    #[arg(short = 'r', long, help = "递归同步子目录，空目录也会同步")]
-    pub recursive: bool,
-
-    #[arg(short = 'n', long, help = "只预览同步计划")]
-    pub dry_run: bool,
-
-    #[arg(long, help = "删除目标中源没有的文件或空目录")]
-    pub delete: bool,
-
-    #[arg(long, value_name = "PAT", help = "排除匹配的路径，可多次指定")]
-    pub exclude: Vec<String>,
-
-    #[arg(short = 'j', long, default_value_t = 4, default_value_if("verify", "true", Some("1")),
-        value_parser = parse_jobs, help = format!("同时传输的文件数，范围 1 到 {MAX_JOBS}。默认 4，--verify 固定为 1"))]
-    pub jobs: usize,
-
-    #[arg(long, help = "校验内容并修复不一致的文件")]
-    pub verify: bool,
-
-    #[arg(long, help = "以 JSON 报告本次同步的文件变更")]
-    pub json: bool,
-}
 
 pub(super) fn preflight(args: &SyncArgs) -> Result<SyncRequest, CommandExit> {
     let progress = show_progress(args);
@@ -81,7 +40,7 @@ pub(super) async fn execute(
         print_plan(plan.actions());
     }
     let progress: Option<&ProgressFactory<'_>> = if show_progress(&args) {
-        Some(&crate::presentation::progress::make_progress)
+        Some(&crate::presentation::make_progress)
     } else {
         None
     };

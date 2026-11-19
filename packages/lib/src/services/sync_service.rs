@@ -1,5 +1,5 @@
+use super::sync_local::LocalSyncScan;
 pub use super::sync_local::scan_local;
-pub(crate) use super::sync_local::{LocalSyncScan, scan_local_target, scan_upload_source};
 use crate::client::api::{HttpClientWrapper, ListPageOptions, ListingRetry, PersonalClient};
 use crate::debug;
 use crate::domain::{
@@ -405,8 +405,8 @@ fn parse_cloud_mtime(item: &crate::models::PersonalFileItem) -> Option<i64> {
 /// sync 的请求级重试参数：4 次重试（首次 + 4），退避 2/4/8/16 秒。
 ///
 /// 只作用于**读操作**（列表、下载、路径解析）；上传/建目录等写操作不重试。
-pub(crate) const SYNC_RETRIES: u32 = 4;
-pub(crate) const SYNC_BACKOFF_SECS: u64 = 2;
+pub(super) const SYNC_RETRIES: u32 = 4;
+pub(super) const SYNC_BACKOFF_SECS: u64 = 2;
 
 pub(super) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
     retries: SYNC_RETRIES,
@@ -414,8 +414,8 @@ pub(super) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
     timeout: None,
 };
 
-pub(crate) const SYNC_UPLOAD_PREFIX: &str = ".cloud139-upload-";
-pub(crate) const UPLOAD_BACKUP_PREFIX: &str = ".cloud139-backup-";
+pub(super) const SYNC_UPLOAD_PREFIX: &str = ".cloud139-upload-";
+pub(super) const UPLOAD_BACKUP_PREFIX: &str = ".cloud139-backup-";
 
 fn is_recovery_name(name: &str) -> bool {
     name.starts_with(SYNC_UPLOAD_PREFIX) || name.starts_with(UPLOAD_BACKUP_PREFIX)
@@ -436,16 +436,16 @@ pub struct CloudSyncScan {
     pub items: Vec<FileEntry>,
     directories: BTreeMap<String, String>,
     protected: BTreeSet<String>,
-    pub(crate) files: BTreeMap<String, CloudSyncFile>,
-    pub(crate) host: String,
-    pub(crate) root: String,
+    pub(super) files: BTreeMap<String, CloudSyncFile>,
+    pub(super) host: String,
+    pub(super) root: String,
 }
 
 #[derive(PartialEq, Eq)]
-pub(crate) struct CloudSyncFile {
-    pub(crate) id: Option<String>,
-    pub(crate) size: Option<u64>,
-    pub(crate) sha256: Option<String>,
+pub(super) struct CloudSyncFile {
+    pub(super) id: Option<String>,
+    pub(super) size: Option<u64>,
+    pub(super) sha256: Option<String>,
     modified: Option<String>,
 }
 
@@ -471,7 +471,7 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
 }
 
 impl CloudSyncScan {
-    pub(crate) fn compute_upload_diff(
+    fn compute_upload_diff(
         &self,
         source: &[FileEntry],
         options: SyncDiffOptions,
@@ -480,7 +480,7 @@ impl CloudSyncScan {
         compute_diff_inner(source, &self.items, options, Some(self), None, verify)
     }
 
-    pub(crate) fn compute_download_diff(
+    fn compute_download_diff(
         &self,
         target: &LocalSyncScan,
         options: SyncDiffOptions,
@@ -495,7 +495,7 @@ impl CloudSyncScan {
         )
     }
 
-    pub(crate) fn directory_id(&self, rel_path: &str) -> Option<&str> {
+    pub(super) fn directory_id(&self, rel_path: &str) -> Option<&str> {
         self.directories.get(rel_path).map(String::as_str)
     }
 

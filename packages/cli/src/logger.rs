@@ -55,13 +55,13 @@ macro_rules! print {
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
 static STATUS_TO_STDERR: AtomicBool = AtomicBool::new(false);
 
-pub fn route_status_to_stderr() {
+pub(crate) fn route_status_to_stderr() {
     STATUS_TO_STDERR.store(true, Ordering::Relaxed);
 }
 
 #[doc(hidden)]
-pub fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
-    crate::presentation::progress::suspend(|| {
+pub(crate) fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
+    crate::presentation::suspend_progress(|| {
         if level == "error" || STATUS_TO_STDERR.load(Ordering::Relaxed) {
             anstream::eprintln!("\x1b[{color}m{level}\x1b[0m {message}");
         } else {
@@ -70,16 +70,16 @@ pub fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
     });
 }
 
-pub fn init_verbose(level: &str) {
+pub(crate) fn init_verbose(level: &str) {
     VERBOSE_DEBUG.set(level == "debug").ok();
 }
 
 #[must_use]
-pub fn is_debug() -> bool {
+pub(crate) fn is_debug() -> bool {
     *VERBOSE_DEBUG.get().unwrap_or(&false)
 }
 
-pub fn init_core_logger() {
+pub(crate) fn init_core_logger() {
     static LOGGER: CoreLogger = CoreLogger;
     if log::set_logger(&LOGGER).is_ok() {
         log::set_max_level(if is_debug() {

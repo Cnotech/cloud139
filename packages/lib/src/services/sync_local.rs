@@ -16,7 +16,7 @@ pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry
     Ok(scan_local_snapshot(root, &options)?.items)
 }
 
-pub(crate) fn scan_upload_source(
+pub(super) fn scan_upload_source(
     path: PathBuf,
     options: &SyncScanOptions,
     delete: bool,
@@ -40,7 +40,7 @@ pub(crate) fn scan_upload_source(
 }
 
 #[derive(Default)]
-pub(crate) struct LocalSyncScan {
+pub(super) struct LocalSyncScan {
     single_file: bool,
     pub(super) items: Vec<FileEntry>,
     pub(super) protected: BTreeSet<String>,
@@ -67,7 +67,7 @@ impl LocalSyncScan {
         Ok(current)
     }
 
-    pub(crate) fn validate_destinations(&self, source: &CloudSyncScan, root: &Path) -> Result<()> {
+    pub(super) fn validate_destinations(&self, source: &CloudSyncScan, root: &Path) -> Result<()> {
         if source.items.is_empty() {
             return Ok(());
         }
@@ -111,7 +111,7 @@ fn same_local_object(original: &fs::Metadata, current: &fs::Metadata) -> bool {
             && original.modified().ok() == current.modified().ok()
 }
 
-pub(crate) fn scan_local_target(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
+pub(super) fn scan_local_target(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
     safe_local(root)?;
     match fs::symlink_metadata(root) {
         Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, options),

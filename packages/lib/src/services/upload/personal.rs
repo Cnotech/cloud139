@@ -1,10 +1,14 @@
-use crate::client::api::upload::UploadFile;
+use super::SyncUploadPlan;
 use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
 use crate::protocol;
-
+use crate::services::directory_service;
 use crate::services::progress::Progress;
-use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
+use crate::services::sync_remote::remote_sha256;
+use crate::services::sync_service::{
+    CloudSyncFile, SYNC_LIST_RETRY, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX,
+};
+use crate::services::upload_service::checked_upload_size;
 use crate::utils::{
     crypto::is_sha256_hex,
     remote_file::is_non_root_file_id,
@@ -18,18 +22,6 @@ fn finish_upload(name: &str, pb: &Option<Progress>) {
     if let Some(bar) = pb {
         bar.finish();
     }
-}
-
-pub(in crate::services) struct SyncUploadPlan<'a> {
-    pub host: &'a str,
-    pub scan: Option<&'a super::super::sync_service::CloudSyncScan>,
-    pub rel_path: &'a str,
-    pub parent_id: &'a str,
-    pub remote_parent: &'a str,
-    pub file_name: &'a str,
-    pub replace_directory_id: Option<&'a str>,
-    pub hash_missing: Option<&'a mut bool>,
-    pub file_changed: &'a mut bool,
 }
 
 /// Upload a unique sibling before replacing the destination.
@@ -50,8 +42,8 @@ pub(in crate::services) async fn upload_sync_to_parent(
         rel_path,
         file_changed,
     } = plan;
-    let file_size = super::super::upload_service::checked_upload_size(local_path)?;
-    super::super::directory_service::validate_name(file_name)?;
+    let file_size = checked_upload_size(local_path)?;
+    directory_service::validate_name(file_name)?;
     // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
     // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
     let verify_content_addressed = hash_missing.is_some() && is_sha256_hex(file_name);
@@ -138,18 +130,12 @@ pub(in crate::services) async fn upload_sync_to_parent(
                     item.file_id.as_deref() == Some(id) && item.name.as_deref() == Some(saved_name)
                 })
                 .context("找不到已确认的临时文件")?;
-            let remote = super::super::sync_service::CloudSyncFile::from(item);
+            let remote = CloudSyncFile::from(item);
             if remote.size.is_some_and(|size| size != uploaded.size) {
                 anyhow::bail!("上传后校验失败：临时文件大小不一致");
             }
-            let digest = super::super::sync_verify::remote_sha256(
-                config,
-                host,
-                &remote,
-                Some(uploaded.size),
-                hash_missing,
-            )
-            .await?;
+            let digest =
+                remote_sha256(config, host, &remote, Some(uploaded.size), hash_missing).await?;
             if digest != uploaded.sha256 {
                 anyhow::bail!("上传后校验失败：临时文件 SHA-256 不一致");
             }
@@ -158,7 +144,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
                 check_destination(&files, file_name, expected_id, expected_file)?;
             }
         }
-        let listing = personal.with_listing_retry(super::super::sync_service::SYNC_LIST_RETRY);
+        let listing = personal.with_listing_retry(SYNC_LIST_RETRY);
         if let Some(dir_id) = replace_directory_id {
             scan.context("替换目录需要扫描记录")?
                 .confirm_subtree(&listing, rel_path, dir_id)
@@ -166,8 +152,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
             files = confirm_uploaded_name(&personal, parent_id, id, saved_name).await?;
             check_destination(&files, file_name, expected_id, expected_file)?;
         }
-        super::super::directory_service::confirm_directory(&listing, remote_parent, parent_id)
-            .await?;
+        directory_service::confirm_directory(&listing, remote_parent, parent_id).await?;
         let installed = install_uploaded_file(
             &personal,
             parent_id,
@@ -258,7 +243,7 @@ async fn transfer_to_parent(
     if file_size < 0 {
         return Err(ClientError::InvalidFilePath);
     }
-    let file_size = super::super::upload_service::checked_upload_size(local_path)?;
+    let file_size = checked_upload_size(local_path)?;
     let part_size = personal.upload_part_size(file_size);
     checked_part_count(file_size, part_size)?;
     crate::debug!("开始计算文件 SHA-256");
@@ -268,7 +253,7 @@ async fn transfer_to_parent(
             .await
             .map_err(|error| ClientError::Other(format!("计算文件哈希失败: {error}")))??;
     let response = personal
-        .create_upload(UploadFile {
+        .create_upload(api::UploadFile {
             local_path,
             file_name,
             file_size,
@@ -529,7 +514,7 @@ mod tests {
                 then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
             });
             let response = personal
-                .create_upload(UploadFile {
+                .create_upload(api::UploadFile {
                     local_path: std::path::Path::new("large.bin"),
                     file_name: "large.bin",
                     file_size: size,
@@ -550,7 +535,7 @@ mod tests {
             then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
         });
         let error = personal
-            .create_upload(UploadFile {
+            .create_upload(api::UploadFile {
                 local_path: std::path::Path::new("small.bin"),
                 file_name: "small.bin",
                 file_size: 1,
@@ -615,7 +600,7 @@ mod tests {
                     });
                 });
                 let result = personal
-                    .create_upload(UploadFile {
+                    .create_upload(api::UploadFile {
                         local_path: std::path::Path::new("boundary.bin"),
                         file_name: "boundary.bin",
                         file_size: size,

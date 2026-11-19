@@ -233,8 +233,7 @@ async fn upload_file(
         }
     }
     let saved_name =
-        super::upload::personal::upload_to_parent(listing, path, parent_id, name, size, pb.clone())
-            .await?;
+        super::upload::upload_to_parent(listing, path, parent_id, name, size, pb.clone()).await?;
     crate::success!("上传完成: {saved_name}");
     if let Some(pb) = pb {
         pb.finish();

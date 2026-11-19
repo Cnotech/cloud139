@@ -1,4 +1,4 @@
-use crate::cli::app::{Cli, Commands};
+use crate::cli::{Cli, Commands};
 use clap::Parser;
 
 #[test]

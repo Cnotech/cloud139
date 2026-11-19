@@ -1,11 +1,12 @@
 use super::{
-    CloudSyncScan, LocalSyncScan, SyncDiffOptions, SyncScanOptions, parse_sync_endpoint,
-    scan_cloud, scan_local_target, scan_upload_source, sync_direction,
+    CloudSyncScan, SyncDiffOptions, SyncScanOptions, parse_sync_endpoint, scan_cloud,
+    sync_direction,
 };
 use crate::config::Config;
 use crate::domain::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary};
 use crate::services::progress::ProgressFactory;
 use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
+use crate::services::sync_local::{LocalSyncScan, scan_local_target, scan_upload_source};
 use crate::services::sync_report::SyncReport;
 use crate::services::sync_verify::execute_verified_sync;
 use anyhow::{Result, ensure};

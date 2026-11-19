@@ -5,14 +5,14 @@ use std::time::Duration;
 
 static PROGRESS: OnceLock<MultiProgress> = OnceLock::new();
 
-pub fn suspend(output: impl FnOnce()) {
+pub(crate) fn suspend(output: impl FnOnce()) {
     match PROGRESS.get() {
         Some(progress) => progress.suspend(output),
         None => output(),
     }
 }
 
-pub fn make_progress(name: &str, bytes: u64) -> Option<Progress> {
+pub(crate) fn make_progress(name: &str, bytes: u64) -> Option<Progress> {
     let progress = PROGRESS.get_or_init(MultiProgress::new);
     let bar = progress.add(ProgressBar::new(bytes));
     let style = ProgressStyle::with_template(

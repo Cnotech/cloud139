@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::commands::rename;
+use crate::cli::RenameArgs;
 
 #[test]
 fn test_rename_args_validation() {
-    let args = rename::RenameArgs {
+    let args = RenameArgs {
         source: "/old.txt".to_string(),
         target: "new.txt".to_string(),
         force: false,

@@ -1,12 +1,36 @@
 use super::{
     directory_service as dirs,
-    sync_service::{CloudSyncFile, CloudSyncScan},
+    sync_service::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES},
 };
-use crate::utils::remote_path::cloud_child_path;
+use crate::utils::{remote_path::cloud_child_path, retry::with_retries};
 use crate::{client::api, config::Config};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
+
+pub(super) async fn remote_sha256(
+    config: &Config,
+    host: &str,
+    remote: &CloudSyncFile,
+    expected_size: Option<u64>,
+    hash_missing: &mut bool,
+) -> Result<String> {
+    if let Some(hash) = &remote.sha256 {
+        return Ok(hash.clone());
+    }
+    *hash_missing = true;
+    let id = remote
+        .id
+        .as_deref()
+        .context("服务端未返回文件 ID，无法读取远端内容")?;
+    with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
+        super::download_service::personal_content_sha256(config, host, id, expected_size)
+            .await
+            .map_err(Into::into)
+    })
+    .await
+    .context("远端未提供可比的 SHA-256，读取内容校验失败")
+}
 
 pub(super) struct SyncCloud<'a> {
     config: &'a Config,

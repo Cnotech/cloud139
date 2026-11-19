@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use crate::commands::mv;
+use crate::cli::MvArgs;
 
 #[test]
 fn test_mv_args_validation_empty_source() {
-    let args = mv::MvArgs {
+    let args = MvArgs {
         source: vec![],
         target: "/".to_string(),
         force: false,
@@ -14,7 +14,7 @@ fn test_mv_args_validation_empty_source() {
 
 #[test]
 fn test_mv_args_validation_single_source() {
-    let args = mv::MvArgs {
+    let args = MvArgs {
         source: vec!["/test.txt".to_string()],
         target: "/".to_string(),
         force: false,
@@ -24,7 +24,7 @@ fn test_mv_args_validation_single_source() {
 
 #[test]
 fn test_mv_args_validation_multiple_sources() {
-    let args = mv::MvArgs {
+    let args = MvArgs {
         source: vec!["/test1.txt".to_string(), "/test2.txt".to_string()],
         target: "/".to_string(),
         force: false,
@@ -34,7 +34,7 @@ fn test_mv_args_validation_multiple_sources() {
 
 #[test]
 fn test_mv_args_with_force() {
-    let args = mv::MvArgs {
+    let args = MvArgs {
         source: vec!["/test.txt".to_string()],
         target: "/".to_string(),
         force: true,

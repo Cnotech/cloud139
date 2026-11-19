@@ -12,13 +12,13 @@ use lock::ConfigLock;
 const CONFIG_FILE: &str = "cloud139rc.toml";
 const GLOBAL_CONFIG_SUBDIR: &str = "cloud139";
 
-pub fn local_config_path() -> PathBuf {
+fn local_config_path() -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(CONFIG_FILE)
 }
 
-pub fn global_config_path() -> PathBuf {
+fn global_config_path() -> PathBuf {
     if let Some(base) = directories::BaseDirs::new() {
         return base
             .home_dir()
@@ -68,15 +68,15 @@ pub(super) fn save_config(config: &Config, path: &Path) -> Result<(), ConfigWrit
 
 /// 锁覆盖读取、判断、网络续期和写回；Unix 校验被锁文件仍为当前配置，
 /// Windows 使用与规范化配置路径对应的命名互斥量。
-pub(crate) struct ConfigUpdate {
-    pub config: Config,
+struct ConfigUpdate {
+    config: Config,
     path: PathBuf,
     original: String,
     lock: ConfigLock,
 }
 
 impl ConfigUpdate {
-    pub fn load(path: &Path) -> Result<Self, ConfigWriteError> {
+    fn load(path: &Path) -> Result<Self, ConfigWriteError> {
         let mut lock = ConfigLock::acquire(path)?;
         let original = lock.read_to_string(path)?;
         let config = toml::from_str(&original).map_err(ConfigError::from)?;
@@ -88,7 +88,7 @@ impl ConfigUpdate {
         })
     }
 
-    pub fn save(mut self, config: &Config) -> Result<(), ConfigWriteError> {
+    fn save(mut self, config: &Config) -> Result<(), ConfigWriteError> {
         // 也保护不遵循系统锁的编辑器或旧版本程序在网络等待期间写入的内容。
         if self.lock.read_to_string(&self.path)? != self.original {
             return Err(ConfigWriteError::Changed);

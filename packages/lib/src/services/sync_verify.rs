@@ -1,44 +1,17 @@
 use super::progress::ProgressFactory;
-use super::sync_remote::SyncCloud;
+use super::sync_remote::{SyncCloud, remote_sha256};
 use super::sync_report::SyncReport;
 use crate::config::Config;
 use crate::domain::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
-use crate::services::sync_service::{
-    CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES,
-};
-use crate::services::upload::personal::{SyncUploadPlan, upload_sync_to_parent};
+use crate::services::sync_service::CloudSyncScan;
+use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
 use crate::utils::remote_path::cloud_child_path;
-use crate::utils::retry::with_retries;
 use anyhow::{Context, Result, anyhow, ensure};
 use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
 
-pub(super) async fn remote_sha256(
-    config: &Config,
-    host: &str,
-    remote: &CloudSyncFile,
-    expected_size: Option<u64>,
-    hash_missing: &mut bool,
-) -> Result<String> {
-    if let Some(hash) = &remote.sha256 {
-        return Ok(hash.clone());
-    }
-    *hash_missing = true;
-    let id = remote
-        .id
-        .as_deref()
-        .context("服务端未返回文件 ID，无法读取远端内容")?;
-    with_retries(SYNC_RETRIES, SYNC_BACKOFF_SECS, || async {
-        super::download_service::personal_content_sha256(config, host, id, expected_size)
-            .await
-            .map_err(Into::into)
-    })
-    .await
-    .context("远端未提供可比的 SHA-256，读取内容校验失败")
-}
-
-pub(crate) async fn execute_verified_sync(
+pub(super) async fn execute_verified_sync(
     config: &Config,
     cloud: &CloudSyncScan,
     actions: &[SyncAction],

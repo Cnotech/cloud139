@@ -1,5 +1,5 @@
-use crate::cli::app::{Cli, Commands};
-use crate::commands::sync::SyncArgs;
+use crate::cli::{Cli, Commands, SyncArgs};
+use crate::error::CommandExit;
 use clap::{CommandFactory, Parser};
 use cloud139::domain::{SyncDirection, SyncEndpoint};
 use cloud139::services::sync_service::{parse_sync_endpoint, sync_direction};
@@ -123,9 +123,6 @@ fn test_sync_direction_rejects_same_kind() {
     assert!(cloud_err.to_string().contains("云端路径"));
 }
 
-use crate::commands::sync::SyncArgs as CommandSyncArgs;
-use crate::error::CommandExit;
-
 #[test]
 fn test_command_exit_reports_configured_code() {
     let err = CommandExit::new(2, "bad path");
@@ -135,7 +132,7 @@ fn test_command_exit_reports_configured_code() {
 
 #[test]
 fn test_sync_args_can_be_constructed_for_command_layer() {
-    let args = CommandSyncArgs {
+    let args = SyncArgs {
         src: "./local".to_string(),
         dest: "cloud:/remote".to_string(),
         recursive: true,

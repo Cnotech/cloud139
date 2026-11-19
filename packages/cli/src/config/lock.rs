@@ -93,12 +93,12 @@ mod unix {
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
-    pub(crate) struct ConfigLock {
+    pub(in crate::config) struct ConfigLock {
         file: File,
     }
 
     impl ConfigLock {
-        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
+        pub(in crate::config) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
             // 另一个写入者可能在 open 与 flock 之间原子替换配置。
             // 有界重试，避免一直追逐被外部程序反复替换的文件。
             for _ in 0..16 {
@@ -137,7 +137,10 @@ mod unix {
             Ok(current.dev() == locked.dev() && current.ino() == locked.ino())
         }
 
-        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigWriteError> {
+        pub(in crate::config) fn read_to_string(
+            &mut self,
+            path: &Path,
+        ) -> Result<String, ConfigWriteError> {
             if !self.is_current(path)? {
                 return Err(ConfigWriteError::Changed);
             }
@@ -212,7 +215,7 @@ mod windows {
     use windows_sys::Win32::Foundation::{WAIT_ABANDONED, WAIT_OBJECT_0, WAIT_TIMEOUT};
     use windows_sys::Win32::System::Threading::{CreateMutexW, ReleaseMutex, WaitForSingleObject};
 
-    pub(crate) struct ConfigLock {
+    pub(in crate::config) struct ConfigLock {
         release: Option<Sender<()>>,
         worker: Option<JoinHandle<()>>,
     }
@@ -229,7 +232,7 @@ mod windows {
     }
 
     impl ConfigLock {
-        pub(crate) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
+        pub(in crate::config) fn acquire(path: &Path) -> Result<Self, ConfigWriteError> {
             let name = mutex_name(path)?;
             let (ready_tx, ready_rx) = mpsc::sync_channel(1);
             let (release_tx, release_rx) = mpsc::channel();
@@ -263,7 +266,10 @@ mod windows {
             }
         }
 
-        pub(crate) fn read_to_string(&mut self, path: &Path) -> Result<String, ConfigWriteError> {
+        pub(in crate::config) fn read_to_string(
+            &mut self,
+            path: &Path,
+        ) -> Result<String, ConfigWriteError> {
             Ok(super::super::read_config(path)?)
         }
     }

@@ -1,44 +1,47 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use crate::commands::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
+use super::args::{
+    CpArgs, DeleteArgs, DownloadArgs, ListArgs, LoginArgs, MkdirArgs, MvArgs, RenameArgs, SyncArgs,
+    UploadArgs,
+};
 
 #[derive(Parser)]
 #[command(name = "cloud139")]
 #[command(about = "中国移动云盘命令行工具", long_about = None)]
 #[command(version)]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub(crate) command: Commands,
 
     #[arg(short, long, default_value = "info")]
-    pub verbose: String,
+    pub(crate) verbose: String,
 
     /// 指定配置文件路径 (覆盖默认查找顺序)
     #[arg(short, long, global = true, value_name = "PATH")]
-    pub config: Option<PathBuf>,
+    pub(crate) config: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     /// 登录账号
-    Login(login::LoginArgs),
+    Login(LoginArgs),
     /// 列出文件和目录
-    Ls(list::ListArgs),
+    Ls(ListArgs),
     /// 上传文件和目录
-    Upload(upload::UploadArgs),
+    Upload(UploadArgs),
     /// 下载文件和目录
-    Download(download::DownloadArgs),
+    Download(DownloadArgs),
     /// 删除文件和目录
-    Rm(delete::DeleteArgs),
+    Rm(DeleteArgs),
     /// 创建目录
-    Mkdir(mkdir::MkdirArgs),
+    Mkdir(MkdirArgs),
     /// 移动文件和目录
-    Mv(mv::MvArgs),
+    Mv(MvArgs),
     /// 复制文件和目录
-    Cp(cp::CpArgs),
+    Cp(CpArgs),
     /// 重命名文件和目录
-    Rename(rename::RenameArgs),
+    Rename(RenameArgs),
     /// 同步本地目录和云端目录
-    Sync(sync::SyncArgs),
+    Sync(SyncArgs),
 }
