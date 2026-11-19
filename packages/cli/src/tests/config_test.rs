@@ -45,7 +45,7 @@ fn test_config_save_and_load() {
     assert_eq!(loaded.account, "test_account");
     assert_eq!(loaded.storage_type, "personal_new");
     assert_eq!(loaded.custom_upload_part_size, 1024);
-    assert_eq!(loaded.use_large_thumbnail, false);
+    assert!(!loaded.use_large_thumbnail);
     assert_eq!(
         loaded.personal_cloud_host,
         Some("host.example.com".to_string())
@@ -100,7 +100,7 @@ fn test_default_values() {
     assert_eq!(config.account, "");
     assert_eq!(config.storage_type, "personal_new");
     assert_eq!(config.custom_upload_part_size, 0);
-    assert_eq!(config.use_large_thumbnail, false);
+    assert!(!config.use_large_thumbnail);
     assert_eq!(config.personal_cloud_host, None);
     assert_eq!(config.refresh_token, None);
     assert_eq!(config.token_expire_time, None);

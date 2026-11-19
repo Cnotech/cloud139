@@ -10,7 +10,7 @@ fn test_login_invalid_base64() {
 fn test_login_invalid_utf8() {
     let invalid_utf8 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        &[0x80, 0x81, 0x82],
+        [0x80, 0x81, 0x82],
     );
     let result = parse_login_token(&invalid_utf8);
     assert!(result.is_err());

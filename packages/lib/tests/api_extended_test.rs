@@ -25,8 +25,10 @@ mod api_extended_test {
 
     #[tokio::test]
     async fn test_get_personal_cloud_host_with_cached_host() {
-        let mut config = Config::default();
-        config.personal_cloud_host = Some("https://cached.example.com".to_string());
+        let mut config = Config {
+            personal_cloud_host: Some("https://cached.example.com".to_string()),
+            ..Default::default()
+        };
 
         let wrapper = HttpClientWrapper::new();
         let result = wrapper.get_personal_cloud_host(&mut config).await;
@@ -37,9 +39,11 @@ mod api_extended_test {
 
     #[tokio::test]
     async fn test_get_personal_cloud_host_empty_account() {
-        let mut config = Config::default();
-        config.account = "".to_string();
-        config.authorization = "test".to_string();
+        let mut config = Config {
+            account: String::new(),
+            authorization: "test".to_string(),
+            ..Default::default()
+        };
 
         let wrapper = HttpClientWrapper::new();
         let result = wrapper.get_personal_cloud_host(&mut config).await;
@@ -65,10 +69,12 @@ mod api_extended_test {
 
     #[tokio::test]
     async fn test_list_personal_files_empty_parent() {
-        let mut config = Config::default();
-        config.personal_cloud_host = Some("https://test.example.com".to_string());
-        config.account = "test@139.com".to_string();
-        config.authorization = "Basic dGVzdA==".to_string();
+        let config = Config {
+            personal_cloud_host: Some("https://test.example.com".to_string()),
+            account: "test@139.com".to_string(),
+            authorization: "Basic dGVzdA==".to_string(),
+            ..Default::default()
+        };
 
         let wrapper = HttpClientWrapper::new();
         let result = wrapper.list_personal_files(&config, "/").await;
@@ -77,10 +83,12 @@ mod api_extended_test {
 
     #[tokio::test]
     async fn test_check_file_exists_empty_parent() {
-        let mut config = Config::default();
-        config.personal_cloud_host = Some("https://test.example.com".to_string());
-        config.account = "test@139.com".to_string();
-        config.authorization = "Basic dGVzdA==".to_string();
+        let config = Config {
+            personal_cloud_host: Some("https://test.example.com".to_string()),
+            account: "test@139.com".to_string(),
+            authorization: "Basic dGVzdA==".to_string(),
+            ..Default::default()
+        };
 
         let wrapper = HttpClientWrapper::new();
         let result = wrapper.check_file_exists(&config, "/", "test.txt").await;

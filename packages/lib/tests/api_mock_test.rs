@@ -23,8 +23,10 @@ async fn test_get_file_id_by_path_empty() {
 
 #[tokio::test]
 async fn test_get_file_id_by_path_with_host_cached() {
-    let mut config = Config::default();
-    config.personal_cloud_host = Some("https://cached.example.com".to_string());
+    let config = Config {
+        personal_cloud_host: Some("https://cached.example.com".to_string()),
+        ..Default::default()
+    };
 
     let result = cloud139::client::api::files::get_file_id_by_path(&config, "/").await;
     assert!(result.is_ok());
