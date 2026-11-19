@@ -1,6 +1,6 @@
 use crate::presentation::list::format_size;
 use cloud139::client::api::upload::get_part_size;
-use cloud139::utils::time::parse_personal_time;
+use cloud139::models::list::parse_personal_time;
 
 #[test]
 fn test_format_size_bytes() {

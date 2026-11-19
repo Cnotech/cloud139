@@ -1,7 +1,0 @@
-use crate::cli::MvArgs;
-use cloud139::config::Config;
-
-pub(super) async fn execute(args: MvArgs, config: &Config) -> anyhow::Result<()> {
-    cloud139::services::mv::mv(config, &args.source, &args.target, args.force).await?;
-    Ok(())
-}

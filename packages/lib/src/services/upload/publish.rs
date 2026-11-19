@@ -8,10 +8,13 @@ use crate::models::list::PersonalFileItem;
 use crate::progress::Progress;
 use crate::services::directory as dirs;
 use crate::services::sync::paths::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
-use crate::services::sync::remote::remote_sha256;
-use crate::services::sync::retry::SYNC_LIST_RETRY;
+use crate::services::sync::remote::{SYNC_LIST_RETRY, remote_sha256};
 use crate::services::sync::scan::{CloudSyncFile, CloudSyncScan};
-use crate::utils::{crypto::is_sha256_hex, remote_file::is_non_root_file_id, remote_path};
+use crate::utils::{
+    crypto::{generate_rand_str, is_sha256_hex},
+    remote_file::is_non_root_file_id,
+    remote_path,
+};
 use anyhow::Context;
 use std::path::Path;
 
@@ -60,10 +63,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
             "内容寻址对象 {file_name} 的实际内容哈希 {local_hash} 与文件名不一致，已保留远端旧副本"
         );
     }
-    let temporary_name = format!(
-        "{SYNC_UPLOAD_PREFIX}{}",
-        crate::utils::rand::generate_rand_str(24)
-    );
+    let temporary_name = format!("{SYNC_UPLOAD_PREFIX}{}", generate_rand_str(24));
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let before = personal.list_files(parent_id).await?;
@@ -233,10 +233,7 @@ async fn install_uploaded_file(
                 "同名条目无法安全替换，新文件保存在 {saved_name}"
             )));
         }
-        let backup_name = format!(
-            "{UPLOAD_BACKUP_PREFIX}{}",
-            crate::utils::rand::generate_rand_str(20)
-        );
+        let backup_name = format!("{UPLOAD_BACKUP_PREFIX}{}", generate_rand_str(20));
         personal
             .rename(old_id, &backup_name)
             .await

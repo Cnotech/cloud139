@@ -1,4 +1,3 @@
-use super::retry::{SYNC_BACKOFF_SECS, SYNC_RETRIES};
 use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
@@ -11,6 +10,18 @@ use crate::utils::{
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
+
+/// 同步读请求最多重试 4 次，退避 2/4/8/16 秒。
+///
+/// 用于列表、下载和路径解析。
+pub(super) const SYNC_RETRIES: u32 = 4;
+pub(super) const SYNC_BACKOFF_SECS: u64 = 2;
+
+pub(in crate::services) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
+    retries: SYNC_RETRIES,
+    backoff_secs: SYNC_BACKOFF_SECS,
+    timeout: None,
+};
 
 pub(in crate::services) async fn remote_sha256(
     config: PersonalConfig<&Config>,

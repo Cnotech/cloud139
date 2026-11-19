@@ -3,6 +3,7 @@ use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;
+use crate::models::list::parse_personal_time;
 use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
 use crate::utils::remote_path;
@@ -167,8 +168,7 @@ async fn children_by_id(
         .into_iter()
         .map(|item| {
             let folder = item.is_folder();
-            let modified =
-                crate::utils::time::parse_personal_time(item.modified_time().unwrap_or_default());
+            let modified = parse_personal_time(item.modified_time().unwrap_or_default());
             Ok((
                 item.name.ok_or(ClientError::InvalidFilePath)?,
                 RemoteEntry {
@@ -242,6 +242,24 @@ pub(super) async fn tree_with_listing(
     }
     entries.sort_by(|(a, _), (b, _)| a.path.cmp(&b.path));
     Ok(entries)
+}
+
+pub async fn cp(
+    config: &Config,
+    sources: &[String],
+    target: &str,
+    force: bool,
+) -> Result<(), ClientError> {
+    transfer(config, sources, target, force, false).await
+}
+
+pub async fn mv(
+    config: &Config,
+    sources: &[String],
+    target: &str,
+    force: bool,
+) -> Result<(), ClientError> {
+    transfer(config, sources, target, force, true).await
 }
 
 pub async fn transfer(

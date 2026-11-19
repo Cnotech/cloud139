@@ -3,7 +3,6 @@ use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
-use crate::utils::xml::escape_text;
 use reqwest::{Client, header::HeaderMap};
 use serde::Deserialize;
 use std::time::Duration;
@@ -112,6 +111,13 @@ fn build_refresh_body(account: &str, token: &str) -> String {
         escape_text(account),
         protocol::TOKEN_REFRESH_CLIENT_TYPE,
     )
+}
+
+fn escape_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 async fn request_refresh(

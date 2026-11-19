@@ -1387,11 +1387,11 @@ async fn root_mutations_are_rejected_for_personal_storage_without_network() {
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::copy::cp(&config, &[root.into()], "/dst", true).await,
+                services::directory::cp(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
             assert!(matches!(
-                services::mv::mv(&config, &[root.into()], "/dst", true).await,
+                services::directory::mv(&config, &[root.into()], "/dst", true).await,
                 Err(ClientError::CannotOperateOnRoot)
             ));
         }
@@ -1403,14 +1403,14 @@ async fn rejects_self_and_descendant_with_force_before_requests() {
     let config = Config::default();
     for target in ["/a", "/a/sub", "/a/./sub/child", "/x/../a/sub"] {
         assert!(
-            services::copy::cp(&config, &["/a".into()], target, true)
+            services::directory::cp(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("自身或子目录")
         );
         assert!(
-            services::mv::mv(&config, &["/a".into()], target, true)
+            services::directory::mv(&config, &["/a".into()], target, true)
                 .await
                 .unwrap_err()
                 .to_string()
@@ -1919,7 +1919,7 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);
     server.state.lock().unwrap().fail_batch = true;
     assert!(
-        services::copy::cp(&server.config(), &["/src".into()], "/dest", false)
+        services::directory::cp(&server.config(), &["/src".into()], "/dest", false)
             .await
             .is_err()
     );
@@ -2049,12 +2049,12 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     server.set("d", vec![file("c", "src")]);
     assert!(
-        services::copy::cp(&server.config(), &["/src".into()], "/dest", true)
+        services::directory::cp(&server.config(), &["/src".into()], "/dest", true)
             .await
             .is_err()
     );
     assert!(
-        services::mv::mv(&server.config(), &["/src".into()], "/file", true)
+        services::directory::mv(&server.config(), &["/src".into()], "/file", true)
             .await
             .is_err()
     );
@@ -2069,7 +2069,7 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
             .is_err()
     );
     assert!(
-        services::copy::cp(
+        services::directory::cp(
             &server.config(),
             &["/src".into(), "/missing".into()],
             "/dest",
@@ -2080,10 +2080,10 @@ async fn transfer_and_rename_preflight_types_conflicts_and_missing_sources() {
     );
     assert!(server.mutations().is_empty());
     server.set("d", vec![]);
-    services::copy::cp(&server.config(), &["/src".into()], "/dest", false)
+    services::directory::cp(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
-    services::mv::mv(&server.config(), &["/src".into()], "/dest", false)
+    services::directory::mv(&server.config(), &["/src".into()], "/dest", false)
         .await
         .unwrap();
     services::rename::rename(&server.config(), "/src", "renamed", false)

@@ -1,6 +1,5 @@
-use super::remote::SyncCloud;
+use super::remote::{SYNC_BACKOFF_SECS, SYNC_RETRIES, SyncCloud};
 use super::report::{SyncReport, format_action_line};
-use super::retry::{SYNC_BACKOFF_SECS, SYNC_RETRIES};
 use super::scan::CloudSyncScan;
 use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};

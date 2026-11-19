@@ -6,6 +6,5 @@ pub mod paths;
 pub mod plan;
 pub(super) mod remote;
 pub mod report;
-pub(super) mod retry;
 pub mod scan;
 mod verify;

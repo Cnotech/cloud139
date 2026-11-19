@@ -4,9 +4,9 @@ use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::models::file_item::{EntryKind, FileItem};
+use crate::models::list::parse_personal_time;
 use crate::protocol;
 use crate::utils::remote_path;
-use crate::utils::time::parse_personal_time;
 use futures_util::TryStreamExt;
 use std::pin::pin;
 

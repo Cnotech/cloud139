@@ -1,10 +1,7 @@
 pub mod crypto;
 pub mod logger;
 pub mod path;
-pub mod rand;
 pub(crate) mod remote_file;
 pub mod remote_path;
 pub mod retry;
-pub mod time;
 pub(crate) mod upload_parts;
-pub(crate) mod xml;

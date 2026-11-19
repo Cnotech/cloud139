@@ -1,7 +1,7 @@
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
-use crate::utils::rand::generate_rand_str;
+use crate::utils::crypto::{calc_sign, generate_rand_str};
 use reqwest::{
     Client, ClientBuilder, RequestBuilder,
     header::{HeaderMap, HeaderValue},
@@ -64,7 +64,7 @@ fn build_signed_post(
         .to_string();
     let nonce = generate_rand_str(protocol::SIGNATURE_NONCE_LENGTH);
     let payload = body.to_string();
-    let sign = crate::utils::crypto::calc_sign(&payload, &ts, &nonce);
+    let sign = calc_sign(&payload, &ts, &nonce);
     let mut headers = build_headers(authorization, &ts, &nonce, &sign)?;
     headers
         .entry(reqwest::header::CONTENT_TYPE)

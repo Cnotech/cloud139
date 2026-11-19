@@ -1,5 +1,5 @@
 use super::paths::{compile_exclude_patterns, is_excluded, is_recovery_name, path_and_ancestors};
-use super::retry::SYNC_LIST_RETRY;
+use super::remote::SYNC_LIST_RETRY;
 use crate::client::api::personal::client::PersonalClient;
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::http::HttpClientWrapper;

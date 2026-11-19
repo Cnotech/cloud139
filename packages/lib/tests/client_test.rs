@@ -2,19 +2,19 @@ use cloud139::{client::auth::token::parse_login_token, error::ClientError};
 
 #[test]
 fn test_generate_rand_str() {
-    let s = cloud139::utils::rand::generate_rand_str(10);
+    let s = cloud139::utils::crypto::generate_rand_str(10);
     assert_eq!(s.len(), 10);
 }
 
 #[test]
 fn test_generate_rand_str_empty() {
-    let s = cloud139::utils::rand::generate_rand_str(0);
+    let s = cloud139::utils::crypto::generate_rand_str(0);
     assert_eq!(s.len(), 0);
 }
 
 #[test]
 fn test_generate_rand_str_charset() {
-    let s = cloud139::utils::rand::generate_rand_str(1000);
+    let s = cloud139::utils::crypto::generate_rand_str(1000);
     for c in s.chars() {
         assert!(c.is_ascii_alphanumeric());
     }

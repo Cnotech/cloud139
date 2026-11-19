@@ -56,3 +56,19 @@ async fn personal_post_sends_expected_signed_headers() {
     assert_eq!(response, json!({"success": true}));
     request.assert_calls(1);
 }
+
+#[test]
+fn test_http_client_wrapper_creation() {
+    let _wrapper = HttpClientWrapper::new();
+}
+
+#[test]
+fn test_http_client_wrapper_default() {
+    let _wrapper = HttpClientWrapper::default();
+}
+
+#[test]
+fn test_http_client_wrapper_with_client() {
+    let client = reqwest::Client::new();
+    let _wrapper = HttpClientWrapper::with_client(client);
+}

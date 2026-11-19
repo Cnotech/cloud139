@@ -1,4 +1,9 @@
+use rand::distributions::{Alphanumeric, DistString};
 use sha2::{Digest, Sha256};
+
+pub fn generate_rand_str(len: usize) -> String {
+    Alphanumeric.sample_string(&mut rand::thread_rng(), len)
+}
 
 pub(crate) fn is_sha256_hex(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())

@@ -73,9 +73,12 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `client::auth` 下的 Token 解析与续期接口 | 从 `client::auth::token` 导入 `parse_login_token`，从 `client::auth::refresh` 导入 `RefreshOptions`、`refresh_token` 和 `refresh_token_if_due` |
 | `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
 | `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
-| `utils` 下保留的函数 | 按用途从 `utils::{crypto, path, rand, time}` 的相应子模块导入 |
-| `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::copy::cp`、`services::mv::mv`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
-| `services::*_service` 下的类型和函数 | 模块名去掉 `_service`，例如 `services::download`。移动服务使用 `services::mv`，同步接口见下方 |
+| `utils::rand::generate_rand_str` | `utils::crypto::generate_rand_str` |
+| `utils::time::parse_personal_time` | `models::list::parse_personal_time` |
+| `utils` 下的其他函数 | 按用途从定义所在的子模块导入，例如 `utils::crypto` 或 `utils::path` |
+| `services::copy::cp`、`services::mv::mv` | `services::directory::{cp, mv}` |
+| `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::directory::{cp, mv}`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
+| `services::*_service` 下的类型和函数 | 多数模块名去掉 `_service`，例如 `services::download`。复制和移动入口使用 `services::directory`，同步接口见下方 |
 | `services::sync_executor`、`services::sync_report` | 分别从 `services::sync::executor`、`services::sync::report` 导入 |
 | `services::sync_service` 或 `services::sync` 下的同步类型和函数 | 在 `services::sync` 下，从 `plan` 导入 `SyncRequest`、`SyncPlan`、`SyncOutcome`。扫描接口和类型从 `scan` 导入，差异计算从 `diff` 导入，端点解析从 `paths` 导入，`format_action_line` 从 `report` 导入 |
 | `services::progress` 下的进度接口和类型 | `progress::{TransferProgress, Progress, ProgressFactory}` |

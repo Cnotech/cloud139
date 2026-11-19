@@ -1,4 +1,3 @@
-pub mod copy;
 pub mod delete;
 pub mod directory;
 pub mod download;
@@ -6,7 +5,6 @@ pub mod list;
 mod local_scan;
 pub mod login;
 pub mod mkdir;
-pub mod mv;
 pub mod rename;
 pub mod sync;
 pub mod upload;

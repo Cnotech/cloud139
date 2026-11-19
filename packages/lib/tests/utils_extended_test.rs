@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 
 mod utils_test_extended {
-    use cloud139::utils::crypto::{calc_file_sha256, calc_sign, encode_uri_component, md5_hash};
-    use cloud139::utils::rand::generate_rand_str;
+    use cloud139::utils::crypto::{
+        calc_file_sha256, calc_sign, encode_uri_component, generate_rand_str, md5_hash,
+    };
     use std::fs;
     use tempfile::TempDir;
 

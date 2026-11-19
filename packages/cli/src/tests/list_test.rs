@@ -2,7 +2,7 @@
 
 use crate::cli::ListArgs;
 use crate::presentation::list::format_size;
-use cloud139::utils::time::parse_personal_time;
+use cloud139::models::list::parse_personal_time;
 
 #[test]
 fn test_list_args_defaults() {
@@ -61,4 +61,11 @@ fn test_parse_personal_time_edge_cases() {
     assert!(parse_personal_time("2024-01-01T10:00:00Z").contains("2024"));
     assert!(parse_personal_time("2024-01-01T10:00:00.000").contains("2024"));
     assert!(parse_personal_time("2024-01-01 10:00:00").contains("2024"));
+}
+
+#[test]
+fn test_format_size_large_values() {
+    assert_eq!(format_size(1073741824 * 5), "5.00 GB");
+    assert_eq!(format_size(1073741824 * 10), "10.00 GB");
+    assert_eq!(format_size(1073741824 * 100), "100.00 GB");
 }

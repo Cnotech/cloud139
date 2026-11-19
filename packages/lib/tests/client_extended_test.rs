@@ -3,7 +3,7 @@
 mod client_test_extended {
     use cloud139::error::ClientError;
 
-    use cloud139::utils::rand::generate_rand_str;
+    use cloud139::utils::crypto::generate_rand_str;
 
     #[test]
     fn test_generate_rand_str_length() {
