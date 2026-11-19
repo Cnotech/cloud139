@@ -7,5 +7,4 @@ pub mod remote_path;
 pub mod retry;
 pub mod time;
 pub(crate) mod upload_parts;
-pub mod width;
 pub(crate) mod xml;

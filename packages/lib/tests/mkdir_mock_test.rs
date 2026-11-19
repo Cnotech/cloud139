@@ -1,57 +1,8 @@
 #![allow(dead_code)]
 
 mod mkdir_mock_test {
-    use cloud139::services::mkdir::parse_path;
     use httpmock::prelude::*;
     use serde_json::json;
-
-    #[test]
-    fn test_parse_path_root() {
-        let result = parse_path("/");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_path_single_level() {
-        let result = parse_path("test");
-        assert!(result.is_ok());
-        let (parent, name) = result.unwrap();
-        assert_eq!(parent, "/");
-        assert_eq!(name, "test");
-    }
-
-    #[test]
-    fn test_parse_path_multi_level() {
-        let result = parse_path("/folder1/folder2");
-        assert!(result.is_ok());
-        let (parent, name) = result.unwrap();
-        assert_eq!(parent, "/folder1");
-        assert_eq!(name, "folder2");
-    }
-
-    #[test]
-    fn test_parse_path_with_leading_slash() {
-        let result = parse_path("/test");
-        assert!(result.is_ok());
-        let (parent, name) = result.unwrap();
-        assert_eq!(parent, "/");
-        assert_eq!(name, "test");
-    }
-
-    #[test]
-    fn test_parse_path_empty() {
-        let result = parse_path("");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_parse_path_with_spaces() {
-        let result = parse_path("  /folder/name  ");
-        assert!(result.is_ok());
-        let (parent, name) = result.unwrap();
-        assert_eq!(parent, "/folder");
-        assert_eq!(name, "name");
-    }
 
     #[test]
     fn test_mock_mkdir_personal_endpoint() {

@@ -1,11 +1,8 @@
 #![allow(dead_code)]
 
 mod utils_test_extended {
-    use cloud139::utils::crypto::{
-        calc_file_sha256, calc_sign, encode_uri_component, md5_hash, pkcs7_pad,
-    };
+    use cloud139::utils::crypto::{calc_file_sha256, calc_sign, encode_uri_component, md5_hash};
     use cloud139::utils::rand::generate_rand_str;
-    use cloud139::utils::width::{pad_with_width, str_width, truncate_with_width};
     use std::fs;
     use tempfile::TempDir;
 
@@ -26,30 +23,6 @@ mod utils_test_extended {
         let input = "test".repeat(100);
         let result = md5_hash(&input);
         assert_eq!(result.len(), 32);
-    }
-
-    #[test]
-    fn test_pkcs7_pad_16_bytes() {
-        // 输入正好是 16 字节时，PKCS#7 补齐一个完整分组。
-        let data = b"1234567890123456";
-        let result = pkcs7_pad(data, 16);
-        assert_eq!(result.len(), 32);
-    }
-
-    #[test]
-    fn test_pkcs7_pad_15_bytes() {
-        // 输入是 15 字节时，PKCS#7 填充 1 字节，凑满 16 字节。
-        let data = b"123456789012345";
-        let result = pkcs7_pad(data, 16);
-        assert_eq!(result.len(), 16);
-    }
-
-    #[test]
-    fn test_pkcs7_pad_1_byte() {
-        // 输入是 1 字节时，PKCS#7 填充 15 字节。
-        let data = b"1";
-        let result = pkcs7_pad(data, 16);
-        assert_eq!(result.len(), 16);
     }
 
     #[test]
@@ -155,99 +128,5 @@ mod utils_test_extended {
             result,
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
         );
-    }
-
-    #[test]
-    fn test_str_width_ascii() {
-        assert_eq!(str_width("hello"), 5);
-        assert_eq!(str_width("Hello World"), 11);
-    }
-
-    #[test]
-    fn test_str_width_unicode() {
-        assert_eq!(str_width("你好"), 4);
-        assert_eq!(str_width("hello世界"), 9);
-    }
-
-    #[test]
-    fn test_str_width_empty() {
-        assert_eq!(str_width(""), 0);
-    }
-
-    #[test]
-    fn test_str_width_mixed() {
-        assert_eq!(str_width("a你b好c"), 7);
-    }
-
-    #[test]
-    fn test_truncate_with_width_no_truncate() {
-        let result = truncate_with_width("hello", 10);
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn test_truncate_with_width_exact() {
-        let result = truncate_with_width("hello", 5);
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn test_truncate_with_width_truncate() {
-        let result = truncate_with_width("hello world", 5);
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn test_truncate_with_width_unicode() {
-        let result = truncate_with_width("你好世界", 4);
-        assert_eq!(result, "你好");
-    }
-
-    #[test]
-    fn test_truncate_with_width_unicode_partial() {
-        let result = truncate_with_width("你好世界", 3);
-        assert_eq!(result, "你");
-    }
-
-    #[test]
-    fn test_truncate_with_width_zero() {
-        let result = truncate_with_width("hello", 0);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_pad_with_width_no_padding() {
-        let result = pad_with_width("hello", 5);
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn test_pad_with_width_with_padding() {
-        let result = pad_with_width("hello", 10);
-        assert_eq!(result, "hello     ");
-    }
-
-    #[test]
-    fn test_pad_with_width_unicode() {
-        let result = pad_with_width("你好", 6);
-        assert_eq!(result, "你好  ");
-    }
-
-    #[test]
-    fn test_pad_with_width_truncate() {
-        let result = pad_with_width("hello world", 5);
-        assert_eq!(result, "hello");
-    }
-
-    #[test]
-    fn test_pad_with_width_unicode_truncate() {
-        let result = pad_with_width("你好世界", 4);
-        assert_eq!(result, "你好");
-    }
-
-    #[test]
-    fn test_pad_with_width_zero() {
-        let result = pad_with_width("hello", 0);
-        assert!(result.is_empty());
     }
 }

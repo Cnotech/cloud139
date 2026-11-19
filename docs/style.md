@@ -127,11 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 #[test]
-fn test_parse_path_root() {
-    let result = mkdir::parse_path("/test");
-    assert!(result.is_ok());
-    let (parent, name) = result.unwrap();
-    assert_eq!(parent, "/");
-    assert_eq!(name, "test");
+fn test_normalize_remote_path() {
+    let result = cloud139::utils::remote_path::normalize("test");
+    assert_eq!(result.unwrap(), "/test");
 }
 ```

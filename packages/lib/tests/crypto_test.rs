@@ -1,43 +1,10 @@
-use cloud139::utils::crypto::{
-    calc_file_sha256, calc_sign, encode_uri_component, md5_hash, pkcs7_pad, pkcs7_unpad,
-};
+use cloud139::utils::crypto::{calc_file_sha256, calc_sign, encode_uri_component, md5_hash};
 use cloud139::utils::rand::generate_rand_str;
 
 #[test]
 fn test_md5_hash() {
     assert_eq!(md5_hash(""), "d41d8cd98f00b204e9800998ecf8427e");
     assert_eq!(md5_hash("hello"), "5d41402abc4b2a76b9719d911017c592");
-}
-
-#[test]
-fn test_pkcs7_pad() {
-    assert_eq!(
-        pkcs7_pad(b"Hello", 16),
-        b"Hello\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b"
-    );
-    assert_eq!(
-        pkcs7_pad(b"1234567890123456", 16),
-        b"1234567890123456\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10\x10"
-    );
-}
-
-#[test]
-fn test_pkcs7_unpad() {
-    let padded = pkcs7_pad(b"Hello", 16);
-    let unpadded = pkcs7_unpad(&padded).unwrap();
-    assert_eq!(unpadded, b"Hello");
-}
-
-#[test]
-fn test_pkcs7_unpad_empty() {
-    let result = pkcs7_unpad(b"");
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_pkcs7_unpad_invalid_padding() {
-    let result = pkcs7_unpad(b"Hello\x01\x02\x03");
-    assert!(result.is_err());
 }
 
 #[test]

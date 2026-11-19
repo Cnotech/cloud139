@@ -16,68 +16,8 @@ fn test_generate_rand_str_empty() {
 fn test_generate_rand_str_charset() {
     let s = cloud139::utils::rand::generate_rand_str(1000);
     for c in s.chars() {
-        assert!(c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        assert!(c.is_ascii_alphanumeric());
     }
-}
-
-#[test]
-fn test_sort_json_value_object() {
-    let value = serde_json::json!({"b": 2, "a": 1});
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("\"a\""));
-    assert!(result.contains("\"b\""));
-}
-
-#[test]
-fn test_sort_json_value_array() {
-    let value = serde_json::json!([3, 1, 2]);
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("1"));
-    assert!(result.contains("2"));
-    assert!(result.contains("3"));
-}
-
-#[test]
-fn test_sort_json_value_string() {
-    let value = serde_json::json!("hello");
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("hello"));
-}
-
-#[test]
-fn test_sort_json_value_number() {
-    let value = serde_json::json!(42);
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("42"));
-}
-
-#[test]
-fn test_sort_json_value_bool_true() {
-    let value = serde_json::json!(true);
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("true"));
-}
-
-#[test]
-fn test_sort_json_value_bool_false() {
-    let value = serde_json::json!(false);
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("false"));
-}
-
-#[test]
-fn test_sort_json_value_null() {
-    let value = serde_json::json!(null);
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("null"));
-}
-
-#[test]
-fn test_sort_json_nested() {
-    let value = serde_json::json!({"outer": {"inner": 1}, "z": 0});
-    let result = cloud139::utils::rand::sort_json_value_to_string(&value);
-    assert!(result.contains("inner"));
-    assert!(result.contains("outer"));
 }
 
 #[test]

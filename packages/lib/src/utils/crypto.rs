@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use sha2::{Digest, Sha256};
 
 pub(crate) fn is_sha256_hex(value: &str) -> bool {
@@ -9,33 +8,6 @@ pub fn md5_hash(data: &str) -> String {
     let mut hasher = md5::Md5::new();
     hasher.update(data.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
-    let padding = block_size - (data.len() % block_size);
-    let mut result = data.to_vec();
-    result.extend(vec![padding as u8; padding]);
-    result
-}
-
-pub fn pkcs7_unpad(data: &[u8]) -> Result<Vec<u8>> {
-    if data.is_empty() {
-        return Err(anyhow!("pkcs7_unpad: input data is empty"));
-    }
-    let padding = data[data.len() - 1] as usize;
-    if padding > data.len() || padding == 0 {
-        return Err(anyhow!("pkcs7_unpad: invalid padding"));
-    }
-    for i in 0..padding {
-        if data[data.len() - 1 - i] != padding as u8 {
-            return Err(anyhow!(
-                "pkcs7_unpad: invalid padding byte {} at position {}",
-                data[data.len() - 1 - i],
-                data.len() - 1 - i
-            ));
-        }
-    }
-    Ok(data[..data.len() - padding].to_vec())
 }
 
 pub fn encode_uri_component(s: &str) -> String {

@@ -59,6 +59,10 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - `sync --jobs` 接受 1 到 32，默认 4。
 - 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
 - Rust 库移除了 `aes_cbc_encrypt`、`aes_cbc_decrypt`、`aes_ecb_decrypt`、`sha1_hash` 和 `calc_file_hash`。仍需兼容旧密文或 SHA-1 摘要的应用可直接依赖对应的算法 crate。新的文件完整性校验可使用 `cloud139::utils::crypto::calc_file_sha256`。
+- Rust 库移除了旧家庭相册请求使用的 `sort_json_value_to_string`。仍需兼容旧请求格式的应用可自行保留原有的对象键排序和字符串解析逻辑。
+- Rust 库移除了 `pkcs7_pad` 和 `pkcs7_unpad`，仍需 PKCS#7 填充的应用可使用加密库提供的填充接口。
+- Rust 库移除了 `utils::width` 下的 `str_width`、`truncate_with_width` 和 `pad_with_width`。应用可以使用字符显示宽度库实现终端对齐。
+- Rust 库移除了 `services::mkdir_service::parse_path`。创建目录时可直接将完整路径传给 `services::mkdir::mkdir`。如需保留旧拆分行为，先对输入调用 `trim()`，再用 `utils::remote_path::non_root` 校验、用 `rsplit_once('/')` 拆分，并将空父路径视为 `/`。
 - Rust 库的导入路径有调整。请按下表从定义模块导入。
 
 | 原导入位置 | 新导入位置 |
@@ -69,7 +73,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `client::auth` 下的 Token 解析与续期接口 | 从 `client::auth::token` 导入 `parse_login_token`，从 `client::auth::refresh` 导入 `RefreshOptions`、`refresh_token` 和 `refresh_token_if_due` |
 | `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
 | `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
-| `utils` 下的函数 | 按用途从 `utils::{crypto, path, rand, time, width}` 的相应子模块导入 |
+| `utils` 下保留的函数 | 按用途从 `utils::{crypto, path, rand, time}` 的相应子模块导入 |
 | `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::copy::cp`、`services::mv::mv`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
 | `services::*_service` 下的类型和函数 | 模块名去掉 `_service`，例如 `services::download`。移动服务使用 `services::mv`，同步接口见下方 |
 | `services::sync_executor`、`services::sync_report` | 分别从 `services::sync::executor`、`services::sync::report` 导入 |
