@@ -1,7 +1,7 @@
 use super::client::{ListingRetry, PersonalClient};
 use crate::client::{
     ClientError,
-    api::common::{headers::insert_static_headers, request::HttpClientWrapper},
+    http::{HttpClientWrapper, insert_static_headers},
 };
 use crate::config::Config;
 use crate::protocol;

@@ -1,5 +1,5 @@
 use super::client::{ListingRetry, PersonalClient, mutation_succeeded, require_success};
-use crate::client::{ClientError, api::common::request::HttpClientWrapper};
+use crate::client::{ClientError, http::HttpClientWrapper};
 use crate::config::Config;
 use crate::debug;
 use crate::protocol;

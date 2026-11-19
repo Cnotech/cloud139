@@ -2,8 +2,8 @@ mod common;
 pub mod headers;
 mod storage;
 
+pub use super::http::HttpClientWrapper;
 pub(super) use common::refresh;
-pub use common::request::HttpClientWrapper;
 pub(crate) use storage::personal::{
     DownloadLink, ListPageOptions, ListingRetry, PersonalClient, put_upload_part,
 };

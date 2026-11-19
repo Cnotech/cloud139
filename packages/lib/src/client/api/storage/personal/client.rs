@@ -1,8 +1,7 @@
 use crate::client::{
     ClientError,
-    api::common::{
-        headers::build_signed_headers, request::HttpClientWrapper, route::query_route_policy,
-    },
+    api::common::route::query_route_policy,
+    http::{HttpClientWrapper, build_signed_headers},
 };
 use crate::config::Config;
 use crate::debug;

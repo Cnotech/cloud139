@@ -1,5 +1,4 @@
-use super::headers::insert_static_headers;
-use crate::client::ClientError;
+use crate::client::{ClientError, http::insert_static_headers};
 use crate::protocol;
 use reqwest::{Client, header::HeaderMap};
 use serde::Deserialize;

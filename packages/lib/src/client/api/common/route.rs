@@ -1,5 +1,7 @@
-use super::{headers::build_signed_headers, request::HttpClientWrapper};
-use crate::client::ClientError;
+use crate::client::{
+    ClientError,
+    http::{HttpClientWrapper, build_signed_headers},
+};
 use crate::debug;
 use crate::models::{QueryRoutePolicyResp, RoutePolicy};
 use crate::protocol;

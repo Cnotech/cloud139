@@ -30,7 +30,7 @@ impl HttpClientWrapper {
         Self { client }
     }
 
-    pub(in crate::client::api) async fn signed_post<T: for<'de> serde::Deserialize<'de>>(
+    pub(in crate::client) async fn signed_post<T: for<'de> serde::Deserialize<'de>>(
         &self,
         authorization: &str,
         url: &str,

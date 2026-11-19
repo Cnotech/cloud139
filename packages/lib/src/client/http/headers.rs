@@ -2,7 +2,7 @@ use crate::client::ClientError;
 use crate::protocol::{BASIC_AUTH_PREFIX, SIGNATURE_HEADER, WEB_HEADERS};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
-pub(in crate::client::api) fn insert_static_headers(
+pub(in crate::client) fn insert_static_headers(
     headers: &mut HeaderMap,
     values: &[(&'static str, &'static str)],
 ) {
@@ -11,7 +11,7 @@ pub(in crate::client::api) fn insert_static_headers(
     }
 }
 
-pub(in crate::client::api) fn build_signed_headers(
+pub(in crate::client) fn build_signed_headers(
     extra: &[(&'static str, &'static str)],
     authorization: &str,
     ts: &str,
