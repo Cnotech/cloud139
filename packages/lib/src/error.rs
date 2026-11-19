@@ -2,6 +2,7 @@
 
 use thiserror::Error;
 
+/// 认证、云端请求和文件操作可能返回的错误。
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("HTTP 错误: {0}")]
@@ -44,6 +45,7 @@ pub enum ClientError {
     InvalidHeader(String),
 }
 
+/// 读取、解析或保存 TOML 配置时的错误。
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("IO 错误: {0}")]

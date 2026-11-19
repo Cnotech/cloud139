@@ -3,6 +3,9 @@ use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
 
+/// 从登录 Token 中解析账号、续期凭据和过期时间，生成配置。
+///
+/// 接受可选的 `Basic ` 前缀。需要在线验证时可调用 [`crate::services::login::login`]。
 pub fn parse_login_token(token: &str) -> Result<Config, ClientError> {
     let token = token
         .strip_prefix(protocol::BASIC_AUTH_PREFIX)

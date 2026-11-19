@@ -10,25 +10,34 @@ use serde::{Deserialize, Serialize};
 #[doc(hidden)]
 pub use self::file::{prepare_save_path, read_config, save_atomically};
 
-/// 剩余有效期不超过这个时长时，在下一次命令启动时续期 token。
-///
-/// 这是「何时续期」的唯一阈值：续期接口每次滚动发放 30 天有效的新 token，
-/// 留 7 天余量可以容忍几次失败重试。
+/// Token 续期阈值，以毫秒为单位，等于 7 天。
 pub const TOKEN_REFRESH_THRESHOLD_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
+/// 个人云账号凭据和文件操作选项。
+///
+/// 默认配置使用 `personal_new` 存储类型。调用云端接口前，需提供有效的账号和凭据。
+/// 此类型及其 TOML 表示包含凭据，应避免将其写入日志。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// 用于认证的 Base64 Token，省略 `Basic ` 前缀。
     pub authorization: String,
+    /// 个人云账号。
     pub account: String,
+    /// 存储类型，云端操作要求使用 `personal_new`。
     pub storage_type: String,
+    /// 自定义上传分片大小（字节）。为 `0` 时按文件大小选用默认值。
     #[serde(default)]
     pub custom_upload_part_size: i64,
+    /// 列表请求是否包含原图缩略图规格。
     #[serde(default)]
     pub use_large_thumbnail: bool,
+    /// 已知的个人云服务地址。为 `None` 时通过路由接口解析。
     #[serde(default)]
     pub personal_cloud_host: Option<String>,
+    /// 用于换取新 Token 的凭据。
     #[serde(default)]
     pub refresh_token: Option<String>,
+    /// Token 的过期时间，以 Unix 时间戳毫秒表示。
     #[serde(default)]
     pub token_expire_time: Option<i64>,
 }
@@ -49,8 +58,9 @@ impl Default for Config {
 }
 
 impl Config {
-    /// 下一次命令启动时是否需要续期（唯一判断）。
-    /// 剩余有效期不超过阈值，或没有过期时间时返回 true。
+    /// 判断是否达到续期条件。
+    ///
+    /// 剩余有效期不超过 [`TOKEN_REFRESH_THRESHOLD_MS`]，或者过期时间缺失时返回 `true`。
     pub fn is_token_refresh_due(&self) -> bool {
         self.is_token_refresh_due_at(chrono::Utc::now().timestamp_millis())
     }

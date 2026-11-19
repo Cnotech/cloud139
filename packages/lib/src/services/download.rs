@@ -1,3 +1,5 @@
+//! 下载个人云文件和目录到本地。
+
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::transfer::DownloadLink;
 use crate::client::http::HttpClientWrapper;
@@ -212,6 +214,7 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
     }
 }
 
+/// 自动解析本地保存路径后下载，路径规则见 [`resolve_local_path`]。
 pub async fn download_path(
     config: &Config,
     remote: &str,
@@ -226,7 +229,12 @@ pub async fn download_path(
     download_normalized(config, remote, &local, None, recursive).await
 }
 
-/// 递归下载保留空目录，并拒绝不安全的名称和本地符号链接。
+/// 下载云端文件或目录到本地。
+///
+/// 下载单个文件时，若 `local` 是已有目录，则在其下保存文件。已有的可写同名文件会在下载成功后被替换。
+/// 下载目录要求 `recursive` 为 `true`，并将内容保存于 `local` 下，保留空目录。
+/// 下载会拒绝不安全的名称和本地符号链接。
+/// `pb` 仅用于单文件下载。递归下载中途失败时，此前完成的条目会保留。
 pub async fn download(
     config: &Config,
     remote: &str,

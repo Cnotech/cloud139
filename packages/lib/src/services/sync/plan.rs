@@ -46,11 +46,17 @@ enum SyncMode {
 
 /// 同步生成的摘要或文件变更明细。
 pub enum SyncOutcome {
+    /// 普通同步的汇总计数。
     Summary(SyncSummary),
+    /// 校验同步或启用路径跟踪时返回的详细报告。
     Report(SyncReport),
 }
 
 impl SyncRequest {
+    /// 校验同步端点和选项。恰好一个端点须以 `cloud:` 开头，表示云端目录。
+    ///
+    /// `delete` 允许删除同步范围内仅存在于目标端的条目。`verify` 启用本地到云端的
+    /// 内容校验并要求 `execution.jobs` 为 `1`。单文件同步与删除模式互斥。
     pub fn new(
         source: &str,
         destination: &str,
@@ -83,6 +89,7 @@ impl SyncRequest {
         })
     }
 
+    /// 扫描两端并计算操作计划。`track_paths` 启用报告中的文件路径明细。
     pub async fn plan(self, config: Config, track_paths: bool) -> Result<SyncPlan> {
         let mut config = PersonalConfig::new(config)?;
         let diff_options = |local_root, cloud_root| SyncDiffOptions {
@@ -166,14 +173,17 @@ impl SyncRequest {
 }
 
 impl SyncPlan {
+    /// 查看扫描后生成的操作列表。
     pub fn actions(&self) -> &[SyncAction] {
         &self.actions
     }
 
+    /// 按请求的执行选项运行计划并返回结果。
     pub async fn execute(self) -> Result<SyncOutcome> {
         self.execute_with_progress(None).await
     }
 
+    /// 运行计划，可按条目相对路径和大小创建进度实例。
     pub async fn execute_with_progress(
         self,
         progress: Option<&ProgressFactory<'_>>,
@@ -220,6 +230,7 @@ impl SyncPlan {
 }
 
 impl SyncOutcome {
+    /// 返回结果中记录的失败数。部分操作失败时仍可能返回同步结果。
     pub fn failed(&self) -> usize {
         match self {
             Self::Summary(summary) => summary.failed,

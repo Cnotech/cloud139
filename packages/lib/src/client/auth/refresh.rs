@@ -10,7 +10,9 @@ use std::time::Duration;
 /// 续期端点及整个 HTTP 请求的超时。
 #[derive(Debug, Clone, Copy)]
 pub struct RefreshOptions<'a> {
+    /// 自定义续期端点。默认使用官方端点。
     pub endpoint: Option<&'a str>,
+    /// 单次请求的总超时，默认 10 秒。
     pub timeout: Duration,
 }
 
@@ -23,7 +25,9 @@ impl Default for RefreshOptions<'_> {
     }
 }
 
-/// 刷新 Token。默认使用官方端点，可通过 options 指定其他端点。
+/// 使用现有的续期凭据换取新 Token，并返回更新后的配置。
+///
+/// 原 Token 过期后仍可尝试续期。调用方可用 [`Config::save_to`] 持久化结果。
 pub async fn refresh_token(
     config: &Config,
     options: RefreshOptions<'_>,
@@ -70,7 +74,7 @@ async fn refresh_personal_token(
     Ok(new_config)
 }
 
-/// Token 达到续期条件时返回更新后的配置，否则返回 `None`。
+/// 达到 [`Config::is_token_refresh_due`] 的续期条件时发起请求并返回新配置，否则返回 `None`。
 pub async fn refresh_token_if_due(
     config: &Config,
     options: RefreshOptions<'_>,

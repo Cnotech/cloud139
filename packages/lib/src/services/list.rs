@@ -1,3 +1,5 @@
+//! 云端目录的分页列表和递归列表。
+
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::http::HttpClientWrapper;
@@ -10,19 +12,28 @@ use crate::utils::remote_path;
 use futures_util::TryStreamExt;
 use std::pin::pin;
 
+/// 单个云端目录的列表结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListResult {
+    /// 规范化后的云端目录路径。
     pub path: String,
+    /// 该目录直属条目的总数。
     pub total: i32,
+    /// 本次返回的条目。
     pub items: Vec<FileItem>,
 }
 
+/// 列表路径和分页参数。
 pub struct ListOptions<'a> {
+    /// 云端目录路径。
     pub path: &'a str,
+    /// 从 `1` 开始的页码。
     pub page: i32,
+    /// 每页条目数，必须大于 `0`。
     pub page_size: i32,
 }
 
+/// 返回指定目录的一页直属条目，并遍历服务端分页以计算条目总数。
 pub async fn list<'a>(
     config: &Config,
     options: impl Into<ListOptions<'a>>,

@@ -1,9 +1,15 @@
+//! 在原目录中重命名云端条目。
+
 use super::directory as dirs;
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
 use crate::error::ClientError;
 use crate::utils::remote_path;
+
+/// 在原目录中将 `source` 重命名为 `target`。`target` 是单个名称。
+///
+/// `force` 允许在两个文件同名时提交重命名。涉及目录的同名冲突会报错。
 pub async fn rename(
     config: &Config,
     source: &str,

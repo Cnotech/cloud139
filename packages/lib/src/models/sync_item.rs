@@ -39,6 +39,7 @@ pub enum SyncTarget {
     Cloud,
 }
 
+/// 同步计划中针对单个路径的操作或冲突。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SyncAction {
     Upload {
@@ -76,6 +77,7 @@ pub enum SyncAction {
     },
 }
 
+/// 同步执行或预览的汇总计数。
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SyncSummary {
     pub transferred: usize,

@@ -1,4 +1,4 @@
-//! 云端目录解析、遍历和修改操作的前置检查。
+//! 云端路径解析、目录遍历、复制和移动。
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
@@ -8,12 +8,14 @@ use crate::protocol::{self, is_non_root_file_id};
 use crate::utils::remote_path;
 use std::collections::HashSet;
 
+/// 路径解析得到的云端条目 ID 和类型。
 #[derive(Debug, Clone)]
 pub struct RemoteEntry {
     pub id: String,
     pub folder: bool,
 }
 
+/// 按云端路径查找文件或目录。根路径 `/` 返回目录条目，其 ID 为 `/`。
 pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientError> {
     let config = PersonalConfig::new(config)?;
     let path = remote_path::normalize(path)?;
@@ -56,6 +58,7 @@ fn require_directory(entry: RemoteEntry) -> Result<String, ClientError> {
     Ok(entry.id)
 }
 
+/// 按云端路径查找目录 ID。路径指向文件时返回错误。
 pub async fn directory(config: &Config, path: &str) -> Result<String, ClientError> {
     require_directory(resolve(config, path).await?)
 }
@@ -137,6 +140,7 @@ pub(super) async fn ensure_personal_child_dir(
         .ok_or(ClientError::InvalidFilePath)
 }
 
+/// 递归目录树中的一个条目。
 #[derive(Debug)]
 pub struct TreeEntry {
     pub path: String,
@@ -145,6 +149,7 @@ pub struct TreeEntry {
     pub modified: String,
 }
 
+/// 返回直属子条目，每项依次包含名称、条目信息、大小（字节）和修改时间。
 pub async fn children(
     config: &Config,
     path: &str,
@@ -184,6 +189,7 @@ async fn children_by_id(
         .collect()
 }
 
+/// 递归列出 `root` 的所有后代，按完整云端路径排序。
 pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientError> {
     let config = PersonalConfig::new(config)?;
     tree_normalized(config, remote_path::normalize(root)?).await
@@ -243,6 +249,7 @@ pub(super) async fn tree_with_listing(
     Ok(entries)
 }
 
+/// 将一个或多个云端条目复制到已有目录，冲突规则见 [`transfer`]。
 pub async fn cp(
     config: &Config,
     sources: &[String],
@@ -252,6 +259,7 @@ pub async fn cp(
     transfer(config, sources, target, force, false).await
 }
 
+/// 将一个或多个云端条目移动到已有目录，冲突规则见 [`transfer`]。
 pub async fn mv(
     config: &Config,
     sources: &[String],
@@ -261,6 +269,10 @@ pub async fn mv(
     transfer(config, sources, target, force, true).await
 }
 
+/// 向云端提交批量复制或移动任务。`moving` 为 `true` 时移动，否则复制。
+///
+/// `force` 允许在源和目标的同名条目都是文件时提交任务，涉及目录的同名冲突会报错。
+/// 成功返回表示服务端已接受任务。
 pub async fn transfer(
     config: &Config,
     sources: &[String],

@@ -4,6 +4,7 @@ use crate::utils::retry::RetryError;
 use serde::Serialize;
 use std::collections::HashSet;
 
+/// 同步的计数、耗时、失败信息和可选的文件路径明细。
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncReport {
@@ -16,7 +17,9 @@ pub struct SyncReport {
     pub seconds: f64,
     pub failures: Vec<SyncFailure>,
     pub dry_run: bool,
+    /// 已确认的文件变更。
     pub changes: Vec<SyncFileChange>,
+    /// 预览时记录的文件操作。
     pub plan: Vec<SyncFileChange>,
     #[serde(skip)]
     track_paths: bool,

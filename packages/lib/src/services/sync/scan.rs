@@ -17,12 +17,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::pin::pin;
 
+/// 本地和云端同步扫描的范围。
 #[derive(Debug, Clone)]
 pub struct SyncScanOptions {
+    /// 是否递归扫描子目录。
     pub recursive: bool,
+    /// 用于匹配相对路径的 glob 排除规则，区分大小写。
     pub exclude: Vec<String>,
 }
 
+/// 按指定范围扫描本地文件或目录，返回同步使用的条目。
 pub fn scan_local(root: &Path, options: SyncScanOptions) -> Result<Vec<FileEntry>> {
     let patterns = compile_exclude_patterns(&options.exclude)?;
     scan_items(root, options.recursive, &patterns)
@@ -58,6 +62,7 @@ fn parse_cloud_mtime(item: &crate::models::list::PersonalFileItem) -> Option<i64
         .ok()
 }
 
+/// 云端同步扫描得到的条目及其内部索引。
 #[derive(Default)]
 pub struct CloudSyncScan {
     pub items: Vec<FileEntry>,

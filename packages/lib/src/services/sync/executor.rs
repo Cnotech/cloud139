@@ -11,13 +11,17 @@ use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
 use std::path::Path;
 
-// 限制单次同步同时占用的网络连接、打开的文件和哈希任务。
+/// 单次同步允许的最大传输并发数。
 pub const MAX_JOBS: usize = 32;
 
+/// 控制同步计划如何执行。
 #[derive(Debug, Clone, Copy)]
 pub struct SyncExecuteOptions {
+    /// 仅预览计划，跳过写入、传输和删除操作。
     pub dry_run: bool,
+    /// 传输并发数，范围为 `1..=MAX_JOBS`。
     pub jobs: usize,
+    /// 执行时通过库的日志输出逐条操作信息。
     pub print_actions: bool,
 }
 
@@ -31,6 +35,7 @@ impl SyncExecuteOptions {
     }
 }
 
+/// 执行调用方提供的同步操作并返回汇总计数。
 pub async fn execute_sync_actions(
     config: &Config,
     actions: Vec<SyncAction>,

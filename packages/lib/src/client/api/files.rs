@@ -5,6 +5,7 @@ use crate::debug;
 use crate::error::ClientError;
 use crate::models::files::QueryFileData;
 
+/// 按个人云文件 ID 查询条目详情。
 pub async fn get_personal_file_detail(
     config: &Config,
     file_id: &str,
@@ -16,6 +17,7 @@ pub async fn get_personal_file_detail(
     personal.file_detail(file_id).await
 }
 
+/// 按云端路径查找条目 ID。根路径 `/` 返回空字符串。
 pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, ClientError> {
     let config = PersonalConfig::new(config)?;
     let normalized = crate::utils::remote_path::normalize(path)?;
@@ -34,6 +36,7 @@ pub async fn get_file_id_by_path(config: &Config, path: &str) -> Result<String, 
         .ok_or(ClientError::InvalidFilePath)
 }
 
+/// 按个人云文件 ID 获取下载链接。
 pub async fn get_personal_download_link(
     config: &Config,
     file_id: &str,

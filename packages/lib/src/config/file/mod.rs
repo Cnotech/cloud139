@@ -19,7 +19,9 @@ impl Config {
         Self::load_from_candidates(&[path.to_owned()]).map(|(config, _)| config)
     }
 
-    /// 返回本次读取的配置和固定来源路径。
+    /// 按顺序读取首个存在的候选 TOML 文件，并返回配置和规范化后的文件路径。
+    ///
+    /// 遇到文件缺失时继续查找，遇到其他读取错误或 TOML 解析错误时立即返回。
     pub fn load_from_candidates(candidates: &[PathBuf]) -> Result<(Self, PathBuf), ConfigError> {
         for path in candidates {
             let path = match canonicalize(path) {

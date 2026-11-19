@@ -1,9 +1,13 @@
+//! 验证登录 Token 并生成个人云配置。
+
 use super::list::{ListOptions, list_personal};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
 use crate::info;
 
-/// 验证 Token 并返回可用配置，供调用方选择保存位置。
+/// 解析登录 Token，通过读取云端根目录验证凭据，再返回配置。
+///
+/// 调用方可用 [`Config::save_to`] 将配置保存到指定路径。
 pub async fn login(token: &str) -> anyhow::Result<Config> {
     let mut config = PersonalConfig::new(crate::client::auth::token::parse_login_token(token)?)?;
     info!("正在校验 Token 可用性 (ls /) ...");

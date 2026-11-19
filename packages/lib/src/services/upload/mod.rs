@@ -1,3 +1,5 @@
+//! 上传本地文件和目录到个人云。
+
 mod directory;
 pub(super) mod transfer;
 
@@ -12,6 +14,10 @@ use crate::progress::Progress;
 use crate::utils::{path::safe_local, remote_path};
 use std::path::Path;
 
+/// 将本地文件或目录上传到 `remote` 指定的云端目录。
+///
+/// 目录路径以 `/` 或反斜杠结尾时只上传其内容，否则在目标下包含源目录名。
+/// `make_progress` 仅用于单文件上传。`force` 允许云端为同名新文件分配名称。
 pub async fn upload_path(
     config: &Config,
     local: &str,
@@ -78,7 +84,7 @@ pub async fn upload_path(
     Ok(())
 }
 
-/// 计算哈希或执行可能删除、替换文件的同步操作前，重新读取元数据。
+/// 检查路径是否指向安全可用的普通文件，并返回其当前大小（字节）。
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     safe_local(path)?;
     let metadata = std::fs::metadata(path)?;
@@ -88,6 +94,10 @@ pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     i64::try_from(metadata.len()).map_err(|_| invalid("文件过大"))
 }
 
+/// 将单个本地文件上传到已有的 `remote_path` 目录，使用指定的 `file_name`。
+///
+/// `file_size` 必须为非负数，传输使用重新读取的文件大小。
+/// `force` 允许云端为同名新文件分配名称，遇到同名目录仍会报错。
 pub async fn upload(
     config: &Config,
     local_path: &Path,
@@ -130,7 +140,10 @@ async fn upload_personal_file(
     upload_file(&listing, local_path, &parent, file_name, force, pb).await
 }
 
-/// 上传 `dir` 目录本身。若本地路径以分隔符结尾，则只上传目录内容。
+/// 递归上传本地目录，保留空目录并创建缺失的云端目录。
+///
+/// `contents` 为 `true` 时将内容上传到 `remote`，否则在 `remote` 下包含源目录名。
+/// `force` 的行为与 [`upload`] 相同。部分条目可能在错误返回前已上传。
 pub async fn upload_directory(
     config: &Config,
     local: &Path,

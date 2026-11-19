@@ -39,6 +39,7 @@ impl<T: Borrow<Config>> Deref for PersonalConfig<T> {
 }
 
 impl Config {
+    /// 检查存储类型是否为 `personal_new`。
     pub fn require_personal(&self) -> Result<(), ClientError> {
         if self.storage_type == PERSONAL_STORAGE_TYPE {
             Ok(())
