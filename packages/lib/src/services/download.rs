@@ -130,13 +130,13 @@ async fn write_download(
     }
 
     let mut file = {
-        let mut staged = tempfile::Builder::new();
+        let staged = tempfile::Builder::new();
+        #[cfg(unix)]
+        let mut staged = staged;
+        #[cfg(unix)]
         if existing.is_none() {
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                staged.permissions(std::fs::Permissions::from_mode(0o666));
-            }
+            use std::os::unix::fs::PermissionsExt;
+            staged.permissions(std::fs::Permissions::from_mode(0o666));
         }
         staged.tempfile_in(parent)?
     };

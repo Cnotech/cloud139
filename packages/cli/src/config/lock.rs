@@ -206,6 +206,7 @@ mod unix {
 #[cfg(windows)]
 mod windows {
     use crate::config::error::ConfigWriteError;
+    use cloud139::config::{prepare_save_path, read_config};
     use sha2::{Digest, Sha256};
     #[cfg(test)]
     use std::fs;
@@ -223,7 +224,7 @@ mod windows {
     }
 
     fn mutex_name(path: &Path) -> Result<String, ConfigWriteError> {
-        let path = super::super::prepare_save_path(path)?;
+        let path = prepare_save_path(path)?;
         // canonicalize 解析符号链接、相对路径及已有文件的路径别名。
         // 大小写归一避免首次创建前后因拼写大小写不同而使用不同互斥量。
         let normalized = path.to_string_lossy().to_lowercase();
@@ -272,7 +273,7 @@ mod windows {
             &mut self,
             path: &Path,
         ) -> Result<String, ConfigWriteError> {
-            Ok(cloud139::config::read_config(path)?)
+            Ok(read_config(path)?)
         }
     }
 

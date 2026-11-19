@@ -58,7 +58,7 @@ pub(super) fn persist(temp: NamedTempFile, path: &Path, overwrite: bool) -> io::
     // SAFETY: 路径以 NUL 结尾且在调用期间有效。与 tempfile::persist
     // 一样，在发布配置前清除临时文件属性。
     if unsafe { SetFileAttributesW(source.as_ptr(), FILE_ATTRIBUTE_NORMAL) } == 0 {
-        return Err(io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error());
     }
     // std::fs::rename 在 Windows 上提供 FileRenameInfoEx 回退，
     // 可以替换仍有共享读取句柄打开的配置；tempfile::persist 没有该回退。
