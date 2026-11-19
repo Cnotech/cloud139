@@ -1,5 +1,5 @@
-use super::personal::mutation_succeeded;
-use super::{HttpClientWrapper, ListingRetry, PersonalClient};
+use super::client::{ListingRetry, PersonalClient, mutation_succeeded};
+use crate::client::api::common::request::HttpClientWrapper;
 use crate::{
     client::ClientError,
     config::Config,

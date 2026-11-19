@@ -1,6 +1,7 @@
-use super::{headers::build_refresh_headers, request::refresh_http_client};
+use super::headers::insert_static_headers;
 use crate::client::ClientError;
 use crate::protocol;
+use reqwest::{Client, header::HeaderMap};
 use serde::Deserialize;
 use std::time::Duration;
 
@@ -25,6 +26,21 @@ impl Default for RefreshOptions<'_> {
 pub(in crate::client) struct RefreshedToken {
     pub token: String,
     pub expire_seconds: i64,
+}
+
+fn build_refresh_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    insert_static_headers(&mut headers, protocol::TOKEN_REFRESH_HEADERS);
+    headers
+}
+
+fn refresh_http_client(timeout: Duration) -> Result<Client, ClientError> {
+    // 总超时覆盖连接、响应头和完整响应体读取。
+    Ok(Client::builder()
+        .connect_timeout(Duration::from_secs(3).min(timeout))
+        .timeout(timeout)
+        .user_agent(protocol::TOKEN_REFRESH_USER_AGENT)
+        .build()?)
 }
 
 fn build_refresh_body(account: &str, token: &str) -> String {

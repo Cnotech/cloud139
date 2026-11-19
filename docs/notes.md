@@ -27,7 +27,7 @@
 
 - `services/upload_service.rs` 协调文件和目录上传。
 - `services/upload/` 处理个人云上传流程、分片读取和进度。
-- `client/api/upload.rs` 构造上传 API 请求并解析结果。
+- `client/api/storage/personal/upload.rs` 构造个人云上传 API 请求并解析结果。
 
 ## 测试
 

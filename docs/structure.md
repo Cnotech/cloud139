@@ -29,3 +29,5 @@ cloud139/
 ```
 
 CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。
+
+`client/api/common/` 提供路由查询、Token 续期和签名请求。`client/api/storage/personal/` 选择个人云路由并实现个人云的文件操作。存储实现依赖共用请求层，`client/api/mod.rs` 统一重导出调用入口。

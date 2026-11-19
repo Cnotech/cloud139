@@ -1,4 +1,7 @@
-use crate::client::{ClientError, api::HttpClientWrapper};
+use crate::client::{
+    ClientError,
+    api::{HttpClientWrapper, put_upload_part},
+};
 
 pub(super) async fn upload_part(
     client: &HttpClientWrapper,
@@ -28,7 +31,5 @@ pub(super) async fn upload_part(
             Ok(Some((chunk, (reader, remaining - read, pb))))
         },
     );
-    client
-        .put_upload_part(upload_url, part_number, size, stream)
-        .await
+    put_upload_part(client, upload_url, part_number, size, stream).await
 }
