@@ -11,7 +11,7 @@
 | [`src/config/`](../packages/cli/src/config/) | 配置路径选择、持锁保存与续期写回 |
 | [`src/presentation/`](../packages/cli/src/presentation/) | 文本、JSON 和终端进度条 |
 
-CLI 使用显式的 `--config` 路径，省略时按当前目录、用户配置目录的顺序查找。需要续期时，CLI 对加载配置的同一路径持锁更新，随后重读并校验配置。删除和同步的参数前置检查在续期前执行。库操作入口校验外部配置的 `storage_type`，内部调用可复用 `PersonalConfig`。
+CLI 使用显式的 `--config` 路径，省略时先查找当前目录，配置缺失才查找用户配置目录。需要续期时，CLI 尝试对加载配置的同一路径持锁更新，随后重读并校验配置。删除和同步的参数前置检查在续期前执行。库操作入口校验外部配置的 `storage_type`，内部调用可复用 `PersonalConfig`。
 
 ## 库
 

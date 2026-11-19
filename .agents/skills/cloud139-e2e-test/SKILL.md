@@ -108,8 +108,8 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 |------|-----------|--------|
 | 1.1 | 在 LOCAL 下的子进程创建独立 HOME/XDG_CONFIG_HOME；Windows 同时隔离 USERPROFILE，若无法证明平台默认配置目录位于 LOCAL，则配置回退用例改做离线单测 | 不读、不备份、不修改真实全局配置；不在父进程重写用户 HOME |
 | 1.2 | `c139 login --token "$TOKEN"` | Token 使用用户安全提供并指定用于测试的凭证，禁用 shell xtrace、不记录参数值；只在新 CONFIG 上操作，观察内置只读 ls 校验 |
-| 1.3 | `cargo test --locked --offline --test storage_support_test`（离线） | 使用虚构配置验证非个人云存储类型在网络访问前被拒绝 |
-| 1.4 | 配置优先级：在独立 LOCAL/work 子目录分别放置显式 CONFIG、当前目录配置和临时 HOME 下的 `.config/cloud139/cloud139rc.toml`，用可区分的虚构标记配置和 loopback mock 验证显式 > 当前目录 > 临时全局；验证 login 写回来源 | 这部分默认离线，含失败登录不落盘、刷新回写和配置并发；不使用真实账户反复失败登录，不篡改真实 Token 来试服务端 |
+| 1.3 | `cargo test --locked --offline -p cloud139-cli --test storage_support_test`（离线） | 使用虚构配置验证非个人云存储类型在网络访问前被拒绝 |
+| 1.4 | 在独立 LOCAL/work 子目录用可区分的虚构配置和 loopback mock 验证路径选择 | 显式 `--config` 只使用指定路径。省略时先读当前目录，当前目录文件缺失时才回退到临时 HOME 下的 `.config/cloud139/cloud139rc.toml`。同时核对失败登录不落盘、续期写回原路径和并发保存 |
 | 1.5 | `c139 ls / -o "$LOCAL/logs/before-root.json"`，只检查新 UUID 名称不存在；`c139 mkdir "$CLOUD"` | CLOUD 已登记；若同名已存在立即停止，不复用、不改名、不删除它；成功创建并轮询确认后登记本轮根所有权 |
 | 1.6 | `c139 ls "$CLOUD" -o "$LOCAL/logs/empty-root.json"` | 空目录、total 0；只创建本轮根，不清理任何历史对象 |
 
@@ -143,8 +143,8 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 3.4 | `c139 upload "$FIX/tree" "$CLOUD/s03/missing/parents/dest"` | 0；自动创建缺失目标及所有父目录，落在 dest/tree，不能自动改名或丢空目录 |
 | 3.5 | 准备 `c139 mkdir -p "$CLOUD/s03/same"`；`c139 upload "$FIX/same-v1/same.bin" "$CLOUD/s03/same"` | 0；下载证明确为 AAAA；保存原始 SHA256 |
 | 3.6 | `c139 upload "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 1；同名默认拒绝，AAAA 及命名快照不变；不得因大小相同返回成功却什么也没做 |
-| 3.7 | `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 个人盘允许提交；返回 0 后必须下载证明 BBBB 的 SHA256 确实出现在原名或明确记录的服务端新名称下，登记实际重名策略，不能只看日志或同样的 4 字节大小。 |
-| 3.8 | `c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s03/file-conflict"` 后 `c139 upload "$FIX/tree" "$CLOUD/s03/file-conflict"` | 前者 0；后者 1，文件 tree 不能变目录且其内容不变；即使 --force 也拒绝，快照无多余目录 |
+| 3.7 | `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/same"` | 0；原名仍为 AAAA，服务端分配的新名称对应 BBBB。下载两个文件分别比对 SHA256，并登记新名称 |
+| 3.8 | 先 `c139 mkdir -p "$CLOUD/s03/file-conflict"`，再上传 `"$FIX/tree-as-file/tree"` 到该目录，最后尝试上传 `"$FIX/tree"` 到同一目录 | 单文件上传返回 0，目录上传返回 1。加 `--force` 也应拒绝，普通文件 tree 及其内容不变 |
 | 3.9 | `c139 mkdir -p "$CLOUD/s03/dir-conflict/same.bin"` 后 `c139 upload --force "$FIX/same-v2/same.bin" "$CLOUD/s03/dir-conflict"` | 后者 1；同名目录不能变文件，目录清单不变 |
 | 3.10 | `c139 upload "$FIX/not-created.bin" "$CLOUD/s03/keep"` | 1；本地源不存在；普通单文件上传到缺失远端目录也仍拒绝：`c139 upload "$FIX/files/a.txt" "$CLOUD/s03/not-created-dir"`，不能误套目录自动建父语义 |
 
@@ -193,7 +193,7 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 6.7 | 先 `c139 upload "$FIX/tree" "$CLOUD/s06/dest-conflict"` 准备非空 tree，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/dest-conflict"` | 1；目录同名不能合并、覆盖或自动改名，源/目标完整快照不变 |
 | 6.8 | 先 `c139 mkdir -p "$CLOUD/s06/file-conflict"`、`c139 upload "$FIX/tree-as-file/tree" "$CLOUD/s06/file-conflict"`，再 `c139 cp --force "$CP_SRC" "$CLOUD/s06/file-conflict"` | 1；文件/目录同名类型冲突不变 |
 | 6.9 | 先 `c139 mkdir -p "$CLOUD/s06/file-repeat"`，复制 a.txt 到该目标，再不带 --force 重复复制 | 1；同名文件预检拒绝，快照不变 |
-| 6.10 | 在 6.9 同一目标加 --force | 允许提交；0 后轮询校验新增副本实际名称/哈希及源不变，登记服务端重名结果，不预先写死名称 |
+| 6.10 | 在 6.9 同一目标加 --force | 允许提交；0 后轮询校验新增副本实际名称和哈希、源文件及原有目标，登记服务端重名结果 |
 | 6.11 | `c139 cp --force "$CLOUD/s06/dup/left/shared.txt" "$CLOUD/s06/dup/right/shared.txt" "$CLOUD/s06/dest-multi"` | 1；多个源 basename 相同，即使 --force 也拒绝，不能沿用旧“自动改名成功”预期 |
 | 6.12 | 先创建独立空 dest-preflight，再把 files/a.txt 与阶段内不存在源混合复制到该已有目录 | 1；全部预检后才变更，不允许已有源先被复制；双方完整快照不变 |
 
@@ -226,7 +226,7 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 8.6 | `c139 mv "$CLOUD/s08/same-source/a.txt" "$CLOUD/s08/same-name"` | 1；当前预检要求拒绝，源和目标哈希均不变，不再期待普通 mv 自动改名 |
 | 8.7 | 在 8.6 后加 --force | 允许提交，0 后源消失、目标原文件和实际新名副本按 API 策略核验并登记 |
 | 8.8 | 用 conflict-source/tree 为源，分别执行 mv --force 到 s08/conflict-dir 和 s08/conflict-file | 1；目录/目录及目录/文件冲突都不变 |
-| 8.9 | 两个有效但 basename 同名的源一起移动；另测有效源+不存在源 | 均为 1；--force 不能放开多源同名；不得移动部分有效源，快照不变 |
+| 8.9 | 将 `"$FIX/duplicates/"` 上传到 `"$CLOUD/s08/dup"` 并创建独立空目标；将 `dup/left/shared.txt` 与 `dup/right/shared.txt` 一起移动，另测有效源与不存在源的组合 | 均为 1；加 `--force` 也拒绝多源同名，源与目标快照不变 |
 | 8.10 | 将某文件移到它当前所在父目录 | 1；同目录冲突/无效操作，文件不应丢失或变名 |
 
 ### 阶段 9：mkdir -p、幂等与文件冲突
@@ -273,12 +273,14 @@ manifest 同时比较所有相对目录路径（含空目录）、文件路径�
 | 11.4 | 不带 -n 执行上一同步 | 0；仅预期内容更新，最终 manifest 一致。sync 本地→云端仍按大小判断，同大小内容变化可能 Skip；不能把 upload 的规则套在 sync 上 |
 | 11.5 | 从 SYNCSRC 删除 file2.txt 和空目录 empty；先正常同步，再 `c139 sync -r --delete -n "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；不带 --delete 时云端保留额外对象；dry-run 出现删除计划但内容不变 |
 | 11.6 | `c139 sync -r --delete "$SYNCSRC" "cloud:$SYNC_REMOTE"` | 0；只删除本轮 target 内额外对象，轮询及 manifest 确认；不额外补发 rm 来判断完成 |
-| 11.7 | 在新的 exclude-source 中生成假的 .env、output.log、subdir，再同步到**新的空 exclude-target**，传 `--exclude '*.log' --exclude '.env' --exclude 'subdir'` | 0；被排除条目不存在；旧目标已存在的 subdir 不会仅因 exclude 自动消失，不能用旧目标测试“未上传” |
-| 11.8 | 在独立 jobs-source 生成 8 个小文件，对新 jobs-target 使用 `-r -j 2`，随后 `-r -j 8` | 0；首次完整传输后再无新增内容，hash 清单一致，不对同目标同时启动两次 sync |
+| 11.7 | 在新的 exclude-source 中生成假的 .env、output.log、subdir 和用于确认同步成功的 kept.txt。先在 s11 下创建空的 exclude-target，再以 `-r --exclude '*.log' --exclude '.env' --exclude 'subdir'` 同步 | 0；目标仅有 kept.txt，哈希一致 |
+| 11.8 | 在独立 jobs-source 生成 8 个小文件，先在 s11 下创建空的 jobs-target，再先后执行 `-r -j 2` 和 `-r -j 8` | 0；首次传输全部文件，第二次清单不变 |
 | 11.9 | `c139 sync -r "cloud:$SYNC_REMOTE" "$SYNCDST"`，重复执行 | 0；下载清单一致、第二次无新增传输；若本地已存在旧目标，单独确认映射而不复用 download 的追加目录规则 |
 | 11.10 | 将 SYNCDST/file1.txt 改为不同大小后再执行 11.9 | 0；恢复云端正确内容，逐文件 SHA256 一致；不使用仅改同大小内容的夹具期待强制覆盖 |
 | 11.11 | `c139 sync "$LOCAL/not-created" "cloud:$SYNC_REMOTE" -r`；两端都是本地或都是本轮 CLOUD 路径的方向错误 | 2；扫描/方向失败，不创建远端对象；执行错误退出码 1 的故障注入留在 mock |
 | 11.12 | 个人盘以 CLOUD/s11/not-created-dir 为云端 target 执行 sync | 当前云端根扫描要求目标已存在：2，未创建目标；不要将 upload 自动建父目录的预期套在这里 |
+| 11.13 | 在 s11 下创建独立空目录作为校验目标。上传 `"$FIX/same-v1/same.bin"`，用 `"$FIX/same-v2"` 作本地源，先做普通同步，再以 `--verify --json` 同步 | 普通同步返回 0，云端哈希仍为 AAAA。校验同步返回 0，stdout 是单行 JSON，`changes` 记录 `same.bin` 的 `upload`，最终下载哈希为 BBBB |
+| 11.14 | 在 11.13 的校验目标中新增并登记一个多余文件和一个空目录。先用同一源执行 `-r -n --verify --delete --json`，再去掉 `-n` 执行 | 两次均返回 0。预览报告 `dryRun: true`、`changes: []`，`plan` 含 `same.bin` 的 `verify` 和多余文件的 `delete`，云端清单未变。正式报告列出已删除文件，保留空目录和 `same.bin`，下载核对哈希 |
 
 ### 阶段 12：清理、收尾核验与报告
 
@@ -300,11 +302,12 @@ cleanup sub agent 先审核台账、登记的精确 CLOUD、创建成功证据�
 
 | 步骤 | 命令/用例 | 验证点 |
 |------|-----------|--------|
-| 13.1 | `cargo test --locked --offline --test directory_operations_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求 |
-| 13.2 | `cargo test --locked --offline --test directory_operations_test removed_options_fail_before_config_changes` | 已移除的参数在解析阶段返回退出码 2，原配置不变 |
+| 13.1 | `cargo test --locked --offline -p cloud139-cli --test directory_operations_test` | 根路径别名和服务端根 ID 别名的 rm/mv/cp/rename 拒绝，确认 mock 没有变更请求 |
+| 13.2 | `cargo test --locked --offline -p cloud139-cli --test directory_operations_test removed_options_fail_before_config_changes` | 已移除的参数在解析阶段返回退出码 2，原配置不变 |
 | 13.3 | 上述目录用例及 `cargo test -p cloud139 --locked --offline --test pagination_cursor_guard_test` | 重复/循环游标、目录 ID 循环均报错；不将不完整列表当成功 |
 | 13.4 | 恶意服务端文件名、绝对路径、穿越、Windows 设备名、源/目标 symlink | 拒绝前不写出本轮本地临时根、不覆盖受保护文件；symlink 相关平台限制明确记录 |
 | 13.5 | 上传中途失败、批量条目 success=false、HTTP 错误/下载断流、无数据或失败列表 | 失败返回非零并准确报告已完成部分；不静默 Skip，不把错误当空目录，不自动重试不确定写请求 |
 | 13.6 | Config 优先级、失败登录、刷新/并发写回；CLI 缺参数 | 全用虚构凭证/loopback 和临时配置验证，缺参数为 clap 退出码 2；不通过修改真实 Token 测试失败 |
+| 13.7 | `cargo test --locked --offline -p cloud139-cli --bin cloud139 sync_args_test`，以及 1.3 的 `invalid_command_arguments_are_rejected_before_token_refresh`、13.1 的 `verified_sync` 和 `sync_json` 用例 | 校验方向和并发限制、空源清理拒绝、内容哈希回退、同步 JSON 的计划与实际结果、部分失败后跳过清理，以及清理期间发现远端变化时停止 |
 
 部分条目可能需要补充 mock 才能完整覆盖。执行者必须逐项核对现有测试断言；缺少断言时写“未覆盖/待补 mock”，不得声称本文矩阵已经全部自动化或全部执行。阶段 13 可在真实 E2E 之前单独运行。

@@ -1,6 +1,6 @@
 ---
 name: bump-version
-description: 更新项目版本号，更新依赖，提交并打标签
+description: 更新 cloud139 CLI 版本和锁文件，提交并打标签
 license: MIT
 compatibility: opencode
 metadata:
@@ -10,10 +10,10 @@ metadata:
 
 ## 功能描述
 
-更新 cloud139 项目的版本号，包括：
+更新 cloud139 CLI 的版本号，包括：
 - 根据用户选择增加 major、minor 或 patch 版本位
 - 更新 `packages/cli/Cargo.toml` 中的版本号
-- 运行 cargo update -w 更新依赖
+- 运行 `cargo update --workspace`，将工作区版本写入 `Cargo.lock`
 - 提交 `packages/cli/Cargo.toml` 和 `Cargo.lock`
 - 创建并推送 Git tag
 
@@ -43,10 +43,10 @@ metadata:
 
 在项目根目录执行：
 ```bash
-cargo update -w
+cargo update --workspace
 ```
 
-这会更新 Cargo.lock 中 workspace 依赖的版本。
+这会同步 `Cargo.lock` 中工作区包的版本，并尽量保留第三方依赖的锁定版本。需要升级第三方依赖时，按用户请求单独更新对应依赖。
 
 ### 5. Git 提交
 

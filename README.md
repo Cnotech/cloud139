@@ -30,9 +30,9 @@ git clone https://github.com/Cnotech/cloud139.git
 cd cloud139
 
 # 编译
-cargo build -r
+cargo build --locked --release
 
-# 可执行文件位于 target/release/cloud139
+# 可执行文件位于 target/release/cloud139，Windows 下为 cloud139.exe
 ```
 
 ### 登录
@@ -47,7 +47,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - 切换到`应用（Application）`标签页，点击`存储（Storage）`-`Cookie`-`https://yun.139.com`
 - 找到 `authorization` 项，复制其值即可
 
-> 如果粘贴 Token 后提示 `Invalid token`，可尝试去除 `Basic ` 前缀，或在 Token 前后增加单引号（`'`）
+> Token 可以带 `Basic ` 前缀。传入带空格的完整值时，用引号包住整个值。
 >
 > 更多详情可参考：[AList 文档](https://alistgo.com/zh/guide/drivers/139.html#%E6%96%B0%E4%B8%AA%E4%BA%BA%E4%BA%91)
 
@@ -123,20 +123,18 @@ cloud139 mv /backup/photos /existing-destination/
 cloud139 rm -r --yes /a
 ```
 
-目录上传复用 sync 的本地扫描及底层上传，不使用 sync 的同大小跳过规则；已有同名文件默认报错。`--force` 允许上传同名文件，保留云端为新文件分配的名称。目录与文件类型冲突始终报错。
+目录上传会逐个处理文件，包括与云端同名且同大小的文件。已有同名文件默认报错。`--force` 允许云端为新文件分配名称。
 
-`ls -R` 忽略页码选择，读取每个目录的全部分页；JSON 输出为目录对象数组（包括空目录），每个对象含 `path`、`total` 和 `items`。普通 `ls` 保持单目录分页输出格式。游标、重复分页或目录 ID 循环均报错。
+`ls -R` 忽略页码和每页数量设置，读取每个目录的全部分页。使用 `-o` 时，JSON 文件包含目录对象数组（包括空目录），每个对象含 `path`、`total` 和 `items`。循环游标或重复目录 ID 会报错。
 
-目录创建不自动改名。复制、移动、重命名的目录重名冲突即使加 `--force` 也会拒绝；文件同名可使用 `--force`。禁止根目录变更，路径先规范化，复制/移动禁止自身与子目录目标。非法跨平台名称、服务端路径穿越名称和本地符号链接会被拒绝。
-
-个人盘支持目录上传、下载、`mkdir -p`、`ls -R`、`rm -r`、多源复制和移动，以及文件和目录重命名。递归任务失败会返回非零退出码，此前成功的条目会保留。详见 [目录操作与测试说明](docs/directory-operations.md)。
+递归任务失败时，此前成功的条目会保留。路径检查、同名冲突和部分失败的处理见 [目录操作与验证](docs/directory-operations.md)。
 
 ## 全局选项
 
 | 参数 | 简写 | 默认值 | 说明 |
 |------|------|--------|------|
-| --verbose | -v | info | 日志级别 (trace, debug, info, warn, error) |
-| --config | -c | - | 指定配置文件路径。读取时优先使用该路径；`login` 时也写入该路径 |
+| --verbose | -v | info | 在子命令前使用 `-v debug` 开启调试日志 |
+| --config | -c | - | 仅使用指定的配置文件。`login` 将配置写入该路径 |
 
 ## 命令参考
 
@@ -173,7 +171,7 @@ cloud139 ls [-R] [-p <页码>] [-s <数量>] [-o <输出文件>] [路径]
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 路径 | - | 否 | 文件路径，默认：/ |
+| 路径 | - | 否 | 远程目录路径，默认 `/` |
 | --page | -p | 否 | 页码，默认：1 |
 | --page-size | -s | 否 | 每页数量，默认：100 |
 | --recursive | -R | 否 | 递归列出全部目录和分页 |
@@ -197,7 +195,7 @@ cloud139 ls / -o result.json
 
 ### upload
 
-上传文件或递归上传本地目录到云盘。保留空目录，自动创建缺失的云端目标目录。
+上传文件或递归上传本地目录到云盘。目录上传保留空目录，并创建缺失的云端目标目录。单文件上传要求目标目录已存在。
 
 单个文件的上传大小上限因账号而异。超过上限时，报错会显示文件大小和云盘返回的错误码。
 
@@ -242,7 +240,7 @@ cloud139 download [-r] <远程路径> [本地路径]
 |------|------|------|------|
 | 远程路径 | - | 是 | 云盘文件或目录路径 |
 | --recursive | -r | 否 | 递归下载目录 |
-| 本地路径 | - | 否 | 本地保存路径，默认：当前目录的同名文件 |
+| 本地路径 | - | 否 | 默认保存到当前目录下的同名文件或目录。下载云端根目录默认使用 `./download` |
 
 **示例：**
 
@@ -401,9 +399,9 @@ cloud139 rename /folder/old newname
 
 普通 `--delete` 在建目录和传输全部成功后才开始清理。清理逐项复核扫描时的对象，先处理子项，再处理确认已空的目录。发现变更或删除失败会停止后续清理。单文件可上传同步到云端目录，使用目录作为源才能启用 `--delete`。
 
-`--verify` 用 SHA-256 识别大小相同但内容不同的文件。跳过前复核远端文件，替换前校验新上传的临时副本。远端未提供可比的 SHA-256 时，同步会读取该文件的远端内容计算哈希。这可能增加下载流量和耗时。校验模式固定串行。
+`--verify` 仅支持本地到云端，固定串行。它用 SHA-256 识别大小相同但内容不同的文件。跳过前复核远端文件，替换前校验新上传的临时副本。远端未提供可比的 SHA-256 时，同步会读取该文件的远端内容计算哈希。这可能增加下载流量和耗时。
 
-`--verify --delete` 只清理初始扫描中目标端多余的文件。所有校验和更新通过后，同步会复核保留文件和待删除文件的 ID，再开始清理。空源、被排除规则筛空的源会拒绝执行。清理开始后如果服务端拒绝某次删除，已完成的删除保留，剩余删除停止。
+`--verify --delete` 要求同步范围内至少有一个源文件，只清理初始扫描中目标端多余的文件。所有校验和更新通过后，同步会复核保留文件和待删除文件的 ID，再开始清理。发现目标变更或删除失败时，已完成的删除保留，剩余删除停止。
 
 `--json` 在执行或预览结束后向标准输出写一行同步报告，日志写到标准错误。普通同步和 `--verify` 都支持这个选项。
 
@@ -430,11 +428,11 @@ cloud139 sync <源路径> <目标路径> [选项]
 | 源路径 | - | 是 | 本地路径或云端路径（cloud:/path） |
 | 目标路径 | - | 是 | 本地路径或云端路径 |
 | --recursive | -r | 否 | 递归同步子目录，空目录也会同步 |
-| --dry-run | -n | 否 | 只预览同步计划。预览成功时退出码为 0 |
-| --delete | - | 否 | 删除目标中源没有的文件或空目录 |
+| --dry-run | -n | 否 | 预览同步计划，成功时退出码为 0。扫描前仍可能按需续期凭据 |
+| --delete | - | 否 | 清理目标中多余的文件和空目录。校验模式只清理文件 |
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
 | --jobs | -j | 否 | 同时传输的文件数，范围 1 到 32。默认 4，校验模式固定为 1 |
-| --verify | - | 否 | 校验内容并修复不一致的文件 |
+| --verify | - | 否 | 仅在本地到云端同步时校验内容并修复不一致的文件 |
 | --json | - | 否 | 以 JSON 报告本次同步的文件变更 |
 
 **示例：**
@@ -453,20 +451,14 @@ cloud139 sync ./backup cloud:/backup -r --json > sync-report.json
 cloud139 sync cloud:/photos ./photos -r -n
 
 # 排除特定文件或目录
-cloud139 sync . cloud:/project -r -n --exclude .git/** --exclude target/**
+cloud139 sync . cloud:/project -r -n --exclude '.git/**' --exclude 'target/**'
 ```
 
 ## 配置文件
 
 登录成功后，配置信息默认保存到当前工作目录的 `cloud139rc.toml`。
 
-读取时按以下优先级查找：
-
-1. 通过全局参数 `--config <PATH>` 指定的路径
-2. 当前工作目录下的 `cloud139rc.toml`
-3. 全局路径 `~/.config/cloud139/cloud139rc.toml`
-
-`login` 时如果指定了 `--config <PATH>`，则将配置文件写入该路径。
+指定 `--config <PATH>` 时，CLI 只读取该路径，`login` 也写到该路径。省略该选项时，CLI 先查找当前目录下的 `cloud139rc.toml`，文件不存在时再查找 `~/.config/cloud139/cloud139rc.toml`。已找到的配置无效时，命令会报错。
 
 ### 配置文件结构
 
@@ -532,7 +524,6 @@ async fn list_backup() -> Result<ListResult, Box<dyn std::error::Error>> {
 - [reqwest](https://docs.rs/reqwest/) - HTTP 客户端
 - [tokio](https://tokio.rs/) - 异步运行时
 - [serde](https://serde.rs/) - 序列化/反序列化
-- [aes-gcm](https://docs.rs/aes-gcm/) - 加密
 - [chrono](https://chrono.rs/) - 日期时间处理
 - [directories](https://docs.rs/directories/) - 目录路径处理
 
