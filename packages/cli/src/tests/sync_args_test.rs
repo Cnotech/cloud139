@@ -1,7 +1,7 @@
 use crate::cli::{Cli, Commands, args::SyncArgs};
 use crate::error::CommandExit;
 use clap::{CommandFactory, Parser};
-use cloud139::domain::sync_item::{SyncDirection, SyncEndpoint};
+use cloud139::models::sync_item::{SyncDirection, SyncEndpoint};
 use cloud139::services::sync_service::{parse_sync_endpoint, sync_direction};
 
 #[test]

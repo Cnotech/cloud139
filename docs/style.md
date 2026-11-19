@@ -15,8 +15,8 @@ use tokio::fs;
 
 // 项目内部导入（使用 crate:: 前缀）
 use crate::client::http::HttpClientWrapper;
-use crate::domain::file_item::EntryKind;
 use crate::error::ClientError;
+use crate::models::file_item::EntryKind;
 use crate::models::list::PersonalFileItem;
 use crate::{error, info, success, warn};
 ```

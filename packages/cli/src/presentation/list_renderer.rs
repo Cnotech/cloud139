@@ -1,5 +1,5 @@
 use crate::print;
-use cloud139::domain::file_item::EntryKind;
+use cloud139::models::file_item::EntryKind;
 use cloud139::services::list_service::ListResult;
 use serde::Serialize;
 

@@ -2,7 +2,7 @@ use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::debug;
-use crate::domain::file_item::{EntryKind, FileItem};
+use crate::models::file_item::{EntryKind, FileItem};
 use crate::protocol;
 use crate::utils::remote_path;
 use crate::utils::time::parse_personal_time;

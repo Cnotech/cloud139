@@ -65,7 +65,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | ---------- | ---------- |
 | `client::ClientError`、`config::ConfigError` | `error::{ClientError, ConfigError}` |
 | `client::api::HttpClientWrapper` | `client::http::HttpClientWrapper` |
-| `domain` 下的类型 | 按类型从 `domain::file_item` 或 `domain::sync_item` 导入 |
+| `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
 | `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
 | `utils` 下的函数 | 按用途从 `utils::{crypto, path, rand, time, width}` 的相应子模块导入 |
 | `services` 下的文件操作和 `ListResult` | 从相应的服务模块导入，例如 `copy_service::cp`、`move_service::mv`、`list_service::{list, ListResult}` 和 `upload_service::upload` |

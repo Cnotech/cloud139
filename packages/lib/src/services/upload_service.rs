@@ -1,8 +1,8 @@
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::domain::sync_item::{FileEntry, SyncEntryKind};
 use crate::error::ClientError;
 use crate::error::invalid;
+use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::services::progress::Progress;
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;

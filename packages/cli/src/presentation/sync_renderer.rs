@@ -1,5 +1,5 @@
 use crate::{success, warn};
-use cloud139::domain::sync_item::{SyncAction, SyncSummary};
+use cloud139::models::sync_item::{SyncAction, SyncSummary};
 use cloud139::services::sync_report::SyncReport;
 use cloud139::services::sync_service::{SyncOutcome, format_action_line};
 use serde::Serialize;

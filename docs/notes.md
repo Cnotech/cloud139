@@ -13,7 +13,7 @@
 - CLI 层 (`cli/`) 只负责参数定义，不直接调用基础设施
 - 命令层 (`commands/`) 作为适配器，连接 CLI 和应用层
 - 应用层 (`packages/lib/src/services/`) 包含核心业务逻辑
-- 领域层 (`domain/`) 不依赖外部框架
+- 文件和同步使用的业务类型位于 `models/file_item.rs` 和 `models/sync_item.rs`，只依赖标准库
 - 展示层 (`presentation/`) 只处理输出格式化
 
 ## API 相关

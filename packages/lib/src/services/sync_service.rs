@@ -5,7 +5,7 @@ use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::Config;
 use crate::debug;
-use crate::domain::sync_item::{
+use crate::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
     SyncTarget,
 };

@@ -2,7 +2,7 @@ use super::progress::ProgressFactory;
 use super::sync_remote::{SyncCloud, remote_sha256};
 use super::sync_report::SyncReport;
 use crate::config::Config;
-use crate::domain::sync_item::{ChangeKind, SyncAction, SyncTarget};
+use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::services::sync_executor::{SyncExecuteOptions, make_action_progress};
 use crate::services::sync_service::CloudSyncScan;
 use crate::services::upload_service::transfer::{SyncUploadPlan, upload_sync_to_parent};

@@ -3,7 +3,7 @@ use super::{
     parse_sync_endpoint, scan_cloud, sync_direction,
 };
 use crate::config::Config;
-use crate::domain::sync_item::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
+use crate::models::sync_item::{SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind};
 use crate::services::local_scan::{scan_local_target, scan_upload_source};
 use crate::services::progress::ProgressFactory;
 use crate::services::sync_executor::{SyncExecuteOptions, execute_scanned_sync};
