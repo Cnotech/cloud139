@@ -5,9 +5,9 @@ use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{FileEntry, SyncDirection, SyncEntryKind};
+use crate::protocol::is_non_root_file_id;
 use crate::services::directory::directory_with_listing;
 use crate::services::local_scan::scan_items;
-use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
 use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
 use futures_util::TryStreamExt;
@@ -83,14 +83,10 @@ impl From<&crate::models::list::PersonalFileItem> for CloudSyncFile {
             .filter(|id| is_non_root_file_id(id))
             .cloned();
         let size = item.size.and_then(|size| u64::try_from(size).ok());
-        let sha256 = normalize_content_sha256(
-            item.content_hash.as_deref(),
-            item.content_hash_algorithm.as_deref(),
-        );
         Self {
             id,
             size,
-            sha256,
+            sha256: item.content_sha256(),
             modified: item.modified_time().map(str::to_owned),
         }
     }

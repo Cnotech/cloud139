@@ -1,11 +1,11 @@
-use super::paths::{is_recovery_path, path_and_ancestors};
+use super::paths::{is_recovery_path, path_and_ancestors, rel_to_local};
 use super::scan::CloudSyncScan;
 use crate::debug;
 use crate::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEntryKind, SyncTarget,
 };
 use crate::services::local_scan::LocalSyncScan;
-use crate::utils::{path::rel_to_local, remote_path};
+use crate::utils::remote_path;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 

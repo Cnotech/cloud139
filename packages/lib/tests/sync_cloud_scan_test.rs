@@ -1,8 +1,9 @@
 use cloud139::config::Config;
 use cloud139::models::list::PersonalFileItem;
 use cloud139::models::sync_item::SyncDirection;
+use cloud139::services::sync::paths::normalize_cloud_path;
 use cloud139::services::sync::scan::{SyncScanOptions, personal_item_to_file_entry, scan_cloud};
-use cloud139::utils::remote_path::{cloud_child_path, normalize_cloud_path};
+use cloud139::utils::remote_path::cloud_child_path;
 use httpmock::MockServer;
 
 #[tokio::test]

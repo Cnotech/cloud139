@@ -4,8 +4,7 @@ use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;
 use crate::models::list::parse_personal_time;
-use crate::protocol;
-use crate::utils::remote_file::is_non_root_file_id;
+use crate::protocol::{self, is_non_root_file_id};
 use crate::utils::remote_path;
 use std::collections::HashSet;
 

@@ -6,13 +6,13 @@ use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;
 use crate::models::list::PersonalFileItem;
 use crate::progress::Progress;
+use crate::protocol::is_non_root_file_id;
 use crate::services::directory as dirs;
 use crate::services::sync::paths::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
 use crate::services::sync::remote::{SYNC_LIST_RETRY, remote_sha256};
 use crate::services::sync::scan::{CloudSyncFile, CloudSyncScan};
 use crate::utils::{
     crypto::{generate_rand_str, is_sha256_hex},
-    remote_file::is_non_root_file_id,
     remote_path,
 };
 use anyhow::Context;

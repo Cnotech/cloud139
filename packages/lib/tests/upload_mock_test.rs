@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 mod upload_mock_test {
-    use cloud139::utils::path::resolve_local_path;
     use httpmock::prelude::*;
     use serde_json::json;
 
@@ -100,14 +99,6 @@ mod upload_mock_test {
                 }
             }));
         });
-    }
-
-    #[test]
-    fn test_resolve_local_path_basic() {
-        let _result = resolve_local_path("test.txt", &None);
-        let _result2 = resolve_local_path("folder/test.txt", &None);
-        let _result3 = resolve_local_path("test.txt", &Some("output.txt".to_string()));
-        let _result4 = resolve_local_path("test.txt", &Some("downloads".to_string()));
     }
 }
 

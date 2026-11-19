@@ -3,16 +3,14 @@ use crate::client::api::response::{
     format_api_error, is_mutation_successful, is_response_successful, json_api_error,
 };
 use crate::client::http::HttpClientWrapper;
-use crate::utils::remote_file::is_non_root_file_id;
-use crate::utils::upload_parts::UploadLayout;
 use crate::{
     config::{Config, PersonalConfig},
     debug,
     error::ClientError,
-    protocol,
+    protocol::{self, is_non_root_file_id},
     {
         models::common::BaseResp,
-        models::upload::{PersonalPartInfo, PersonalUploadResp},
+        models::upload::{PersonalPartInfo, PersonalUploadResp, UploadLayout},
     },
 };
 use std::{collections::HashMap, ops::Range, path::Path};
@@ -276,7 +274,7 @@ mod tests {
     use crate::client::api::personal::client::{ListingRetry, PersonalClient};
     use crate::client::http::HttpClientWrapper;
     use crate::config::PersonalConfig;
-    use crate::utils::upload_parts::UploadLayout;
+    use crate::models::upload::UploadLayout;
     use httpmock::prelude::*;
     use serde_json::json;
 

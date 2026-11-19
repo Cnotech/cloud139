@@ -75,6 +75,8 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
 | `utils::rand::generate_rand_str` | `utils::crypto::generate_rand_str` |
 | `utils::time::parse_personal_time` | `models::list::parse_personal_time` |
+| `utils::crypto::{calc_sign, encode_uri_component}` | `client::http::{calc_sign, encode_uri_component}` |
+| `utils::resolve_local_path`、`utils::path::resolve_local_path` | `services::download::resolve_local_path` |
 | `utils` 下的其他函数 | 按用途从定义所在的子模块导入，例如 `utils::crypto` 或 `utils::path` |
 | `services::copy::cp`、`services::mv::mv` | `services::directory::{cp, mv}` |
 | `services` 下的文件操作和 `ListResult` | 从相应模块导入，例如 `services::directory::{cp, mv}`、`services::list::{list, ListResult}` 和 `services::upload::upload` |
@@ -83,7 +85,8 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `services::sync_service` 或 `services::sync` 下的同步类型和函数 | 在 `services::sync` 下，从 `plan` 导入 `SyncRequest`、`SyncPlan`、`SyncOutcome`。扫描接口和类型从 `scan` 导入，差异计算从 `diff` 导入，端点解析从 `paths` 导入，`format_action_line` 从 `report` 导入 |
 | `services::progress` 下的进度接口和类型 | `progress::{TransferProgress, Progress, ProgressFactory}` |
 | `services::directory_service` 下的路径工具 | `utils::path::safe_local` 和 `utils::remote_path::{normalize, non_root, validate_name}` |
-| `services::sync_service` 下的远端路径工具 | `utils::remote_path::{cloud_child_path, normalize_cloud_path}` |
+| `services::sync_service::cloud_child_path` | `utils::remote_path::cloud_child_path` |
+| `services::sync_service::normalize_cloud_path`、`utils::remote_path::normalize_cloud_path` | `services::sync::paths::normalize_cloud_path` |
 | `services::directory_service::invalid`、`utils::remote_path::invalid` | `error::invalid` |
 
 ### 基本使用

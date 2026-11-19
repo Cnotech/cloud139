@@ -1,4 +1,4 @@
-//! 139 云盘接口的固定值，供请求构造和响应解析共用。
+//! 139 云盘接口的固定值和标识规则，供请求构造和响应解析共用。
 
 // API 地址与端点。
 pub(crate) const ROUTE_POLICY_URL: &str = "https://user-njs.yun.139.com/user/route/qryRoutePolicy";
@@ -47,6 +47,10 @@ pub(crate) const CONTENT_HASH_SHA256: &str = "SHA256";
 pub(crate) const CONTENT_HASH_SHA256_ALIAS: &str = "SHA-256";
 pub(crate) const UPLOAD_AUTO_RENAME: &str = "auto_rename";
 pub(crate) const UPLOAD_PARTS_PER_REQUEST: i64 = 100;
+
+pub(crate) fn is_non_root_file_id(id: &str) -> bool {
+    !id.is_empty() && id != ROOT_FILE_ID
+}
 
 // HTTP 请求头的固定值。
 pub(crate) const WEB_ORIGIN: &str = "https://yun.139.com";

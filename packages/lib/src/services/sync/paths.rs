@@ -2,13 +2,22 @@ use crate::models::sync_item::{SyncDirection, SyncEndpoint};
 use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn parse_sync_endpoint(value: &str) -> SyncEndpoint {
     if let Some(rest) = value.strip_prefix("cloud:") {
-        return SyncEndpoint::Cloud(remote_path::normalize_cloud_path(rest));
+        return SyncEndpoint::Cloud(normalize_cloud_path(rest));
     }
     SyncEndpoint::Local(PathBuf::from(value))
+}
+
+/// 统一同步端点中的云端路径首尾斜杠，路径校验由同步入口负责。
+pub fn normalize_cloud_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return "/".to_string();
+    }
+    format!("/{}", trimmed.trim_start_matches('/').trim_end_matches('/'))
 }
 
 pub(super) fn normalize_sync_endpoint(endpoint: SyncEndpoint) -> Result<SyncEndpoint> {
@@ -16,6 +25,13 @@ pub(super) fn normalize_sync_endpoint(endpoint: SyncEndpoint) -> Result<SyncEndp
         SyncEndpoint::Cloud(path) => Ok(SyncEndpoint::Cloud(remote_path::normalize(&path)?)),
         local => Ok(local),
     }
+}
+
+pub(super) fn rel_to_local(root: &Path, rel_path: &str) -> PathBuf {
+    rel_path
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 pub fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDirection> {

@@ -4,9 +4,9 @@ use crate::client::api::personal::transfer::put_upload_part;
 use crate::client::api::upload::UploadFile;
 use crate::client::http::HttpClientWrapper;
 use crate::error::ClientError;
+use crate::models::upload::{PersonalPartInfo, UploadLayout};
 use crate::progress::Progress;
 use crate::protocol;
-use crate::utils::upload_parts::UploadLayout;
 use std::collections::HashMap;
 use std::path::Path;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, SeekFrom};
@@ -78,7 +78,7 @@ struct UploadPartsParams<'a> {
     file_id: &'a str,
     layout: UploadLayout,
     content_hash: &'a str,
-    initial_parts: &'a [crate::models::upload::PersonalPartInfo],
+    initial_parts: &'a [PersonalPartInfo],
     pb: Option<Progress>,
 }
 
@@ -173,7 +173,7 @@ mod tests {
     use crate::client::http::HttpClientWrapper;
     use crate::config::PersonalConfig;
     use crate::error::ClientError;
-    use crate::utils::upload_parts::UploadLayout;
+    use crate::models::upload::UploadLayout;
     use httpmock::prelude::*;
     use serde_json::json;
 

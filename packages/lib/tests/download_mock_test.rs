@@ -73,7 +73,7 @@ mod download_mock_test {
 }
 
 mod download_path_tests {
-    use cloud139::utils::path::resolve_local_path;
+    use cloud139::services::download::resolve_local_path;
 
     #[test]
     fn test_resolve_local_path_with_directory() {
@@ -101,5 +101,13 @@ mod download_path_tests {
     fn test_resolve_local_path_empty_remote() {
         let result = resolve_local_path("", &None);
         assert_eq!(result, "download");
+    }
+
+    #[test]
+    fn test_resolve_local_path_basic() {
+        let _result = resolve_local_path("test.txt", &None);
+        let _result2 = resolve_local_path("folder/test.txt", &None);
+        let _result3 = resolve_local_path("test.txt", &Some("output.txt".to_string()));
+        let _result4 = resolve_local_path("test.txt", &Some("downloads".to_string()));
     }
 }

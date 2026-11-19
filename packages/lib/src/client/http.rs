@@ -1,7 +1,7 @@
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
-use crate::utils::crypto::{calc_sign, generate_rand_str};
+use crate::utils::crypto::{generate_rand_str, md5_hash};
 use reqwest::{
     Client, ClientBuilder, RequestBuilder,
     header::{HeaderMap, HeaderValue},
@@ -73,6 +73,42 @@ fn build_signed_post(
     Ok(client.post(url).headers(headers).body(payload))
 }
 
+pub fn encode_uri_component(s: &str) -> String {
+    let mut result = String::new();
+    for c in s.chars() {
+        match c {
+            // 编码行为与 JavaScript 的 `encodeURIComponent` 及 AList/OpenList 签名逻辑一致。
+            '!' | '\'' | '(' | ')' | '*' => result.push(c),
+            ' ' => result.push_str("%20"),
+            _ => {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '~' {
+                    result.push(c);
+                } else {
+                    for b in c.to_string().as_bytes() {
+                        result.push_str(&format!("%{:02X}", b));
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
+    let encoded = encode_uri_component(body);
+    let mut chars: Vec<char> = encoded.chars().collect();
+    chars.sort();
+    let sorted: String = chars.into_iter().collect();
+
+    let body_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &sorted);
+
+    let hash1 = md5_hash(&body_base64);
+    let hash2 = md5_hash(&format!("{}:{}", ts, rand_str));
+
+    let combined = format!("{}{}", hash1, hash2);
+    md5_hash(&combined).to_uppercase()
+}
+
 pub(super) fn insert_static_headers(
     headers: &mut HeaderMap,
     values: &[(&'static str, &'static str)],
@@ -118,10 +154,7 @@ mod tests {
                 serde_json::from_str::<serde_json::Value>(payload).unwrap(),
                 body
             );
-            assert_eq!(
-                signature,
-                crate::utils::crypto::calc_sign(payload, timestamp, nonce)
-            );
+            assert_eq!(signature, calc_sign(payload, timestamp, nonce));
         }
     }
 }

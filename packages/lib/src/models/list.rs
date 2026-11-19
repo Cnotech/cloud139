@@ -3,6 +3,7 @@ use serde::Deserialize;
 
 use super::common::BaseResp;
 use crate::protocol;
+use crate::utils::crypto::is_sha256_hex;
 
 #[derive(Debug, Deserialize)]
 pub struct PersonalListResp {
@@ -53,6 +54,14 @@ impl PersonalFileItem {
             .as_deref()
             .or(self.update_date.as_deref())
             .or(self.last_modified.as_deref())
+    }
+
+    pub(crate) fn content_sha256(&self) -> Option<String> {
+        let hash = self.content_hash.as_deref()?.trim();
+        let algorithm = self.content_hash_algorithm.as_deref()?.trim();
+        let is_sha256 = algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256)
+            || algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256_ALIAS);
+        (is_sha256 && is_sha256_hex(hash)).then(|| hash.to_ascii_lowercase())
     }
 
     pub fn is_folder(&self) -> bool {
