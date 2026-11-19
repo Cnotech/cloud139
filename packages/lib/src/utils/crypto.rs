@@ -1,119 +1,10 @@
-use aes::{Aes128, cipher::Block};
 use anyhow::{Result, anyhow};
-use sha2::Digest;
-
-pub fn sha1_hash(data: &str) -> String {
-    let mut hasher = sha1::Sha1::new();
-    hasher.update(data.as_bytes());
-    hex::encode(hasher.finalize())
-}
+use sha2::{Digest, Sha256};
 
 pub fn md5_hash(data: &str) -> String {
     let mut hasher = md5::Md5::new();
     hasher.update(data.as_bytes());
     hex::encode(hasher.finalize())
-}
-
-pub fn aes_cbc_encrypt(plaintext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
-    use cbc::{
-        Encryptor,
-        cipher::{BlockEncryptMut, KeyIvInit},
-    };
-
-    type Aes128Cbc = Encryptor<Aes128>;
-
-    let mut cipher = Aes128Cbc::new(key.into(), iv.into());
-    let mut data = plaintext.to_vec();
-    let len = data.len();
-    let pad_len = if len.is_multiple_of(16) {
-        16
-    } else {
-        16 - (len % 16)
-    };
-    data.extend(vec![pad_len as u8; pad_len]);
-
-    let mut blocks = Vec::new();
-    for chunk in data.chunks(16) {
-        let mut block = Block::<Aes128>::default();
-        block.copy_from_slice(chunk);
-        blocks.push(block);
-    }
-
-    cipher.encrypt_blocks_mut(&mut blocks);
-
-    let mut ciphertext = Vec::with_capacity(data.len());
-    for block in blocks {
-        ciphertext.extend_from_slice(&block);
-    }
-
-    Ok(ciphertext)
-}
-
-pub fn aes_cbc_decrypt(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> Result<Vec<u8>> {
-    use cbc::{
-        Decryptor,
-        cipher::{BlockDecryptMut, KeyIvInit},
-    };
-
-    type Aes128Cbc = Decryptor<Aes128>;
-
-    let mut cipher = Aes128Cbc::new(key.into(), iv.into());
-
-    let mut blocks = Vec::new();
-    for chunk in ciphertext.chunks(16) {
-        let mut block = Block::<Aes128>::default();
-        block.copy_from_slice(chunk);
-        blocks.push(block);
-    }
-
-    cipher.decrypt_blocks_mut(&mut blocks);
-
-    let mut plaintext = Vec::with_capacity(ciphertext.len());
-    for block in blocks {
-        plaintext.extend_from_slice(&block);
-    }
-
-    let padding = plaintext[plaintext.len() - 1] as usize;
-    if padding > 0 && padding <= 16 {
-        plaintext.truncate(plaintext.len() - padding);
-    }
-
-    Ok(plaintext)
-}
-
-pub fn aes_ecb_decrypt(ciphertext: &[u8], key: &[u8]) -> Result<Vec<u8>> {
-    use aes::cipher::{BlockDecryptMut, KeyInit};
-
-    let block_size = 16;
-
-    if ciphertext.is_empty() {
-        return Err(anyhow!("ciphertext is empty"));
-    }
-
-    if ciphertext.len() < block_size || !ciphertext.len().is_multiple_of(block_size) {
-        return Err(anyhow!(
-            "ciphertext length {} is not a multiple of block size 16",
-            ciphertext.len()
-        ));
-    }
-
-    let mut cipher = Aes128::new(key.into());
-
-    let mut result = ciphertext.to_vec();
-    let blocks = result.chunks_mut(block_size);
-
-    for block in blocks {
-        let mut arr = *Block::<Aes128>::from_slice(block);
-        cipher.decrypt_block_mut(&mut arr);
-        block.copy_from_slice(&arr);
-    }
-
-    let padding = result[result.len() - 1] as usize;
-    if padding > 0 && padding <= 16 {
-        result.truncate(result.len() - padding);
-    }
-
-    Ok(result)
 }
 
 pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
@@ -179,20 +70,12 @@ pub fn calc_sign(body: &str, ts: &str, rand_str: &str) -> String {
     md5_hash(&combined).to_uppercase()
 }
 
-pub fn calc_file_hash(path: &str) -> Result<String, std::io::Error> {
-    hash_file::<sha1::Sha1>(path.as_ref())
-}
-
 pub fn calc_file_sha256(path: impl AsRef<std::path::Path>) -> Result<String, std::io::Error> {
-    hash_file::<sha2::Sha256>(path.as_ref())
-}
-
-fn hash_file<D: Digest>(path: &std::path::Path) -> Result<String, std::io::Error> {
     use std::fs::File;
     use std::io::Read;
 
     let mut file = File::open(path)?;
-    let mut hasher = D::new();
+    let mut hasher = Sha256::new();
     let mut buffer = [0u8; 8192];
 
     loop {

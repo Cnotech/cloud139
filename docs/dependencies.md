@@ -20,14 +20,8 @@
 | directories | 5 | 目录路径处理 |
 | base64 | 0.22 | Base64 编解码 |
 | hex | 0.4 | 十六进制编解码 |
-| aes | 0.8 | AES 加密 |
-| aes-gcm | 0.10 | AES-GCM 认证加密 |
-| sha1 | 0.11 | SHA-1 哈希 |
 | sha2 | 0.11 | SHA-256 哈希 |
 | md-5 | 0.11 | MD5 哈希 |
-| cipher | 0.5 | 加密算法抽象 |
-| cbc | 0.1 | CBC 模式 |
-| generic-array | 1.3 | 泛型数组 |
 | rand | 0.8 | 随机数生成 |
 | regex | 1 | 正则表达式 |
 | urlencoding | 2 | URL 编码 |

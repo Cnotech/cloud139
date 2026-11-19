@@ -58,6 +58,7 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 - `rm --yes` 将文件移到回收站，目录另加 `-r`。`--permanent` 已移除。
 - `sync --jobs` 接受 1 到 32，默认 4。
 - 个人云配置的 `storage_type` 使用 `personal_new`。重新登录可生成新格式的配置，移除旧的 `cloud_id`、`root_folder_id`、`user_domain_id` 和 `report_real_size` 字段。
+- Rust 库移除了 `aes_cbc_encrypt`、`aes_cbc_decrypt`、`aes_ecb_decrypt`、`sha1_hash` 和 `calc_file_hash`。仍需兼容旧密文或 SHA-1 摘要的应用可直接依赖对应的算法 crate。新的文件完整性校验可使用 `cloud139::utils::calc_file_sha256`。
 
 ### 基本使用
 

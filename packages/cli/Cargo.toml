@@ -28,7 +28,7 @@ windows-sys = { version = "0.61", features = ["Win32_Security", "Win32_System_Th
 
 [dev-dependencies]
 base64 = "0.22"
-chrono = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["now"] }
 filetime = "0.2"
 hex = "0.4"
 httpmock = "0.8"

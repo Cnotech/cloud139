@@ -2,65 +2,9 @@ use cloud139::utils::rand::generate_rand_str;
 use cloud139::utils::*;
 
 #[test]
-fn test_sha1_hash() {
-    assert_eq!(sha1_hash(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-    assert_eq!(
-        sha1_hash("hello"),
-        "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d"
-    );
-    assert_eq!(
-        sha1_hash("hello world"),
-        "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"
-    );
-}
-
-#[test]
 fn test_md5_hash() {
     assert_eq!(md5_hash(""), "d41d8cd98f00b204e9800998ecf8427e");
     assert_eq!(md5_hash("hello"), "5d41402abc4b2a76b9719d911017c592");
-}
-
-#[test]
-fn test_aes_cbc_encrypt_decrypt() {
-    let key = b"1234567890abcdef";
-    let iv = b"0000000000000000";
-
-    let plaintext = b"Hello, World!";
-    let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-    let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-    assert_eq!(&decrypted, plaintext);
-}
-
-#[test]
-fn test_aes_cbc_encrypt_multiple_blocks() {
-    let key = b"1234567890abcdef";
-    let iv = b"0000000000000000";
-
-    let plaintext = b"This is a longer message that exceeds one block size of 16 bytes!";
-    let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-    let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-    assert_eq!(&decrypted, plaintext);
-}
-
-#[test]
-fn test_aes_cbc_encrypt_exact_block() {
-    let key = b"1234567890abcdef";
-    let iv = b"0000000000000000";
-
-    let plaintext = b"1234567890123456";
-    let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-    let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-    assert_eq!(&decrypted, plaintext);
-}
-
-#[test]
-fn test_aes_ecb_decrypt_invalid_length() {
-    let key = b"1234567890abcdef";
-    let result = aes_ecb_decrypt(b"short", key);
-    assert!(result.is_err());
 }
 
 #[test]
@@ -175,36 +119,7 @@ fn test_generate_random_string_charset() {
 }
 
 #[test]
-fn test_calc_file_hash_nonexistent() {
-    let result = calc_file_hash("/nonexistent/file/path");
-    assert!(result.is_err());
-}
-
-#[test]
 fn test_calc_file_sha256_nonexistent() {
     let result = calc_file_sha256("/nonexistent/file/path");
     assert!(result.is_err());
-}
-
-#[test]
-fn test_aes_ecb_decrypt_non_multiple_block_size() {
-    let key = b"0123456789abcdef";
-    let bad_ciphertext = vec![0u8; 15];
-    let result = aes_ecb_decrypt(&bad_ciphertext, key);
-    assert!(
-        result.is_err(),
-        "应当返回 Err，因为密文长度不是块大小的倍数"
-    );
-    let msg = result.unwrap_err().to_string();
-    assert!(msg.contains("15"), "错误信息应包含实际长度 15");
-}
-
-#[test]
-fn test_aes_cbc_roundtrip() {
-    let key = b"0123456789abcdef";
-    let iv = b"abcdef0123456789";
-    let plaintext = b"Hello, cloud139!";
-    let encrypted = aes_cbc_encrypt(plaintext, key, iv).expect("加密失败");
-    let decrypted = aes_cbc_decrypt(&encrypted, key, iv).expect("解密失败");
-    assert_eq!(decrypted, plaintext, "解密后应还原原始数据");
 }

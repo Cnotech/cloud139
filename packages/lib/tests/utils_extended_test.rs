@@ -2,32 +2,12 @@
 
 mod utils_test_extended {
     use cloud139::utils::crypto::{
-        aes_cbc_decrypt, aes_cbc_encrypt, calc_file_hash, calc_file_sha256, calc_sign,
-        encode_uri_component, md5_hash, pkcs7_pad, sha1_hash,
+        calc_file_sha256, calc_sign, encode_uri_component, md5_hash, pkcs7_pad,
     };
     use cloud139::utils::rand::generate_rand_str;
     use cloud139::utils::width::{pad_with_width, str_width, truncate_with_width};
     use std::fs;
     use tempfile::TempDir;
-
-    #[test]
-    fn test_sha1_hash() {
-        let result = sha1_hash("hello");
-        assert_eq!(result, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
-    }
-
-    #[test]
-    fn test_sha1_hash_empty() {
-        let result = sha1_hash("");
-        assert_eq!(result, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-    }
-
-    #[test]
-    fn test_sha1_hash_long_string() {
-        let input = "a".repeat(1000);
-        let result = sha1_hash(&input);
-        assert_eq!(result.len(), 40);
-    }
 
     #[test]
     fn test_md5_hash() {
@@ -46,66 +26,6 @@ mod utils_test_extended {
         let input = "test".repeat(100);
         let result = md5_hash(&input);
         assert_eq!(result.len(), 32);
-    }
-
-    #[test]
-    fn test_aes_cbc_encrypt_decrypt_roundtrip() {
-        let key = b"1234567890123456";
-        let iv = b"1234567890123456";
-        let plaintext = b"Hello, World!";
-
-        let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-        let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-        assert_eq!(&decrypted, plaintext);
-    }
-
-    #[test]
-    fn test_aes_cbc_encrypt_empty() {
-        let key = b"1234567890123456";
-        let iv = b"1234567890123456";
-        let plaintext = b"";
-
-        let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-        let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-        assert_eq!(&decrypted, plaintext);
-    }
-
-    #[test]
-    fn test_aes_cbc_encrypt_16_bytes() {
-        let key = b"1234567890123456";
-        let iv = b"1234567890123456";
-        let plaintext = b"1234567890123456";
-
-        let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-        let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-        assert_eq!(&decrypted, plaintext);
-    }
-
-    #[test]
-    fn test_aes_cbc_encrypt_32_bytes() {
-        let key = b"1234567890123456";
-        let iv = b"1234567890123456";
-        let plaintext = b"12345678901234567890123456789012";
-
-        let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-        let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-        assert_eq!(&decrypted, plaintext);
-    }
-
-    #[test]
-    fn test_aes_cbc_encrypt_longer() {
-        let key = b"1234567890123456";
-        let iv = b"1234567890123456";
-        let plaintext = b"Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
-
-        let ciphertext = aes_cbc_encrypt(plaintext, key, iv).unwrap();
-        let decrypted = aes_cbc_decrypt(&ciphertext, key, iv).unwrap();
-
-        assert_eq!(&decrypted, plaintext);
     }
 
     #[test]
@@ -222,22 +142,6 @@ mod utils_test_extended {
         let results: Vec<String> = (0..100).map(|_| generate_rand_str(8)).collect();
         let unique: std::collections::HashSet<_> = results.into_iter().collect();
         assert!(unique.len() > 90);
-    }
-
-    #[test]
-    fn test_calc_file_hash() {
-        let temp_dir = TempDir::new().unwrap();
-        let file_path = temp_dir.path().join("test.txt");
-        fs::write(&file_path, "hello").unwrap();
-
-        let result = calc_file_hash(file_path.to_str().unwrap()).unwrap();
-        assert_eq!(result, "aaf4c61ddcc5e8a2dabede0f3b482cd9aea9434d");
-    }
-
-    #[test]
-    fn test_calc_file_hash_not_found() {
-        let result = calc_file_hash("/nonexistent/file.txt");
-        assert!(result.is_err());
     }
 
     #[test]
