@@ -1,4 +1,4 @@
-use crate::cli::args::CpArgs;
+use crate::cli::CpArgs;
 use cloud139::config::Config;
 
 pub(super) async fn execute(args: CpArgs, config: &Config) -> anyhow::Result<()> {

@@ -1,4 +1,4 @@
-use crate::cli::args::UploadArgs;
+use crate::cli::UploadArgs;
 use cloud139::config::Config;
 use std::io::IsTerminal;
 

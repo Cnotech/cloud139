@@ -1,4 +1,4 @@
-use crate::cli::args::DownloadArgs;
+use crate::cli::DownloadArgs;
 use crate::success;
 use cloud139::config::Config;
 use cloud139::services::download_service::download_path;

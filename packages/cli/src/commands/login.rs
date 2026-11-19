@@ -1,4 +1,4 @@
-use crate::cli::args::LoginArgs;
+use crate::cli::LoginArgs;
 use std::path::Path;
 
 pub(super) async fn execute(args: LoginArgs, path: &Path) -> anyhow::Result<()> {

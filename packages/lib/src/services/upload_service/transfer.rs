@@ -1,9 +1,8 @@
-use crate::client::http::HttpClientWrapper;
-mod personal_parts;
-
 use super::checked_upload_size;
+use crate::client::api::personal::transfer::put_upload_part;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::api::upload::UploadFile;
+use crate::client::http::HttpClientWrapper;
 use crate::error::ClientError;
 use crate::models::list::PersonalFileItem;
 use crate::protocol;
@@ -20,7 +19,8 @@ use crate::utils::{
     upload_parts::{checked_part_count, part_offset_and_size},
 };
 use anyhow::Context;
-use tokio::io::{AsyncSeekExt, SeekFrom};
+use std::collections::HashMap;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, SeekFrom};
 
 pub(in crate::services) struct SyncUploadPlan<'a> {
     pub(in crate::services) host: &'a str,
@@ -362,7 +362,7 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
             part.seek(SeekFrom::Start(offset as u64)).await?;
             let part_number = (i + 1) as i32;
             crate::debug!("正在上传分片 part={}/{}", part_number, part_count);
-            personal_parts::upload_part(
+            upload_part(
                 &data_client,
                 &upload_urls,
                 part_number,
@@ -377,6 +377,35 @@ async fn upload_parts(params: UploadPartsParams<'_>) -> Result<(), ClientError> 
     personal
         .complete_upload(file_id, upload_id, content_hash)
         .await
+}
+
+async fn upload_part(
+    client: &HttpClientWrapper,
+    upload_urls: &HashMap<i32, String>,
+    part_number: i32,
+    reader: impl AsyncRead + Send + Unpin + 'static,
+    size: u64,
+    pb: Option<Progress>,
+) -> Result<(), ClientError> {
+    let upload_url = upload_urls
+        .get(&part_number)
+        .ok_or_else(|| ClientError::Api(format!("找不到分片 {part_number} 的上传 URL")))?;
+    let stream = futures_util::stream::try_unfold(
+        (reader, size, pb),
+        |(mut reader, remaining, pb)| async move {
+            if remaining == 0 {
+                return Ok::<_, std::io::Error>(None);
+            }
+            let mut chunk = vec![0; remaining.min(64 * 1024) as usize];
+            reader.read_exact(&mut chunk).await?;
+            let read = chunk.len() as u64;
+            if let Some(pb) = &pb {
+                pb.inc(read);
+            }
+            Ok(Some((chunk, (reader, remaining - read, pb))))
+        },
+    );
+    put_upload_part(client, upload_url, part_number, size, stream).await
 }
 
 async fn install_uploaded_file(

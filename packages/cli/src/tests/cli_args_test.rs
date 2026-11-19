@@ -1,6 +1,6 @@
 use clap::Parser;
 
-use crate::cli::args::ListArgs;
+use crate::cli::ListArgs;
 
 #[test]
 fn test_list_args_parse_defaults() {

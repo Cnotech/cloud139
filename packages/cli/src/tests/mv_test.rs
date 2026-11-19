@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::MvArgs;
+use crate::cli::MvArgs;
 
 #[test]
 fn test_mv_args_validation_empty_source() {

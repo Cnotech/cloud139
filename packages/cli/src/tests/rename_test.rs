@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::RenameArgs;
+use crate::cli::RenameArgs;
 
 #[test]
 fn test_rename_args_validation() {

@@ -8,7 +8,7 @@ cloud139/
     │   ├── Cargo.toml             # cloud139-cli 命令行 package
     │   ├── src/
     │   │   ├── main.rs            # CLI 入口
-    │   │   ├── cli/               # clap 参数定义
+    │   │   ├── cli.rs             # clap 参数定义
     │   │   ├── commands/          # 调用服务、映射退出码
     │   │   ├── config/            # 配置路径、续期写回及跨进程锁
     │   │   ├── error.rs           # CLI 错误类型
@@ -31,7 +31,7 @@ cloud139/
 
 CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和进度回调向宿主报告进展。
 
-`main.rs` 使用 `cli` 解析参数，再调用 `commands::execute` 分发命令。各命令的参数类型定义在 `cli/args.rs`。命令适配器直接导入参数类型和需要的渲染模块，配置锁通过 `config` 的配置读写流程使用。
+`main.rs` 使用 `cli.rs` 中的定义解析参数，再调用 `commands::execute` 分发命令。命令适配器直接导入参数类型和需要的渲染模块，配置锁通过 `config` 的配置读写流程使用。
 
 `client/api/headers.rs` 定义路由和个人云请求头及客户端标识。`client/api/route.rs` 负责路由查询，`client/api/personal/` 负责个人云目录和文件请求，`client/api/upload.rs` 负责个人云上传请求。Token 续期位于 `client/auth/`，HTTP 客户端和签名请求发送位于 `client/http.rs`。共用的 API 响应判断位于 `client/api/response.rs`。
 

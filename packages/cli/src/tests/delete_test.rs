@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::DeleteArgs;
+use crate::cli::DeleteArgs;
 
 #[test]
 fn test_delete_args_validation() {

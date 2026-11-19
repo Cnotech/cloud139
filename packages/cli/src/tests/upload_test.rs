@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::UploadArgs;
+use crate::cli::UploadArgs;
 use cloud139::client::api::upload::get_part_size;
 
 #[test]

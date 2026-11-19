@@ -1,4 +1,4 @@
-use crate::cli::args::DeleteArgs;
+use crate::cli::DeleteArgs;
 use crate::{debug, info, success, warn};
 use cloud139::config::Config;
 use cloud139::error::ClientError;

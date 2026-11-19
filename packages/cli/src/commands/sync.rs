@@ -1,4 +1,4 @@
-use crate::cli::args::SyncArgs;
+use crate::cli::SyncArgs;
 use crate::error::CommandExit;
 use crate::presentation::sync_renderer::{print_outcome, print_plan};
 use cloud139::config::Config;

@@ -1,4 +1,4 @@
-use crate::cli::args::MvArgs;
+use crate::cli::MvArgs;
 use cloud139::config::Config;
 
 pub(super) async fn execute(args: MvArgs, config: &Config) -> anyhow::Result<()> {

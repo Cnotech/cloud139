@@ -10,7 +10,7 @@
 ## 架构约束
 
 - 遵循分层架构，避免跨层依赖
-- CLI 层 (`cli/`) 只负责参数定义，不直接调用基础设施
+- CLI 参数在 `cli.rs` 中定义，由命令层处理执行
 - 命令层 (`commands/`) 作为适配器，连接 CLI 和应用层
 - 应用层 (`packages/lib/src/services/`) 包含核心业务逻辑
 - 文件和同步使用的业务类型位于 `models/file_item.rs` 和 `models/sync_item.rs`，只依赖标准库

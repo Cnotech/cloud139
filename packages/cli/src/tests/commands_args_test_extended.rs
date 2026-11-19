@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
 mod commands_args_test_extended {
-    use crate::cli::args::CpArgs;
-    use crate::cli::args::DeleteArgs;
-    use crate::cli::args::DownloadArgs;
-    use crate::cli::args::ListArgs;
-    use crate::cli::args::MkdirArgs;
-    use crate::cli::args::MvArgs;
-    use crate::cli::args::UploadArgs;
+    use crate::cli::CpArgs;
+    use crate::cli::DeleteArgs;
+    use crate::cli::DownloadArgs;
+    use crate::cli::ListArgs;
+    use crate::cli::MkdirArgs;
+    use crate::cli::MvArgs;
+    use crate::cli::UploadArgs;
     use clap::Parser;
 
     #[test]

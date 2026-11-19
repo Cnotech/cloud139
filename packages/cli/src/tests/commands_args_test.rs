@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::{CpArgs, RenameArgs, UploadArgs};
+use crate::cli::{CpArgs, RenameArgs, UploadArgs};
 
 #[test]
 fn test_rename_args_validation() {

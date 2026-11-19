@@ -21,7 +21,7 @@ cargo clippy --workspace
 
 ### 项目结构
 
-Package `cloud139-cli` 位于 `packages/cli/`。参数定义、命令适配、展示、配置路径和跨进程锁分别在该 package 的 `src/cli/`、`src/commands/`、`src/presentation/` 和 `src/config/` 中。
+Package `cloud139-cli` 位于 `packages/cli/`。参数定义、命令适配、展示、配置路径和跨进程锁分别在该 package 的 `src/cli.rs`、`src/commands/`、`src/presentation/` 和 `src/config/` 中。
 
 库 package `cloud139` 位于 `packages/lib/`，负责配置读写、认证、API 请求和文件操作。CLI 显式传递配置或路径，并将服务结果转换成命令行输出。详见 [项目结构](docs/structure.md)。
 

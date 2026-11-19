@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::cli::args::DownloadArgs;
+use crate::cli::DownloadArgs;
 use cloud139::utils::path::resolve_local_path;
 
 #[test]
