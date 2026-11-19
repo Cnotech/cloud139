@@ -121,8 +121,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## 测试规范
 
+测试文件的组织方式见 [AGENTS.md 的测试文件编写规范](../AGENTS.md#测试文件编写规范)。
+
 ```rust
-// 测试文件放在 tests/ 目录
 #[test]
 fn test_parse_path_root() {
     let result = mkdir::parse_path("/test");

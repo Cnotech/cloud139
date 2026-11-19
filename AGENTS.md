@@ -42,6 +42,12 @@ clap, reqwest, tokio, serde, thiserror 等
 
 详细注意事项见 [docs/notes.md](docs/notes.md)
 
+### 测试文件编写规范
+
+- 新增测试优先放在对应 package 的测试目录统一管理。通过公开 API 或 CLI 入口验证行为的测试放在 `tests/`，需要访问 crate 内部接口的测试放在 `src/tests/`。
+- 测试私有函数或方法时，允许在同一源码文件中，在对应函数或 `impl` 块下方用 `#[cfg(test)]` 模块内联编写单测。
+- 禁止在实现代码所在目录散放独立测试文件，例如 `src/config/tests.rs` 或 `src/config/foo_test.rs`。
+
 ### 日志打印规范
 
 - 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用各 package 的日志宏。CLI 由 `packages/cli/src/logger.rs` 输出，库由 `packages/lib/src/utils/logger.rs` 将日志交给宿主。
