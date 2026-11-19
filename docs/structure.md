@@ -1,43 +1,28 @@
 # 项目结构
 
-```
-cloud139/
-├── Cargo.toml                     # Workspace 清单
-└── packages/
-    ├── cli/
-    │   ├── Cargo.toml             # cloud139-cli 命令行 package
-    │   ├── src/
-    │   │   ├── main.rs            # CLI 入口
-    │   │   ├── cli.rs             # clap 参数定义
-    │   │   ├── commands/          # 调用服务、映射退出码
-    │   │   ├── config/            # 配置路径、续期写回及跨进程锁
-    │   │   ├── error.rs           # CLI 错误类型
-    │   │   ├── logger.rs          # 终端日志输出
-    │   │   └── presentation/     # JSON、文本与进度条
-    │   └── tests/                 # CLI 集成测试
-    └── lib/
-        ├── Cargo.toml             # cloud139 库 package
-        ├── src/
-        │   ├── lib.rs             # 库入口
-        │   ├── config/            # 配置类型、个人云校验与 TOML 读写
-        │   ├── client/            # API 请求与认证
-        │   ├── services/          # 文件操作及同步
-        │   ├── error.rs           # 库错误类型和共用错误构造
-        │   ├── models/            # API 数据模型和业务类型
-        │   ├── progress.rs        # 传输进度接口
-        │   ├── protocol.rs        # 云盘端点、远程返回码和其他协议固定值
-        │   └── utils/             # 日志、重试及通用函数
-        └── tests/                 # 库集成测试
-```
+## CLI
 
-CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新凭据，再把加载好的配置交给服务。库接受调用方传入的配置，返回结构化结果，并通过 `log` 和 `progress.rs` 定义的进度回调向宿主报告进展。
+`cloud139-cli` 构建名为 `cloud139` 的可执行文件，单向依赖库 `cloud139`。工作区默认构建 CLI。两个包的直接依赖、feature 和平台条件分别见 [CLI Cargo.toml](../packages/cli/Cargo.toml) 和[库 Cargo.toml](../packages/lib/Cargo.toml)，锁定版本见 [Cargo.lock](../Cargo.lock)。
 
-`main.rs` 使用 `cli.rs` 中的定义解析参数，再调用 `commands::dispatch::execute` 分发命令。命令适配器直接导入参数类型和需要的渲染模块。配置路径由 `config::paths` 决定，`config::store` 负责持锁保存配置和写回续期结果。
+| 位置 | 职责 |
+| --- | --- |
+| [`src/main.rs`](../packages/cli/src/main.rs) 和 [`src/cli.rs`](../packages/cli/src/cli.rs) | 进程入口、clap 参数声明、日志初始化、退出码 |
+| [`src/commands/`](../packages/cli/src/commands/) | `dispatch.rs` 负责分发和共用配置准备。各子命令适配参数、调用库服务并处理结果 |
+| [`src/config/`](../packages/cli/src/config/) | 配置路径选择、持锁保存与续期写回 |
+| [`src/presentation/`](../packages/cli/src/presentation/) | 文本、JSON 和终端进度条 |
 
-`client/api/headers.rs` 定义路由和个人云请求头及客户端标识。`client/api/route.rs` 负责路由查询，`client/api/personal/` 负责个人云目录和文件请求。对外的文件查询与下载链接接口位于 `client/api/files.rs`，上传请求位于 `client/api/upload.rs`。Token 解析和续期分别位于 `client/auth/token.rs` 和 `client/auth/refresh.rs`。HTTP 客户端和签名请求发送位于 `client/http.rs`，共用的 API 响应判断位于 `client/api/response.rs`。
+CLI 使用显式的 `--config` 路径，省略时按当前目录、用户配置目录的顺序查找。需要续期时，CLI 对加载配置的同一路径持锁更新，随后重读并校验配置。删除和同步的参数前置检查在续期前执行。库操作入口校验外部配置的 `storage_type`，内部调用可复用 `PersonalConfig`。
 
-`models/file_item.rs` 定义列表服务返回的文件条目，`models/sync_item.rs` 定义同步扫描、计划和结果用的类型。云端请求和响应的数据模型按接口用途放在 `models` 的其他文件中。
+## 库
 
-`services/sync/` 中的 `plan.rs` 定义同步请求和计划，调用 `scan.rs` 收集条目、`diff.rs` 生成操作，并通过 `executor.rs` 或 `verify.rs` 执行计划。`publish.rs` 负责同步时校验临时文件并替换目标。`report.rs` 负责生成报告和格式化操作明细。本地和云端扫描共用 `services::path_filter` 的路径过滤规则，同步和目录上传共用 `services::local_scan` 的本地扫描。
+| 位置 | 职责 |
+| --- | --- |
+| [`src/config/`](../packages/lib/src/config/) | TOML 读写、原子保存和个人云配置校验 |
+| [`src/client/`](../packages/lib/src/client/) 和 [`src/protocol.rs`](../packages/lib/src/protocol.rs) | 认证、HTTP 与签名、个人云请求和协议常量 |
+| [`src/services/`](../packages/lib/src/services/) | 文件和目录操作、传输与同步 |
+| [`src/models/`](../packages/lib/src/models/) | 请求响应模型、文件条目、同步计划和结果所用类型 |
+| [`src/progress.rs`](../packages/lib/src/progress.rs) | 库与宿主之间的传输进度接口 |
 
-`services/upload/mod.rs` 定义上传入口和普通文件上传流程。`services/upload/` 中的 `directory.rs` 负责递归上传目录，`transfer.rs` 负责计算哈希和上传分片，供普通上传和同步共用。
+- 文件查询和下载链接从 `client::api::files` 进入，上传请求位于 `client::api::upload`，Token 解析和续期分别位于 `client::auth::token` 和 `client::auth::refresh`。
+- 文件和目录上传在 `services::upload` 协调。目录上传和同步共用本地扫描，普通上传和同步共用分片传输。
+- 同步由 `services::sync::plan` 校验方向、并发和排除规则，生成计划后交给执行器或校验流程。文件替换与清理的行为见[目录操作实现与验证](directory-operations.md)。

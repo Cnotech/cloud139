@@ -1,61 +1,28 @@
-# 构建与测试命令
+# 开发命令
 
-## 构建
+在工作区根目录执行。
 
-```bash
-# 调试构建
-cargo build
-
-# 发布构建
-cargo build --release
-```
-
-## 测试
-
-```bash
-# 运行工作区的所有测试
-cargo test --workspace
-
-# 运行单个测试
-cargo test --workspace explicit_config_paths_keep_parallel_accounts_separate
-
-# 运行 CLI 命令测试
-cargo test -p cloud139-cli --bin cloud139 commands_test
-
-# 运行集成测试
-cargo test -p cloud139 --test api_test
-
-# 显示测试输出
-cargo test --workspace -- --nocapture
-```
-
-## 代码检查
-
-```bash
-# 检查工作区源码及测试目标
-cargo clippy --workspace --all-targets --locked
-
-# 检查 Rust 源文件行数
-python3 scripts/check-rust-file-length.py
-
-# 格式化检查
+```sh
+cargo build --locked
+cargo check --workspace --all-targets --locked
 cargo fmt --all -- --check
-
-# 格式化代码
-cargo fmt --all
+cargo clippy --workspace --all-targets --locked
+cargo test --workspace --locked --no-fail-fast
 ```
 
-CI 在 Linux、macOS 和 Windows 上运行 Clippy。单文件行数检查在 Linux CI 上独立运行，对 `packages/*/src/` 下总行数超过 500 的 Rust 文件发出告警，跳过独立测试目录。超过阈值时可以检查文件里是否有能够独立拆分的职责。
+`cargo build` 默认构建 CLI 及其依赖的库，加 `--release` 构建发布版本。CI 在 Linux、macOS 和 Windows 的 stable 工具链上运行 Clippy 与工作区测试。Linux 还运行 `python3 scripts/check-rust-file-length.py`，对超过 500 行的 Rust 源文件发出告警，跳过各包的 `src/tests/`。见 [CI 工作流](../.github/workflows/ut.yml)。
 
-## 开发常用命令
+## 定向验证
 
-```bash
-# 运行程序
-cargo run -- --help
+```sh
+# 检查命令帮助
+cargo run --locked -- sync --help
 
-# 运行特定命令
-cargo run -- ls /
+# 运行 CLI 参数测试
+cargo test --locked -p cloud139-cli --bin cloud139 commands_args_test
 
-# 清理构建缓存
-cargo clean
+# 运行库的分页集成测试
+cargo test --locked -p cloud139 --test api_path_paging_test
 ```
+
+HTTP mock 测试需要监听本地回环端口。依赖已缓存时，可以给 Cargo 加 `--offline`，它限制 Cargo 获取依赖，测试代码的网络访问仍由运行环境控制。真实云盘回归按 [cloud139-e2e-test 技能](../.agents/skills/cloud139-e2e-test/SKILL.md)执行。
