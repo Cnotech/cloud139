@@ -25,7 +25,7 @@ impl Default for ListPageOptions {
 }
 
 impl PersonalClient<'_> {
-    /// Resolve a normalized path. The root has no list item.
+    /// 解析规范化后的路径。根目录没有对应的列表条目。
     pub(crate) async fn resolve_path(
         &self,
         path: &str,
@@ -127,7 +127,7 @@ impl PersonalClient<'_> {
             body["imageThumbnailStyleList"] = serde_json::json!(styles);
         }
         let request = || self.request::<PersonalListResp>(protocol::LIST_FILES, &body);
-        // Retry this request before the pager advances the cursor.
+        // 分页器推进游标前，先重试当前请求。
         let response = match self.retry {
             ListingRetry::None => request().await?,
             ListingRetry::Transient {

@@ -17,12 +17,12 @@ pub(in crate::services) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> 
         require_literal_leading_dot: false,
     };
     patterns.iter().any(|pattern| {
-        // Direct match
+        // 直接匹配路径。
         if pattern.matches_with(rel_path, options) {
             return true;
         }
-        // Also check if pattern like "dir/**" matches "dir" (the directory itself)
-        // This ensures --exclude target/** also excludes the target directory
+        // 像 `dir/**` 这样的规则也应匹配 `dir` 目录本身，
+        // 这样 `--exclude target/**` 会一并排除 `target` 目录。
         let pattern_str = pattern.as_str();
         if let Some(prefix) = pattern_str.strip_suffix("/**")
             && rel_path == prefix

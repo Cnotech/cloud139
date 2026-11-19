@@ -1,4 +1,4 @@
-// tests/sync_dry_run_tty_test.rs
+// 同步预演输出的回归测试。
 //
 // 验证 dry-run 文件列表格式化逻辑不依赖 is_tty 状态。
 // 这里通过直接调用 format_action_line 检查前缀，而不是模拟 TTY 环境。

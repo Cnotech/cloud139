@@ -83,8 +83,8 @@ pub(super) async fn execute_scanned_sync(
         }
     };
 
-    // Directory creation establishes parents before transfers begin. Deletion is last
-    // and runs child first so a parent can only be removed after its children.
+    // 开始传输前先创建父目录。删除操作最后执行，
+    // 先删除子条目，再删除父目录。
     let (directories, remaining): (Vec<_>, Vec<_>) = actions
         .iter()
         .filter(|action| !matches!(action, SyncAction::Skip { .. }))
@@ -278,7 +278,7 @@ async fn execute_one_action(
             replace_directory_id,
             ..
         } => {
-            // Validate the source before creating any missing cloud parents.
+            // 创建缺失的云端父目录前，先校验本地源文件。
             crate::services::upload::checked_upload_size(local_abs)?;
             let remote_dir = remote_parent(remote_abs);
             let file_name = local_abs

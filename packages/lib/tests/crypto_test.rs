@@ -75,8 +75,8 @@ fn test_calc_sign_different_bodies() {
 
 #[test]
 fn signature_matches_upstream_go_vectors_with_movie_names() {
-    // Generated with AList/OpenList encodeURIComponent + calSign, including the
-    // punctuation that previously produced different signatures in Rust.
+    // 使用 AList/OpenList 的 `encodeURIComponent` 和 `calSign` 生成，
+    // 包含曾导致 Rust 签名结果不同的标点字符。
     let stamp = "2026-11-18 12:00:00";
     let nonce = "0123456789abcdef";
     for (body, expected) in [

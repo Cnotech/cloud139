@@ -90,7 +90,7 @@ pub(super) async fn list_personal(
     })
 }
 
-/// Full listing grouped by directory, including empty directories.
+/// 按目录分组返回完整列表，包含空目录。
 pub async fn list_recursive(config: &Config, root: &str) -> anyhow::Result<Vec<ListResult>> {
     use super::directory as dirs;
     let config = PersonalConfig::new(config)?;

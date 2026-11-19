@@ -1,4 +1,4 @@
-//! Stateful loopback-only regression tests. No real 139 credentials or endpoints.
+//! 使用本机回环接口的有状态回归测试，仅使用模拟凭据和接口。
 use cloud139::utils::remote_path;
 use cloud139::{config::Config, error::ClientError, services};
 use serde_json::{Value, json};
@@ -141,7 +141,7 @@ impl Server {
                                 {
                                     json!({"success":false,"code":"04010319","message":"injected failure"})
                                 } else if state.reuse_existing_upload_id && body["type"] == "file" {
-                                    // A faulty success receipt must not make an existing object disposable.
+                                    // 成功回执误用已有文件的 ID 时，必须保护该文件。
                                     json!({"success":true,"data":{"fileId":"good-id","fileName":body["name"],"exist":true,"partInfos":[]}})
                                 } else {
                                     let id = format!("id-{}", state.requests.len());
@@ -179,7 +179,7 @@ impl Server {
                                     {
                                         json!({"success":true,"data":{"fileId":id,"fileName":body["name"],"exist":false,"uploadId":"test-upload","partInfos":[{"partNumber":1,"uploadUrl":format!("{base}/part/{id}")}]}})
                                     } else {
-                                        // Fast upload acknowledges by hash without a data transfer.
+                                        // 秒传仅凭哈希确认文件并返回上传回执。
                                         let file_id = (!state.omit_staged_id).then_some(&id);
                                         json!({"success":true,"data":{"fileId":file_id,"fileName":body["name"],"exist":true,"partInfos":[]}})
                                     }
@@ -900,7 +900,7 @@ fn rejects_content_addressed_source_changed_during_upload(existing: bool) {
     let mut items = vec![file("extra", "extra.txt")];
     if existing {
         let mut old = verified_file("good-id", &name, b"good", true);
-        // An optional missing size forces repair of this otherwise good object.
+        // 省略已有文件的大小字段，使内容正确的文件仍进入修复流程。
         old.as_object_mut().unwrap().remove("size");
         items.push(old);
     }
@@ -915,7 +915,7 @@ fn rejects_content_addressed_source_changed_during_upload(existing: bool) {
         state.sync_mutations = true;
         state.multipart_content = Some(b"bad!");
         state.file_payloads.insert("good-id".to_owned(), b"good");
-        // Listing #2 occurs after preflight and before the transfer digest read.
+        // 第二次列目录发生在前置校验之后、计算实际上传内容的哈希之前。
         state.mutate_source_on_list = Some((2, path.clone(), b"bad!"));
     }
     let report = sync_report(
@@ -2451,7 +2451,7 @@ async fn ordinary_multipart_upload_preserves_server_selected_name_and_never_tras
             let items = if force {
                 vec![file("old-id", "report.txt")]
             } else {
-                // The initially vacant name can become occupied at the creation step.
+                // 检查时可用的名称可能在创建时已被占用。
                 Vec::new()
             };
             then.json_body(json!({"success":true,"data":{"items":items}}));

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-/// Optional transfer progress supplied by the application.
+/// 应用可提供的传输进度接口。
 pub trait TransferProgress: Send + Sync {
     fn reset(&self);
     fn set_length(&self, bytes: u64);

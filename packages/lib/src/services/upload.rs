@@ -90,7 +90,7 @@ pub async fn upload_path(
     Ok(())
 }
 
-/// Re-read metadata before hashing or any destructive sync operation.
+/// 计算哈希或执行可能删除、替换文件的同步操作前，重新读取元数据。
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
     safe_local(path)?;
     let metadata = std::fs::metadata(path)?;
@@ -142,7 +142,7 @@ async fn upload_personal_file(
     upload_file(&listing, local_path, &parent, file_name, force, pb).await
 }
 
-/// Upload `dir` itself, or its contents when the local argument has a trailing separator.
+/// 上传 `dir` 目录本身。若本地路径以分隔符结尾，则只上传目录内容。
 pub async fn upload_directory(
     config: &Config,
     local: &Path,
@@ -176,7 +176,7 @@ async fn upload_personal_tree(
         remote_path::validate_name(name)?;
         format!("{}/{}", remote.trim_end_matches('/'), name)
     };
-    // Validate the complete local plan before any cloud mutation.
+    // 修改云端前，先校验完整的本地上传计划。
     for entry in &entries {
         for name in entry.rel_path.split('/') {
             remote_path::validate_name(name)?;
@@ -296,7 +296,7 @@ fn finish_upload(name: &str, pb: &Option<Progress>) {
     }
 }
 
-/// Upload a unique sibling before replacing the destination.
+/// 先在同级目录上传一个名称唯一的临时文件，再替换目标。
 pub(super) async fn upload_sync_to_parent(
     config: PersonalConfig<&Config>,
     local_path: &std::path::Path,
@@ -376,8 +376,8 @@ pub(super) async fn upload_sync_to_parent(
         format!("同步上传 {file_name} 失败，旧条目未替换；临时名称 {temporary_name}")
     })?;
     let saved_name = uploaded.name.as_deref().unwrap_or(&temporary_name);
-    // The source may change after the preflight read. This is the digest used by
-    // upload initialization and remote verification; bind publication to it too.
+    // 本地源文件可能在前置校验后变化。发布前再次校验上传初始化和远端验证
+    // 共用的哈希，确保实际上传内容符合目标文件名。
     if verify_content_addressed {
         anyhow::ensure!(
             uploaded.sha256.eq_ignore_ascii_case(file_name),

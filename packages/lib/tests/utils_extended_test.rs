@@ -30,7 +30,7 @@ mod utils_test_extended {
 
     #[test]
     fn test_pkcs7_pad_16_bytes() {
-        // For 16 bytes, PKCS7 adds a full block of padding
+        // 输入正好是 16 字节时，PKCS#7 补齐一个完整分组。
         let data = b"1234567890123456";
         let result = pkcs7_pad(data, 16);
         assert_eq!(result.len(), 32);
@@ -38,7 +38,7 @@ mod utils_test_extended {
 
     #[test]
     fn test_pkcs7_pad_15_bytes() {
-        // For 15 bytes, PKCS7 adds 1 byte of padding to reach 16
+        // 输入是 15 字节时，PKCS#7 填充 1 字节，凑满 16 字节。
         let data = b"123456789012345";
         let result = pkcs7_pad(data, 16);
         assert_eq!(result.len(), 16);
@@ -46,7 +46,7 @@ mod utils_test_extended {
 
     #[test]
     fn test_pkcs7_pad_1_byte() {
-        // For 1 byte, PKCS7 adds 15 bytes of padding
+        // 输入是 1 字节时，PKCS#7 填充 15 字节。
         let data = b"1";
         let result = pkcs7_pad(data, 16);
         assert_eq!(result.len(), 16);

@@ -232,7 +232,7 @@ impl VerifiedSync<'_> {
             delete_ids.push((path, id));
         }
 
-        // Recheck every parent and file before submitting any trash request.
+        // 发送首个回收请求前，重新核对所有父目录及文件。
         for (parent, files) in by_parent {
             let path = files[0].0;
             let remote = cloud_child_path(self.cloud_root, parent);

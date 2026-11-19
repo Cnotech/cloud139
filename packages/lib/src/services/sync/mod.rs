@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::pin::pin;
 use std::time::Instant;
 
-/// Validated options for a local-to-cloud or cloud-to-local sync.
+/// 已校验的本地到云端或云端到本地同步参数。
 pub struct SyncRequest {
     source: SyncEndpoint,
     destination: SyncEndpoint,
@@ -42,7 +42,7 @@ pub struct SyncRequest {
     verify: bool,
 }
 
-/// Scanned targets and the actions computed for a sync.
+/// 同步扫描结果和据此生成的操作计划。
 pub struct SyncPlan {
     config: PersonalConfig<Config>,
     actions: Vec<SyncAction>,
@@ -57,7 +57,7 @@ enum SyncMode {
     Verify { objects: usize, track_paths: bool },
 }
 
-/// The summary or detailed file report produced by a sync.
+/// 同步生成的摘要或文件变更明细。
 pub enum SyncOutcome {
     Summary(SyncSummary),
     Report(SyncReport),
@@ -394,8 +394,8 @@ fn compute_diff_inner(
         }
     }
 
-    // An upload may replace a cloud directory. Keep its descendants until the
-    // replacement succeeds; recycling the old directory also removes its children.
+    // 上传文件可能会替换同名云端目录。替换成功前保留旧目录的所有子条目，
+    // 将旧目录移入回收站时，其子条目也会一同移入。
     let blocked_paths: BTreeSet<_> = actions
         .iter()
         .filter_map(|action| match action {
@@ -453,7 +453,7 @@ fn change_kind(
     target: &FileEntry,
     direction: SyncDirection,
 ) -> Option<ChangeKind> {
-    // Directories don't need re-creation; their content changes are handled by children
+    // 已有目录直接复用，目录内容的变更按子条目处理。
     if source.kind == SyncEntryKind::Directory && target.kind == SyncEntryKind::Directory {
         return None;
     }
@@ -462,8 +462,8 @@ fn change_kind(
         return Some(ChangeKind::SizeOrTime);
     }
 
-    // LocalToCloud: cloud mtime reflects upload time, not the local file's
-    // original mtime, so mtime comparison is unreliable. Compare sizes only.
+    // 本地到云端同步时，本地修改时间和云端记录的上传时间含义不同，
+    // 因此只比较文件大小。
     if direction == SyncDirection::LocalToCloud {
         return None;
     }
@@ -869,7 +869,7 @@ impl CloudScanner<'_> {
                     }
                     let Some(child_id) = child_id.filter(|_| self.recursive) else {
                         if self.upload_target {
-                            // Ordinary non-recursive scans encounter only top-level folders.
+                            // 普通的非递归扫描只会遇到顶层子目录。
                             self.scan.protect(&rel_path);
                         }
                         continue;

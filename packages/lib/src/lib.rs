@@ -1,4 +1,4 @@
-//! Configuration, authentication, and file operations for China Mobile Cloud Drive.
+//! 中国移动云盘的配置、认证和文件操作接口。
 
 #![warn(unreachable_pub)]
 

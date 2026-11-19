@@ -1,4 +1,4 @@
-//! Remote directory resolution, traversal, and mutation preflight.
+//! 云端目录解析、遍历和修改操作的前置检查。
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
@@ -122,7 +122,7 @@ pub(super) async fn ensure_personal_child_dir(
             return Err(ClientError::FileNotFound);
         }
         listing.create_directory(parent_id, name).await?;
-        // Resolve the actual directory: never proceed using an automatically renamed sibling.
+        // 重新解析实际目录，防止后续操作误用自动改名后创建的同级目录。
         let item = listing
             .find_child(parent_id, name)
             .await?

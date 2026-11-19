@@ -1,4 +1,4 @@
-//! Cloud path normalization and cross-platform name validation.
+//! 云端路径规范化与跨平台名称校验。
 use crate::error::ClientError;
 
 pub fn validate_name(name: &str) -> Result<(), ClientError> {

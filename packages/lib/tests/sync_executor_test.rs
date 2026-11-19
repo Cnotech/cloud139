@@ -106,7 +106,7 @@ async fn missing_local_upload_preserves_cloud_objects_and_other_actions_continue
 
 #[tokio::test]
 async fn test_execute_create_dir_preserves_existing_local_file() {
-    // Setup: create a temp dir with a file named "conflict"
+    // 创建临时目录，并放入名为 `conflict` 的文件。
     let dir = tempdir().unwrap();
     let conflict_path = dir.path().join("conflict");
     std::fs::write(&conflict_path, b"I am a file").unwrap();

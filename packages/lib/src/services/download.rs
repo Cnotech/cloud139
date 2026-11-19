@@ -195,7 +195,7 @@ pub async fn download_path(
     download_normalized(config, remote, &local, None, recursive).await
 }
 
-/// Recursive download retains empty directories and rejects unsafe names and local symlinks.
+/// 递归下载保留空目录，并拒绝不安全的名称和本地符号链接。
 pub async fn download(
     config: &Config,
     remote: &str,
@@ -241,7 +241,7 @@ async fn download_normalized(
     let entries = dirs::tree_with_listing(&personal, remote.clone(), entry.id).await?;
     let destination_root = Path::new(local);
     let mut plan = Vec::with_capacity(entries.len());
-    // Check all destinations before writing any file.
+    // 写入文件前检查所有目标路径。
     for (entry, id) in entries {
         let rel = entry
             .path
@@ -403,7 +403,7 @@ mod tests {
         assert_eq!(hits.load(Ordering::SeqCst), 2);
     }
 
-    /// Assert before successful completion can normalize the position to the length.
+    /// 在下载成功将进度补齐到文件大小之前检查进度。
     #[tokio::test]
     async fn failed_download_resets_stale_progress_before_completion() {
         let (url, _) = spawn_server(true, b"0123456789");

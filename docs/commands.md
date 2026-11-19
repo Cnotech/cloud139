@@ -3,17 +3,17 @@
 ## 构建
 
 ```bash
-# Debug 构建
+# 调试构建
 cargo build
 
-# Release 构建
+# 发布构建
 cargo build --release
 ```
 
 ## 测试
 
 ```bash
-# 运行 workspace 的所有测试
+# 运行工作区的所有测试
 cargo test --workspace
 
 # 运行单个测试

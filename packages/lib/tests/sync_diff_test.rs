@@ -139,8 +139,8 @@ fn test_compute_diff_skips_equal_size_and_mtime_with_two_second_tolerance() {
 
 #[test]
 fn test_local_dir_vs_cloud_file_reports_conflict() {
-    // Local has empty directory "conflict", cloud has 0-byte file "conflict"
-    // This should NOT be treated as skip - it's a type conflict
+    // 本地有空目录 `conflict`，云端有同名的零字节文件。
+    // 两者类型冲突，应生成替换操作。
     let actions = compute_diff(
         &[dir_entry("conflict")],
         &[entry("conflict", 0, 100)],
@@ -163,8 +163,8 @@ fn test_local_dir_vs_cloud_file_reports_conflict() {
 
 #[test]
 fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
-    // Local has 0-byte file "conflict", cloud has empty directory "conflict"
-    // This should NOT be treated as skip - it's a type conflict
+    // 本地有零字节文件 `conflict`，云端有同名的空目录。
+    // 两者类型冲突，应生成替换操作。
     let actions = compute_diff(
         &[entry("conflict", 0, 100)],
         &[dir_entry("conflict")],
@@ -176,7 +176,7 @@ fn test_local_file_vs_cloud_dir_uploads_file_not_skip() {
         },
     );
 
-    // Should upload file, not skip
+    // 应上传本地文件。
     assert!(
         actions
             .iter()

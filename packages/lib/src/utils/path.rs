@@ -32,7 +32,7 @@ pub fn resolve_local_path(remote_path: &str, local_path: &Option<String>) -> Str
     }
 }
 
-/// Reject symlinks at every existing component, including user-supplied parents.
+/// 检查路径中每个已存在的部分（含调用方指定的父目录），发现符号链接即拒绝。
 pub fn safe_local(path: &Path) -> Result<(), ClientError> {
     let absolute = if path.is_absolute() {
         path.to_owned()
@@ -93,7 +93,7 @@ pub(crate) fn check_destination_collisions<'a>(
             Err(error) => return Err(error.into()),
         }
     }
-    // Use the destination filesystem's own case and Unicode name rules.
+    // 按目标文件系统本身的大小写和 Unicode 文件名规则检查冲突。
     let probe = tempfile::tempdir_in(parent)?;
     for (relative, folder) in paths {
         let path = probe.path().join(relative);

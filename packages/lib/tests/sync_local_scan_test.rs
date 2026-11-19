@@ -118,8 +118,8 @@ fn test_scan_local_recursive_keeps_empty_directories() {
 
 #[test]
 fn test_scan_local_excludes_empty_directories_with_glob() {
-    // When target/** is excluded, the "target" directory itself should also be excluded
-    // even if it's empty (no files under it match, but the dir node would still appear)
+    // 排除规则为 `target/**` 时，也要排除 `target` 目录本身。
+    // 空目录同样适用，否则没有子文件可匹配时，目录条目仍会出现在结果里。
     let dir = tempdir().unwrap();
     fs::create_dir_all(dir.path().join("target")).unwrap();
     fs::create_dir_all(dir.path().join("src")).unwrap();
@@ -134,14 +134,14 @@ fn test_scan_local_excludes_empty_directories_with_glob() {
     )
     .unwrap();
 
-    // "target" directory should NOT appear in results
+    // 结果中不应出现 `target` 目录。
     assert!(
         !items.iter().any(|item| item.rel_path == "target"),
         "Empty 'target' directory should be excluded when 'target/**' pattern is used, got: {:?}",
         items.iter().map(|i| &i.rel_path).collect::<Vec<_>>()
     );
 
-    // "src" should still appear
+    // 结果中仍应包含 `src`。
     assert!(
         items
             .iter()

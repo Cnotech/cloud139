@@ -124,7 +124,7 @@ async fn server(
         let _ = accepted_tx.send(());
         if release_rx.await.is_ok() {
             let _ = socket.write_all(response.as_bytes()).await;
-            // keep the socket open, including for incomplete bodies
+            // 保持套接字打开，即使请求体尚未收齐。
             let _ = socket.read(&mut buf).await;
         }
     });

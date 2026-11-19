@@ -42,7 +42,7 @@ pub fn encode_uri_component(s: &str) -> String {
     let mut result = String::new();
     for c in s.chars() {
         match c {
-            // Match JavaScript encodeURIComponent and the AList/OpenList signer.
+            // 编码行为与 JavaScript 的 `encodeURIComponent` 及 AList/OpenList 签名逻辑一致。
             '!' | '\'' | '(' | ')' | '*' => result.push(c),
             ' ' => result.push_str("%20"),
             _ => {
