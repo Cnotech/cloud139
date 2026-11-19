@@ -3,7 +3,7 @@ use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
-use crate::models::common::QueryFileData;
+use crate::models::files::QueryFileData;
 
 pub async fn get_personal_file_detail(
     config: &Config,

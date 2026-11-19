@@ -1,13 +1,12 @@
-use super::sync::paths::{is_excluded, path_and_ancestors};
+use super::path_filter::{is_excluded, path_and_ancestors};
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::utils::path::{check_destination_collisions, safe_local};
-use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     time::UNIX_EPOCH,
 };
 
@@ -19,33 +18,9 @@ pub(super) fn scan_items(
     Ok(scan_local_snapshot(root, recursive, patterns)?.items)
 }
 
-pub(super) fn scan_upload_source(
-    path: PathBuf,
-    recursive: bool,
-    patterns: &[Pattern],
-    delete: bool,
-) -> Result<(PathBuf, Vec<FileEntry>)> {
-    let scan = scan_local_snapshot(&path, recursive, patterns)?;
-    anyhow::ensure!(!scan.single_file || !delete, "单文件同步不支持 --delete");
-    let root = if scan.single_file {
-        path.parent()
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."))
-            .to_owned()
-    } else {
-        path
-    };
-    for entry in &scan.items {
-        for name in entry.rel_path.split('/') {
-            remote_path::validate_name(name)?;
-        }
-    }
-    Ok((root, scan.items))
-}
-
 #[derive(Default)]
 pub(super) struct LocalSyncScan {
-    single_file: bool,
+    pub(super) single_file: bool,
     pub(super) items: Vec<FileEntry>,
     pub(super) protected: BTreeSet<String>,
     paths: BTreeMap<String, fs::Metadata>,
@@ -129,7 +104,7 @@ pub(super) fn scan_local_target(
     }
 }
 
-fn scan_local_snapshot(
+pub(super) fn scan_local_snapshot(
     root: &Path,
     recursive: bool,
     patterns: &[Pattern],

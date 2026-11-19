@@ -1,5 +1,6 @@
+use crate::config::error::ConfigWriteError;
 use crate::config::store::{refresh_saved_token, save_config};
-use crate::error::{CommandExit, ConfigWriteError};
+use crate::error::CommandExit;
 use cloud139::client::auth::refresh::RefreshOptions;
 use cloud139::config::Config;
 use cloud139::error::ClientError;

@@ -5,6 +5,7 @@ pub mod list;
 mod local_scan;
 pub mod login;
 pub mod mkdir;
+mod path_filter;
 pub mod rename;
 pub mod sync;
 pub mod upload;

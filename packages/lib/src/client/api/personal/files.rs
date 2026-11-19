@@ -7,8 +7,8 @@ impl PersonalClient<'_> {
     pub(crate) async fn file_detail(
         &self,
         file_id: &str,
-    ) -> Result<crate::models::common::QueryFileData, ClientError> {
-        let response: crate::models::common::QueryFileResp = self
+    ) -> Result<crate::models::files::QueryFileData, ClientError> {
+        let response: crate::models::files::QueryFileResp = self
             .request(
                 protocol::QUERY_FILE,
                 &serde_json::json!({ "fileId": file_id }),

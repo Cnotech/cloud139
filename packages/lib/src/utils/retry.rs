@@ -10,8 +10,15 @@
 
 use std::time::Duration;
 
-use crate::error::{ClientError, RetryError};
+use crate::error::ClientError;
 use crate::warn;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+#[error("重试 {attempts} 次后仍失败")]
+pub(crate) struct RetryError {
+    pub(crate) attempts: u32,
+}
 
 /// 指数退避：base × 2^attempt，attempt 上限 10 次方（避免溢出）。
 #[must_use]

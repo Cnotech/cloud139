@@ -1,6 +1,5 @@
 mod directory;
-pub(super) mod publish;
-mod transfer;
+pub(super) mod transfer;
 
 use self::directory::upload_personal_tree;
 use self::transfer::transfer_to_parent;
@@ -199,7 +198,7 @@ async fn upload_to_parent(
         .ok_or_else(|| ClientError::Api("上传已提交，但无法确认云端文件名称".into()))
 }
 
-fn finish_upload(name: &str, pb: &Option<Progress>) {
+pub(super) fn finish_upload(name: &str, pb: &Option<Progress>) {
     crate::success!("上传完成: {name}");
     if let Some(bar) = pb {
         bar.finish();

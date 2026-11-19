@@ -1,6 +1,6 @@
 use super::scan::CloudSyncScan;
-use crate::error::RetryError;
 use crate::models::sync_item::{ChangeKind, FileEntry, SyncAction, SyncEntryKind};
+use crate::utils::retry::RetryError;
 use serde::Serialize;
 use std::collections::HashSet;
 

@@ -1,4 +1,5 @@
 use super::executor::{SyncExecuteOptions, make_action_progress};
+use super::publish::{SyncUploadPlan, upload_sync_to_parent};
 use super::remote::{SyncCloud, remote_sha256};
 use super::report::SyncReport;
 use super::scan::CloudSyncScan;
@@ -6,7 +7,6 @@ use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::upload::checked_upload_size;
-use crate::services::upload::publish::{SyncUploadPlan, upload_sync_to_parent};
 use crate::utils::remote_path::cloud_child_path;
 use anyhow::{Context, Result, anyhow, ensure};
 use std::collections::{BTreeMap, HashSet};

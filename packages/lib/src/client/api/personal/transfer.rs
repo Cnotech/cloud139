@@ -69,7 +69,7 @@ impl PersonalClient<'_> {
         struct Response {
             #[serde(flatten)]
             base: crate::models::common::BaseResp,
-            data: Option<crate::models::common::DownloadUrlData>,
+            data: Option<crate::models::download::DownloadUrlData>,
         }
 
         let response: Response = self

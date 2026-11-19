@@ -1,4 +1,4 @@
-use super::paths::{compile_exclude_patterns, is_excluded, is_recovery_name, path_and_ancestors};
+use super::paths::is_recovery_name;
 use super::remote::SYNC_LIST_RETRY;
 use crate::client::api::personal::client::PersonalClient;
 use crate::client::api::personal::listing::ListPageOptions;
@@ -8,6 +8,7 @@ use crate::models::sync_item::{FileEntry, SyncDirection, SyncEntryKind};
 use crate::protocol::is_non_root_file_id;
 use crate::services::directory::directory_with_listing;
 use crate::services::local_scan::scan_items;
+use crate::services::path_filter::{compile_exclude_patterns, is_excluded, path_and_ancestors};
 use crate::utils::remote_path;
 use anyhow::{Result, anyhow};
 use futures_util::TryStreamExt;
@@ -68,10 +69,10 @@ pub struct CloudSyncScan {
 }
 
 #[derive(PartialEq, Eq)]
-pub(in crate::services) struct CloudSyncFile {
+pub(super) struct CloudSyncFile {
     pub(super) id: Option<String>,
-    pub(in crate::services) size: Option<u64>,
-    pub(in crate::services) sha256: Option<String>,
+    pub(super) size: Option<u64>,
+    pub(super) sha256: Option<String>,
     modified: Option<String>,
 }
 
@@ -97,7 +98,7 @@ impl CloudSyncScan {
         self.protected.contains(rel_path)
     }
 
-    pub(in crate::services) fn file(&self, rel_path: &str) -> Option<&CloudSyncFile> {
+    pub(super) fn file(&self, rel_path: &str) -> Option<&CloudSyncFile> {
         self.files.get(rel_path)
     }
 
@@ -105,7 +106,7 @@ impl CloudSyncScan {
         self.directories.get(rel_path).map(String::as_str)
     }
 
-    pub(in crate::services) fn expected_id(&self, rel_path: &str) -> Result<Option<&str>> {
+    pub(super) fn expected_id(&self, rel_path: &str) -> Result<Option<&str>> {
         use anyhow::Context;
         if let Some(file) = self.files.get(rel_path) {
             return Ok(Some(file.id.as_deref().context("扫描未返回有效文件 ID")?));
@@ -121,7 +122,7 @@ impl CloudSyncScan {
             .take_while(move |path| path.starts_with(&prefix))
     }
 
-    pub(in crate::services) async fn confirm_subtree(
+    pub(super) async fn confirm_subtree(
         &self,
         listing: &PersonalClient<'_>,
         root_path: &str,

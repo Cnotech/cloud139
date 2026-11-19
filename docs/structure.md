@@ -38,6 +38,6 @@ CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新�
 
 `models/file_item.rs` 定义列表服务返回的文件条目，`models/sync_item.rs` 定义同步扫描、计划和结果用的类型。云端请求和响应的数据模型按接口用途放在 `models` 的其他文件中。
 
-`services/sync/` 中的 `plan.rs` 定义同步请求和计划，调用 `scan.rs` 收集条目、`diff.rs` 生成操作，并通过 `executor.rs` 或 `verify.rs` 执行计划。`report.rs` 负责生成报告和格式化操作明细。同步和目录上传共用 `services::local_scan` 的本地扫描及 `services::sync::paths` 的路径过滤规则，同步和上传共用 `services::sync::remote` 的远端 SHA-256 读取。库内和外部调用方都从定义模块导入，例如从 `error` 导入错误类型、从 `utils::remote_path` 导入远端路径校验。
+`services/sync/` 中的 `plan.rs` 定义同步请求和计划，调用 `scan.rs` 收集条目、`diff.rs` 生成操作，并通过 `executor.rs` 或 `verify.rs` 执行计划。`publish.rs` 负责同步时校验临时文件并替换目标。`report.rs` 负责生成报告和格式化操作明细。本地和云端扫描共用 `services::path_filter` 的路径过滤规则，同步和目录上传共用 `services::local_scan` 的本地扫描。
 
-`services/upload.rs` 定义上传入口和普通文件上传流程。`services/upload/` 中的 `directory.rs` 负责递归上传目录，`transfer.rs` 负责计算哈希和上传分片，`publish.rs` 负责同步时校验临时文件并替换目标。
+`services/upload.rs` 定义上传入口和普通文件上传流程。`services/upload/` 中的 `directory.rs` 负责递归上传目录，`transfer.rs` 负责计算哈希和上传分片，供普通上传和同步共用。

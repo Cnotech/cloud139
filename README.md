@@ -72,7 +72,11 @@ Token 需要使用浏览器登陆移动云盘后打开开发者工具获取，�
 | `client::api` 下的 `get_file_id_by_path`、`get_personal_file_detail`、`get_personal_download_link` | 从 `client::api::files` 导入 |
 | `client::auth` 下的 Token 解析与续期接口 | 从 `client::auth::token` 导入 `parse_login_token`，从 `client::auth::refresh` 导入 `RefreshOptions`、`refresh_token` 和 `refresh_token_if_due` |
 | `domain` 下的文件和同步类型 | 从 `models::file_item` 或 `models::sync_item` 导入 |
-| `models` 下的类型 | 按类型从 `models::{auth, batch_ops, common, list, upload}` 的相应子模块导入 |
+| `models` 下的类型 | 按用途从 `models` 的相应子模块导入 |
+| `models::auth` 下的路由策略类型 | `models::route` |
+| `models::common::{ApiResult, CreateBatchOprTaskResp}` | `models::batch_ops` |
+| `models::common::{DownloadUrlResp, DownloadUrlData}` | `models::download` |
+| `models::common` 下的 `CreateFolderResp`、`CreateFolderData`、`QueryFileResp`、`QueryFileData` | `models::files` |
 | `utils::rand::generate_rand_str` | `utils::crypto::generate_rand_str` |
 | `utils::time::parse_personal_time` | `models::list::parse_personal_time` |
 | `utils::crypto::{calc_sign, encode_uri_component}` | `client::http::{calc_sign, encode_uri_component}` |

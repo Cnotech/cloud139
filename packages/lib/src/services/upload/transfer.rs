@@ -11,14 +11,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, SeekFrom};
 
-pub(super) struct UploadReceipt {
-    pub(super) name: Option<String>,
-    pub(super) id: String,
-    pub(super) size: u64,
-    pub(super) sha256: String,
+pub(in crate::services) struct UploadReceipt {
+    pub(in crate::services) name: Option<String>,
+    pub(in crate::services) id: String,
+    pub(in crate::services) size: u64,
+    pub(in crate::services) sha256: String,
 }
 
-pub(super) async fn transfer_to_parent(
+pub(in crate::services) async fn transfer_to_parent(
     personal: &PersonalClient<'_>,
     local_path: &Path,
     parent_file_id: &str,

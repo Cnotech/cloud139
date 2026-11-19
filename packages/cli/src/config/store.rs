@@ -1,5 +1,5 @@
+use super::error::ConfigWriteError;
 use super::lock::ConfigLock;
-use crate::error::ConfigWriteError;
 use cloud139::client::auth::refresh::{RefreshOptions, refresh_token_if_due};
 use cloud139::config::{Config, prepare_save_path, save_atomically};
 use cloud139::error::{ClientError, ConfigError};

@@ -17,13 +17,13 @@ use tokio::sync::{Mutex, OnceCell};
 pub(super) const SYNC_RETRIES: u32 = 4;
 pub(super) const SYNC_BACKOFF_SECS: u64 = 2;
 
-pub(in crate::services) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
+pub(super) const SYNC_LIST_RETRY: ListingRetry = ListingRetry::Transient {
     retries: SYNC_RETRIES,
     backoff_secs: SYNC_BACKOFF_SECS,
     timeout: None,
 };
 
-pub(in crate::services) async fn remote_sha256(
+pub(super) async fn remote_sha256(
     config: PersonalConfig<&Config>,
     host: &str,
     remote: &CloudSyncFile,

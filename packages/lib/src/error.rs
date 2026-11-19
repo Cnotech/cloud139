@@ -56,12 +56,6 @@ pub enum ConfigError {
     NotFound,
 }
 
-#[derive(Debug, Error)]
-#[error("重试 {attempts} 次后仍失败")]
-pub(crate) struct RetryError {
-    pub(crate) attempts: u32,
-}
-
 pub fn invalid(message: impl Into<String>) -> ClientError {
     ClientError::Other(message.into())
 }

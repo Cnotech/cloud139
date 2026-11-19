@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use cloud139::models::auth::RoutePolicy;
-use cloud139::models::common::{
-    ApiResult, BaseResp, CommonAccountInfo, CreateFolderData, QueryFileData,
-};
+use cloud139::models::batch_ops::ApiResult;
+use cloud139::models::common::{BaseResp, CommonAccountInfo};
+use cloud139::models::files::{CreateFolderData, QueryFileData};
 use cloud139::models::list::{PersonalFileItem, PersonalThumbnail};
+use cloud139::models::route::RoutePolicy;
 use cloud139::models::upload::{PersonalUploadData, UploadRequest};
 
 #[test]

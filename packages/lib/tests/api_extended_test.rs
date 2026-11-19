@@ -4,9 +4,11 @@ mod api_extended_test {
     use cloud139::client::http::HttpClientWrapper;
     use cloud139::config::Config;
 
-    use cloud139::models::auth::{QueryRoutePolicyResp, RoutePolicy};
-    use cloud139::models::common::{ApiResult, BaseResp, DownloadUrlResp};
+    use cloud139::models::batch_ops::ApiResult;
+    use cloud139::models::common::BaseResp;
+    use cloud139::models::download::DownloadUrlResp;
     use cloud139::models::list::{PersonalFileItem, PersonalListResp};
+    use cloud139::models::route::{QueryRoutePolicyResp, RoutePolicy};
     use cloud139::models::upload::PersonalUploadResp;
 
     #[test]

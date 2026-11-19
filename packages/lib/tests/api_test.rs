@@ -1,7 +1,9 @@
-use cloud139::models::auth::RoutePolicy;
-use cloud139::models::batch_ops::BatchMoveResp;
-use cloud139::models::common::{ApiResult, CommonAccountInfo, DownloadUrlData, QueryFileResp};
+use cloud139::models::batch_ops::{ApiResult, BatchMoveResp};
+use cloud139::models::common::CommonAccountInfo;
+use cloud139::models::download::DownloadUrlData;
+use cloud139::models::files::QueryFileResp;
 use cloud139::models::list::{PersonalFileItem, PersonalListResp};
+use cloud139::models::route::RoutePolicy;
 use cloud139::models::upload::{PartInfo, PersonalPartInfo, PersonalUploadData};
 
 #[test]

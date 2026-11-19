@@ -1,5 +1,6 @@
-use super::transfer::transfer_to_parent;
-use super::{checked_upload_size, finish_upload};
+use super::paths::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
+use super::remote::{SYNC_LIST_RETRY, remote_sha256};
+use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, PersonalConfig};
@@ -8,9 +9,8 @@ use crate::models::list::PersonalFileItem;
 use crate::progress::Progress;
 use crate::protocol::is_non_root_file_id;
 use crate::services::directory as dirs;
-use crate::services::sync::paths::{SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
-use crate::services::sync::remote::{SYNC_LIST_RETRY, remote_sha256};
-use crate::services::sync::scan::{CloudSyncFile, CloudSyncScan};
+use crate::services::upload::transfer::transfer_to_parent;
+use crate::services::upload::{checked_upload_size, finish_upload};
 use crate::utils::{
     crypto::{generate_rand_str, is_sha256_hex},
     remote_path,
@@ -18,20 +18,20 @@ use crate::utils::{
 use anyhow::Context;
 use std::path::Path;
 
-pub(in crate::services) struct SyncUploadPlan<'a> {
-    pub(in crate::services) host: &'a str,
-    pub(in crate::services) scan: Option<&'a CloudSyncScan>,
-    pub(in crate::services) rel_path: &'a str,
-    pub(in crate::services) parent_id: &'a str,
-    pub(in crate::services) remote_parent: &'a str,
-    pub(in crate::services) file_name: &'a str,
-    pub(in crate::services) replace_directory_id: Option<&'a str>,
-    pub(in crate::services) hash_missing: Option<&'a mut bool>,
-    pub(in crate::services) file_changed: &'a mut bool,
+pub(super) struct SyncUploadPlan<'a> {
+    pub(super) host: &'a str,
+    pub(super) scan: Option<&'a CloudSyncScan>,
+    pub(super) rel_path: &'a str,
+    pub(super) parent_id: &'a str,
+    pub(super) remote_parent: &'a str,
+    pub(super) file_name: &'a str,
+    pub(super) replace_directory_id: Option<&'a str>,
+    pub(super) hash_missing: Option<&'a mut bool>,
+    pub(super) file_changed: &'a mut bool,
 }
 
 /// 先在同级目录上传一个名称唯一的临时文件，再替换目标。
-pub(in crate::services) async fn upload_sync_to_parent(
+pub(super) async fn upload_sync_to_parent(
     config: PersonalConfig<&Config>,
     local_path: &Path,
     plan: SyncUploadPlan<'_>,

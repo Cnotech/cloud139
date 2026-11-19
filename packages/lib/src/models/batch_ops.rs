@@ -31,3 +31,18 @@ pub struct BatchDeleteResp {
     #[serde(flatten)]
     pub base: BaseResp,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct ApiResult {
+    #[serde(rename = "resultCode")]
+    pub result_code: String,
+    #[serde(rename = "resultDesc")]
+    pub result_desc: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateBatchOprTaskResp {
+    pub result: ApiResult,
+    #[serde(rename = "taskID")]
+    pub task_id: String,
+}

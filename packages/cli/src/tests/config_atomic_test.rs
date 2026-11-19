@@ -1,5 +1,5 @@
+use crate::config::error::ConfigWriteError;
 use crate::config::store::save_config;
-use crate::error::ConfigWriteError;
 use cloud139::config::Config;
 use std::fs;
 use std::sync::{Arc, Barrier};

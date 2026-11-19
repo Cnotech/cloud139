@@ -1,19 +1,20 @@
 use super::diff::SyncDiffOptions;
 use super::executor::{SyncExecuteOptions, execute_scanned_sync};
-use super::paths::{
-    compile_exclude_patterns, normalize_sync_endpoint, parse_sync_endpoint, sync_direction,
-};
+use super::paths::{normalize_sync_endpoint, parse_sync_endpoint, sync_direction};
 use super::report::SyncReport;
 use super::scan::{CloudSyncScan, SyncScanOptions, scan_personal_cloud};
 use super::verify::execute_verified_sync;
 use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{
-    SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
+    FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
 };
 use crate::progress::ProgressFactory;
-use crate::services::local_scan::{LocalSyncScan, scan_local_target, scan_upload_source};
+use crate::services::local_scan::{LocalSyncScan, scan_local_snapshot, scan_local_target};
+use crate::services::path_filter::compile_exclude_patterns;
+use crate::utils::remote_path;
 use anyhow::{Result, ensure};
 use glob::Pattern;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// 已校验的本地到云端或云端到本地同步参数。
@@ -95,7 +96,7 @@ impl SyncRequest {
         let (actions, cloud, local, mode) = match (self.source, self.destination) {
             (SyncEndpoint::Local(local_root), SyncEndpoint::Cloud(cloud_root)) => {
                 let (local_root, source) =
-                    scan_upload_source(local_root, self.recursive, &self.exclude, self.delete)?;
+                    scan_local_source(local_root, self.recursive, &self.exclude, self.delete)?;
                 let objects = source
                     .iter()
                     .filter(|entry| entry.kind == SyncEntryKind::File)
@@ -225,4 +226,28 @@ impl SyncOutcome {
             Self::Report(report) => report.failures.len(),
         }
     }
+}
+
+fn scan_local_source(
+    path: PathBuf,
+    recursive: bool,
+    patterns: &[Pattern],
+    delete: bool,
+) -> Result<(PathBuf, Vec<FileEntry>)> {
+    let scan = scan_local_snapshot(&path, recursive, patterns)?;
+    anyhow::ensure!(!scan.single_file || !delete, "单文件同步不支持 --delete");
+    let root = if scan.single_file {
+        path.parent()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."))
+            .to_owned()
+    } else {
+        path
+    };
+    for entry in &scan.items {
+        for name in entry.rel_path.split('/') {
+            remote_path::validate_name(name)?;
+        }
+    }
+    Ok((root, scan.items))
 }
