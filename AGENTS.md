@@ -23,6 +23,8 @@ cargo clippy --workspace --all-targets --locked
 
 Package `cloud139-cli` 位于 `packages/cli/`。参数定义、命令适配、展示、配置路径和跨进程锁分别在该 package 的 `src/cli.rs`、`src/commands/`、`src/presentation/` 和 `src/config/` 中。
 
+每个 CLI 子命令在 `packages/cli/src/commands/` 中有独立的适配文件，命令别名共用同一个文件。即使适配器只调用一次库服务，也保留独立文件。`dispatch.rs` 负责命令分发和共用的配置准备。
+
 库 package `cloud139` 位于 `packages/lib/`，负责配置读写、认证、API 请求和文件操作。CLI 显式传递配置或路径，并将服务结果转换成命令行输出。详见 [项目结构](docs/structure.md)。
 
 ### 代码风格

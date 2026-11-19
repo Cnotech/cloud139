@@ -1,8 +1,11 @@
+mod cp;
 mod delete;
 pub(crate) mod dispatch;
 mod download;
 mod list;
 mod login;
 mod mkdir;
+mod mv;
+mod rename;
 mod sync;
 mod upload;

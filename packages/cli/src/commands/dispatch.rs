@@ -1,11 +1,10 @@
-use super::{delete, download, list, login, mkdir, sync, upload};
+use super::{cp, delete, download, list, login, mkdir, mv, rename, sync, upload};
 use crate::cli::Commands;
 use crate::config::paths::config_paths;
 use crate::config::store::refresh_saved_token;
 use cloud139::client::auth::refresh::RefreshOptions;
 use cloud139::config::Config;
 use cloud139::error::{ClientError, ConfigError};
-use cloud139::services::{directory, rename::rename};
 use std::path::{Path, PathBuf};
 
 /// 校验配置和命令参数，再续期并执行命令。
@@ -31,18 +30,9 @@ pub(crate) async fn execute(command: Commands, config_path: Option<&Path>) -> an
             delete::execute(args, &config.await?).await
         }
         Commands::Mkdir(args) => mkdir::execute(args, &config.await?).await,
-        Commands::Mv(args) => {
-            directory::mv(&config.await?, &args.source, &args.target, args.force).await?;
-            Ok(())
-        }
-        Commands::Cp(args) => {
-            directory::cp(&config.await?, &args.source, &args.target, args.force).await?;
-            Ok(())
-        }
-        Commands::Rename(args) => {
-            rename(&config.await?, &args.source, &args.target, args.force).await?;
-            Ok(())
-        }
+        Commands::Mv(args) => mv::execute(args, &config.await?).await,
+        Commands::Cp(args) => cp::execute(args, &config.await?).await,
+        Commands::Rename(args) => rename::execute(args, &config.await?).await,
         Commands::Sync(args) => {
             let request = sync::preflight(&args)?;
             sync::execute(args, request, config.await?).await
