@@ -1,11 +1,7 @@
 use super::directory_service as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::utils::remote_path;
-use crate::{
-    client::{ClientError, api},
-    config::Config,
-    error::invalid,
-};
+use crate::{client::api, config::Config, error::ClientError, error::invalid};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MkdirMode {

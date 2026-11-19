@@ -6,9 +6,9 @@ use crate::client::http::HttpClientWrapper;
 use crate::utils::remote_file::is_non_root_file_id;
 use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};
 use crate::{
-    client::ClientError,
     config::Config,
     debug,
+    error::ClientError,
     models::{BaseResp, PersonalPartInfo, PersonalUploadResp},
     protocol,
 };

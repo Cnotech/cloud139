@@ -1,4 +1,4 @@
-use crate::{client::ClientError, config::Config};
+use crate::{config::Config, error::ClientError};
 pub async fn cp(
     config: &Config,
     sources: &[String],

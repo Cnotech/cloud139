@@ -1,5 +1,5 @@
 //! Cloud path normalization and cross-platform name validation.
-use crate::client::ClientError;
+use crate::error::ClientError;
 pub use crate::error::invalid;
 
 pub fn validate_name(name: &str) -> Result<(), ClientError> {

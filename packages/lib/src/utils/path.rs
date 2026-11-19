@@ -1,5 +1,4 @@
-use crate::client::ClientError;
-use crate::error::invalid;
+use crate::error::{ClientError, invalid};
 use std::path::{Path, PathBuf};
 
 /// 根据远程路径和可选的本地路径，解析出最终的本地保存路径。

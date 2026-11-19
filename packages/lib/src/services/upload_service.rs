@@ -1,10 +1,10 @@
 use crate::client::api::personal::{ListingRetry, PersonalClient};
-use crate::client::{ClientError, api};
 use crate::domain::{FileEntry, SyncEntryKind};
 use crate::error::invalid;
 use crate::services::progress::Progress;
 use crate::utils::path::safe_local;
 use crate::utils::remote_path;
+use crate::{client::api, error::ClientError};
 use std::collections::HashMap;
 use std::path::Path;
 

@@ -1,5 +1,6 @@
 use super::RefreshOptions;
-use crate::client::{ClientError, http::insert_static_headers};
+use crate::client::http::insert_static_headers;
+use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::xml::escape_text;
 use reqwest::{Client, header::HeaderMap};

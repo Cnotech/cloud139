@@ -3,7 +3,6 @@ mod personal_parts;
 use super::checked_upload_size;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::api::upload::UploadFile;
-use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
 use crate::protocol;
 use crate::services::directory_service;
@@ -18,6 +17,7 @@ use crate::utils::{
     remote_file::is_non_root_file_id,
     upload_parts::{checked_part_count, part_offset_and_size},
 };
+use crate::{client::api, error::ClientError};
 use anyhow::Context;
 use tokio::io::{AsyncSeekExt, SeekFrom};
 

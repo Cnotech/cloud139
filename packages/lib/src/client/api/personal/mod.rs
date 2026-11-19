@@ -3,12 +3,12 @@ pub(crate) mod listing;
 pub(crate) mod transfer;
 
 use crate::client::{
-    ClientError,
     api::{headers::build_personal_headers, route::query_route_policy},
     http::HttpClientWrapper,
 };
 use crate::config::Config;
 use crate::debug;
+use crate::error::ClientError;
 use crate::protocol;
 use std::{borrow::Cow, time::Duration};
 

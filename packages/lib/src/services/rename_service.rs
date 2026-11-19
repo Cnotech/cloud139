@@ -1,10 +1,7 @@
 use super::directory_service as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::utils::remote_path;
-use crate::{
-    client::{ClientError, api},
-    config::Config,
-};
+use crate::{client::api, config::Config, error::ClientError};
 pub async fn rename(
     config: &Config,
     source: &str,

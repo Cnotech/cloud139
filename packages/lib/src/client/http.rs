@@ -1,5 +1,5 @@
-use crate::client::ClientError;
 use crate::debug;
+use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::rand::generate_rand_str;
 use reqwest::{

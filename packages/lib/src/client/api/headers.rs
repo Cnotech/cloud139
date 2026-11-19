@@ -1,6 +1,7 @@
 //! 个人云与路由请求的签名请求头及客户端标识。
 
-use crate::client::{ClientError, http::insert_static_headers};
+use crate::client::http::insert_static_headers;
+use crate::error::ClientError;
 use crate::protocol::{BASIC_AUTH_PREFIX, SIGNATURE_HEADER, WEB_ORIGIN};
 use reqwest::header::{AUTHORIZATION, HeaderMap};
 

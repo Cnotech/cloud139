@@ -1,7 +1,5 @@
-use crate::client::{
-    ClientError,
-    api::{HttpClientWrapper, personal::transfer::put_upload_part},
-};
+use crate::client::api::{HttpClientWrapper, personal::transfer::put_upload_part};
+use crate::error::ClientError;
 
 pub(super) async fn upload_part(
     client: &HttpClientWrapper,

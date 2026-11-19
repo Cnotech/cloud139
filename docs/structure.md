@@ -23,7 +23,7 @@ cloud139/
         │   ├── client/            # API 请求与认证
         │   ├── services/          # 文件操作及同步
         │   ├── domain/            # 业务数据
-        │   ├── error.rs           # 共用错误构造
+        │   ├── error.rs           # 库错误类型和共用错误构造
         │   ├── models/            # API 数据模型
         │   ├── protocol.rs        # 云盘端点、远程返回码和其他协议固定值
         │   └── utils/             # 日志、重试及通用函数

@@ -1,23 +1,11 @@
-use crate::client::ClientError;
+use crate::error::ClientError;
+pub use crate::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum ConfigError {
-    #[error("IO 错误: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("TOML 解析错误: {0}")]
-    TomlDe(#[from] toml::de::Error),
-    #[error("TOML 序列化错误: {0}")]
-    TomlSer(#[from] toml::ser::Error),
-    #[error("配置文件未找到")]
-    NotFound,
-}
 
 /// 剩余有效期不超过这个时长时，在下一次命令启动时续期 token。
 ///

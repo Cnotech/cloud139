@@ -1,10 +1,10 @@
 //! Remote directory resolution, traversal, and mutation preflight.
 use crate::client::api::personal::{ListingRetry, PersonalClient};
-use crate::client::{ClientError, api};
 use crate::config::Config;
 use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
 use crate::utils::remote_path;
+use crate::{client::api, error::ClientError};
 use std::collections::HashSet;
 
 // 兼容现有的 directory_service 导入路径。

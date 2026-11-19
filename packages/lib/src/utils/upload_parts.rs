@@ -1,4 +1,4 @@
-use crate::client::ClientError;
+use crate::error::ClientError;
 
 pub(crate) fn part_offset_and_size(index: i64, part_size: i64, file_size: i64) -> (i64, i64) {
     let offset = index * part_size;

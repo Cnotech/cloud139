@@ -1,10 +1,8 @@
 use super::{ListingRetry, PersonalClient};
 use crate::client::api::response::format_api_error;
-use crate::client::{
-    ClientError,
-    http::{HttpClientWrapper, insert_static_headers},
-};
+use crate::client::http::{HttpClientWrapper, insert_static_headers};
 use crate::config::Config;
+use crate::error::ClientError;
 use crate::protocol;
 use futures_util::Stream;
 use reqwest::{

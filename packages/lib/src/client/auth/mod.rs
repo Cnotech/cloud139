@@ -1,6 +1,6 @@
-use crate::client::ClientError;
 use crate::config::Config;
 use crate::debug;
+use crate::error::ClientError;
 use crate::protocol;
 use std::time::Duration;
 
