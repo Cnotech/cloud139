@@ -32,8 +32,11 @@ cargo test --workspace -- --nocapture
 ## 代码检查
 
 ```bash
-# Clippy 检查
-cargo clippy --workspace
+# 检查工作区源码及测试目标
+cargo clippy --workspace --all-targets --locked
+
+# 检查 Rust 源文件行数
+python3 scripts/check-rust-file-length.py
 
 # 格式化检查
 cargo fmt --all -- --check
@@ -41,6 +44,8 @@ cargo fmt --all -- --check
 # 格式化代码
 cargo fmt --all
 ```
+
+CI 在 Linux、macOS 和 Windows 上运行 Clippy。单文件行数检查在 Linux CI 上独立运行，对 `packages/*/src/` 下总行数超过 500 的 Rust 文件发出告警，跳过独立测试目录。超过阈值时可以检查文件里是否有能够独立拆分的职责。
 
 ## 开发常用命令
 

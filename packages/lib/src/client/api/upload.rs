@@ -268,3 +268,140 @@ pub async fn get_upload_urls(
     }
     Ok(upload_urls)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::UploadFile;
+    use crate::client::api::headers::PC_CLIENT_INFO;
+    use crate::client::api::personal::client::{ListingRetry, PersonalClient};
+    use crate::client::http::HttpClientWrapper;
+    use crate::config::PersonalConfig;
+    use crate::utils::upload_parts::UploadLayout;
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn large_upload_initialization_uses_pc_identity_and_preserves_entitlement_errors() {
+        let server = MockServer::start();
+        let config = crate::config::Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Default::default()
+        };
+        let client = HttpClientWrapper::new();
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
+        for gib in [5_i64, 8, 50, 500] {
+            let size = gib * 1024 * 1024 * 1024 + 1;
+            let request = server.mock(|when, then| {
+                when.method(POST).path("/file/create")
+                    .header("x-yun-client-info", PC_CLIENT_INFO)
+                    .json_body_includes(format!("{{\"size\":{size}}}"));
+                then.json_body(json!({"success":true,"data":{"fileId":"new","uploadId":"upload","partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}}));
+            });
+            let response = personal
+                .create_upload(UploadFile {
+                    local_path: std::path::Path::new("large.bin"),
+                    file_name: "large.bin",
+                    layout: UploadLayout::new(size, personal.upload_part_size(size)).unwrap(),
+                    parent_file_id: "/",
+                    content_hash: "fictional-hash",
+                })
+                .await
+                .unwrap();
+            assert_eq!(response.file_id, "new");
+            request.assert_calls(1);
+        }
+        let rejected = server.mock(|when, then| {
+            when.method(POST)
+                .path("/file/create")
+                .json_body_includes(r#"{"size":1}"#)
+                .header("x-yun-client-info", PC_CLIENT_INFO);
+            then.json_body(json!({"success":false,"code":"04010319","message":"权益不足"}));
+        });
+        let error = personal
+            .create_upload(UploadFile {
+                local_path: std::path::Path::new("small.bin"),
+                file_name: "small.bin",
+                layout: UploadLayout::new(1, personal.upload_part_size(1)).unwrap(),
+                parent_file_id: "/",
+                content_hash: "fictional-hash",
+            })
+            .await
+            .err()
+            .expect("server should reject the upload");
+        assert_eq!(
+            error.to_string(),
+            "API 错误: 创建上传任务失败: 权益不足（错误码: 04010319）；文件大小 1 字节，请核对账号当前的单文件上传额度"
+        );
+        rejected.assert_calls(1);
+    }
+
+    #[tokio::test]
+    async fn ordinary_and_silver_limits_are_enforced_by_server_not_local_policy() {
+        let server = MockServer::start();
+        let gib = 1024_i64 * 1024 * 1024;
+        let client = HttpClientWrapper::new();
+        for (plan, limit) in [("ordinary", 5 * gib), ("silver", 8 * gib)] {
+            let config = crate::config::Config {
+                authorization: format!("fictional-{plan}-token"),
+                ..Default::default()
+            };
+            let personal = PersonalClient::with_host(
+                PersonalConfig::new(&config).unwrap(),
+                server.base_url(),
+                &client,
+                ListingRetry::None,
+            );
+            for size in [5 * gib, 5 * gib + 1, 8 * gib, 8 * gib + 1] {
+                let accepted = size <= limit;
+                let part_size = 100 * 1024 * 1024;
+                let count = (size + part_size - 1) / part_size;
+                let parts: Vec<_> = (0..count)
+                    .map(|i| {
+                        json!({
+                            "partNumber": i + 1,
+                            "partSize": part_size.min(size - i * part_size),
+                            "parallelHashCtx": {"partOffset": i * part_size}
+                        })
+                    })
+                    .collect();
+                let mut request = server.mock(|when, then| {
+                    when.method(POST).path("/file/create")
+                        .header("Authorization", format!("Basic fictional-{plan}-token"))
+                        .header("x-yun-client-info", PC_CLIENT_INFO)
+                        .json_body(json!({
+                            "contentHash": "fictional-hash", "contentHashAlgorithm": "SHA256",
+                            "contentType": "application/octet-stream", "parallelUpload": false,
+                            "partInfos": parts, "size": size, "parentFileId": "/",
+                            "name": "boundary.bin", "type": "file", "fileRenameMode": "auto_rename"
+                        }));
+                    then.json_body(if accepted {
+                        json!({"success":true,"data":{"fileId":"test-file","uploadId":"test-upload",
+                            "partInfos":[{"partNumber":1,"uploadUrl":"https://example.invalid/part"}]}})
+                    } else {
+                        json!({"success":false,"code":"04010319","message":"权益不足"})
+                    });
+                });
+                let result = personal
+                    .create_upload(UploadFile {
+                        local_path: std::path::Path::new("boundary.bin"),
+                        file_name: "boundary.bin",
+                        layout: UploadLayout::new(size, personal.upload_part_size(size)).unwrap(),
+                        parent_file_id: "/",
+                        content_hash: "fictional-hash",
+                    })
+                    .await;
+                assert_eq!(result.is_ok(), accepted, "{plan}: {size}");
+                if let Err(error) = result {
+                    assert!(error.to_string().contains("04010319"));
+                }
+                request.assert_calls(1);
+                request.delete();
+            }
+        }
+    }
+}

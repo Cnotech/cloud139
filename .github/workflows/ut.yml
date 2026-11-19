@@ -24,6 +24,15 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Check Rust source file lengths
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-rust-file-length.py
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets --locked
 
       - name: Run tests
         run: cargo test --workspace --locked --no-fail-fast

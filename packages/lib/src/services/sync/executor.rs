@@ -286,7 +286,7 @@ async fn execute_one_action(
                 .ok_or_else(|| anyhow::anyhow!("无法读取本地文件名: {}", local_abs.display()))?;
             let parent_id = remote.ensure_directory(&remote_dir).await?;
             let listing = remote.listing().await?;
-            use crate::services::upload::{SyncUploadPlan, upload_sync_to_parent};
+            use crate::services::upload::publish::{SyncUploadPlan, upload_sync_to_parent};
             upload_sync_to_parent(
                 config,
                 local_abs,

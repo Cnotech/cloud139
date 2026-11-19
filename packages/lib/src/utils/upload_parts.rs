@@ -38,3 +38,21 @@ impl UploadLayout {
         (offset, self.part_size.min(self.file_size - offset))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::UploadLayout;
+
+    #[test]
+    fn part_count_handles_large_sizes_and_rejects_invalid_layouts() {
+        assert_eq!(
+            UploadLayout::new(i64::MAX, i64::MAX).unwrap().part_count(),
+            1
+        );
+        assert_eq!(UploadLayout::new(0, 100).unwrap().part_count(), 0);
+        assert_eq!(UploadLayout::new(101, 100).unwrap().part_count(), 2);
+        for (size, part) in [(1, 0), (1, -1), (-1, 100), (i64::MAX, 1)] {
+            assert!(UploadLayout::new(size, part).is_err());
+        }
+    }
+}

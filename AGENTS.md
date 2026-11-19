@@ -14,7 +14,7 @@ cargo build
 cargo test --workspace
 
 # 代码质量检查
-cargo clippy --workspace
+cargo clippy --workspace --all-targets --locked
 ```
 
 更多命令见 [docs/commands.md](docs/commands.md)
