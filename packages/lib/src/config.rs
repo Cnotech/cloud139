@@ -1,9 +1,11 @@
 use crate::error::{ClientError, ConfigError};
 use serde::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::fs;
 #[cfg(unix)]
 use std::fs::File;
 use std::io::{self, Write};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 /// 剩余有效期不超过这个时长时，在下一次命令启动时续期 token。
@@ -30,6 +32,39 @@ pub struct Config {
 }
 
 const PERSONAL_STORAGE_TYPE: &str = "personal_new";
+
+/// 已通过个人云校验的配置，内部调用可继续使用其只读引用。
+#[derive(Clone, Copy)]
+pub(crate) struct PersonalConfig<T>(T);
+
+impl<T: Borrow<Config>> PersonalConfig<T> {
+    pub(crate) fn new(config: T) -> Result<Self, ClientError> {
+        config.borrow().require_personal()?;
+        Ok(Self(config))
+    }
+}
+
+impl PersonalConfig<Config> {
+    pub(crate) fn as_ref(&self) -> PersonalConfig<&Config> {
+        PersonalConfig(&self.0)
+    }
+
+    pub(crate) fn set_cloud_host(&mut self, host: String) {
+        self.0.personal_cloud_host = Some(host);
+    }
+
+    pub(crate) fn into_inner(self) -> Config {
+        self.0
+    }
+}
+
+impl<T: Borrow<Config>> Deref for PersonalConfig<T> {
+    type Target = Config;
+
+    fn deref(&self) -> &Config {
+        self.0.borrow()
+    }
+}
 
 impl Default for Config {
     fn default() -> Self {

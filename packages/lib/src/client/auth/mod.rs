@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
@@ -73,7 +73,13 @@ pub async fn refresh_token(
     config: &Config,
     options: RefreshOptions<'_>,
 ) -> Result<Config, ClientError> {
-    config.require_personal()?;
+    refresh_personal_token(PersonalConfig::new(config)?, options).await
+}
+
+async fn refresh_personal_token(
+    config: PersonalConfig<&Config>,
+    options: RefreshOptions<'_>,
+) -> Result<Config, ClientError> {
     debug!("开始续期 Token account={}", config.account);
 
     // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
@@ -100,7 +106,7 @@ pub async fn refresh_token(
 
     debug!("已续期 Token valid_days={}", expire_seconds / 86400);
 
-    let mut new_config = config.clone();
+    let mut new_config = (*config).clone();
     new_config.authorization = authorization;
     new_config.refresh_token = Some(new_token);
     new_config.token_expire_time =
@@ -114,9 +120,9 @@ pub async fn refresh_token_if_due(
     config: &Config,
     options: RefreshOptions<'_>,
 ) -> Result<Option<Config>, ClientError> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     if !config.is_token_refresh_due() {
         return Ok(None);
     }
-    refresh_token(config, options).await.map(Some)
+    refresh_personal_token(config, options).await.map(Some)
 }

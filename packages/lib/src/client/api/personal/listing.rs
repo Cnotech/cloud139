@@ -1,7 +1,7 @@
 use super::{ListingRetry, PersonalClient};
 use crate::client::api::response::require_success;
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::error::{ClientError, invalid};
 use crate::models::list::{PersonalFileItem, PersonalListData, PersonalListResp};
@@ -170,6 +170,7 @@ impl HttpClientWrapper {
         parent_file_id: &str,
         file_name: &str,
     ) -> Result<bool, ClientError> {
+        let config = PersonalConfig::new(config)?;
         debug!(
             "检查云端文件是否存在 parent={} name={}",
             parent_file_id, file_name
@@ -188,7 +189,7 @@ impl HttpClientWrapper {
         config: &Config,
         parent_file_id: &str,
     ) -> Result<Vec<crate::models::list::PersonalFileItem>, ClientError> {
-        PersonalClient::connect(config, self, ListingRetry::None)
+        PersonalClient::connect(PersonalConfig::new(config)?, self, ListingRetry::None)
             .await?
             .list_files(parent_file_id)
             .await

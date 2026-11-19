@@ -1,7 +1,7 @@
 use super::{CloudSyncFile, CloudSyncScan, SYNC_BACKOFF_SECS, SYNC_RETRIES};
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::services::{directory as dirs, download};
 use crate::utils::{
     remote_path::{self, cloud_child_path},
@@ -12,7 +12,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
 pub(in crate::services) async fn remote_sha256(
-    config: &Config,
+    config: PersonalConfig<&Config>,
     host: &str,
     remote: &CloudSyncFile,
     expected_size: Option<u64>,
@@ -36,7 +36,7 @@ pub(in crate::services) async fn remote_sha256(
 }
 
 pub(super) struct SyncCloud<'a> {
-    config: &'a Config,
+    config: PersonalConfig<&'a Config>,
     scan: Option<&'a CloudSyncScan>,
     client: HttpClientWrapper,
     host: OnceCell<String>,
@@ -44,7 +44,7 @@ pub(super) struct SyncCloud<'a> {
 }
 
 impl<'a> SyncCloud<'a> {
-    pub(super) fn new(config: &'a Config, scan: Option<&'a CloudSyncScan>) -> Self {
+    pub(super) fn new(config: PersonalConfig<&'a Config>, scan: Option<&'a CloudSyncScan>) -> Self {
         Self {
             config,
             scan,
@@ -61,9 +61,7 @@ impl<'a> SyncCloud<'a> {
                 if let Some(scan) = self.scan {
                     return Ok(scan.host.clone());
                 }
-                self.client
-                    .get_personal_cloud_host(&mut self.config.clone())
-                    .await
+                self.client.resolve_personal_cloud_host(self.config).await
             })
             .await?;
         Ok(PersonalClient::with_host(

@@ -12,7 +12,7 @@ use super::local_scan::{LocalSyncScan, scan_items, scan_local_target, scan_uploa
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::models::sync_item::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
@@ -43,7 +43,7 @@ pub struct SyncRequest {
 
 /// Scanned targets and the actions computed for a sync.
 pub struct SyncPlan {
-    config: Config,
+    config: PersonalConfig<Config>,
     actions: Vec<SyncAction>,
     cloud: CloudSyncScan,
     local: Option<LocalSyncScan>,
@@ -92,7 +92,8 @@ impl SyncRequest {
         })
     }
 
-    pub async fn plan(self, mut config: Config, track_paths: bool) -> Result<SyncPlan> {
+    pub async fn plan(self, config: Config, track_paths: bool) -> Result<SyncPlan> {
+        let mut config = PersonalConfig::new(config)?;
         let diff_options = |local_root, cloud_root| SyncDiffOptions {
             direction: self.direction,
             delete: self.delete,
@@ -117,7 +118,9 @@ impl SyncRequest {
                     !self.verify || !self.delete || objects > 0,
                     "--verify --delete 要求同步范围内至少有一个源文件"
                 );
-                let cloud = scan_cloud(&config, &cloud_root, &self.scan, self.direction).await?;
+                let cloud =
+                    scan_personal_cloud(config.as_ref(), &cloud_root, &self.scan, self.direction)
+                        .await?;
                 crate::step!("正在计算同步差异...");
                 let actions = cloud.compute_upload_diff(
                     &source,
@@ -138,7 +141,9 @@ impl SyncRequest {
                 (actions, cloud, None, mode)
             }
             (SyncEndpoint::Cloud(cloud_root), SyncEndpoint::Local(local_root)) => {
-                let cloud = scan_cloud(&config, &cloud_root, &self.scan, self.direction).await?;
+                let cloud =
+                    scan_personal_cloud(config.as_ref(), &cloud_root, &self.scan, self.direction)
+                        .await?;
                 let local =
                     scan_local_target(&local_root, self.scan.recursive, &self.scan.exclude)?;
                 local.validate_destinations(&cloud.items, &local_root)?;
@@ -152,7 +157,7 @@ impl SyncRequest {
             }
             _ => anyhow::bail!("无效的同步方向"),
         };
-        config.personal_cloud_host = Some(cloud.host.clone());
+        config.set_cloud_host(cloud.host.clone());
         Ok(SyncPlan {
             config,
             actions,
@@ -177,13 +182,14 @@ impl SyncPlan {
         self,
         progress: Option<&ProgressFactory<'_>>,
     ) -> Result<SyncOutcome> {
+        let config = self.config.as_ref();
         match self.mode {
             SyncMode::Verify {
                 objects,
                 track_paths,
             } => {
                 let report = execute_verified_sync(
-                    &self.config,
+                    config,
                     &self.cloud,
                     &self.actions,
                     objects,
@@ -197,7 +203,7 @@ impl SyncPlan {
             SyncMode::Ordinary(mut report) => {
                 let started = Instant::now();
                 let summary = execute_scanned_sync(
-                    &self.config,
+                    config,
                     self.actions,
                     self.execution,
                     Some(&self.cloud),
@@ -755,12 +761,20 @@ impl CloudSyncScan {
 
 /// 扫描云端目录，按同步方向应用对应的扫描规则。
 pub async fn scan_cloud(
-    config: &crate::config::Config,
+    config: &Config,
     cloud_root: &str,
     options: &SyncScanOptions,
     direction: SyncDirection,
 ) -> Result<CloudSyncScan> {
-    config.require_personal()?;
+    scan_personal_cloud(PersonalConfig::new(config)?, cloud_root, options, direction).await
+}
+
+async fn scan_personal_cloud(
+    config: PersonalConfig<&Config>,
+    cloud_root: &str,
+    options: &SyncScanOptions,
+    direction: SyncDirection,
+) -> Result<CloudSyncScan> {
     let cloud_root = remote_path::normalize(cloud_root)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, SYNC_LIST_RETRY).await?;

@@ -2,6 +2,7 @@ use crate::client::api::personal::transfer::put_upload_part;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::api::upload::UploadFile;
 use crate::client::http::HttpClientWrapper;
+use crate::config::{Config, PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::models::list::PersonalFileItem;
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
@@ -26,12 +27,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, SeekFrom};
 use super::directory as dirs;
 
 pub async fn upload_path(
-    config: &crate::config::Config,
+    config: &Config,
     local: &str,
     remote: &str,
     force: bool,
     make_progress: impl FnOnce(&str, u64) -> Option<Progress>,
 ) -> anyhow::Result<()> {
+    let config = PersonalConfig::new(config)?;
     let local_path = Path::new(local);
     if !local_path.exists() {
         crate::error!("文件不存在: {}", local);
@@ -40,7 +42,7 @@ pub async fn upload_path(
 
     safe_local(local_path)?;
     if local_path.is_dir() {
-        return upload_directory(
+        return upload_personal_tree(
             config,
             local_path,
             remote,
@@ -76,7 +78,7 @@ pub async fn upload_path(
 
     let pb = make_progress(file_name, file_size as u64);
 
-    upload(
+    upload_personal_file(
         config,
         local_path,
         &remote_dir,
@@ -101,7 +103,7 @@ pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
 }
 
 pub async fn upload(
-    config: &crate::config::Config,
+    config: &Config,
     local_path: &Path,
     remote_path: &str,
     file_name: &str,
@@ -109,7 +111,27 @@ pub async fn upload(
     force: bool,
     pb: Option<Progress>,
 ) -> Result<(), ClientError> {
-    config.require_personal()?;
+    upload_personal_file(
+        PersonalConfig::new(config)?,
+        local_path,
+        remote_path,
+        file_name,
+        file_size,
+        force,
+        pb,
+    )
+    .await
+}
+
+async fn upload_personal_file(
+    config: PersonalConfig<&Config>,
+    local_path: &Path,
+    remote_path: &str,
+    file_name: &str,
+    file_size: i64,
+    force: bool,
+    pb: Option<Progress>,
+) -> Result<(), ClientError> {
     remote_path::validate_name(file_name)?;
     if file_size < 0 {
         return Err(invalid("无效文件大小"));
@@ -124,13 +146,22 @@ pub async fn upload(
 
 /// Upload `dir` itself, or its contents when the local argument has a trailing separator.
 pub async fn upload_directory(
-    config: &crate::config::Config,
+    config: &Config,
     local: &Path,
     remote: &str,
     contents: bool,
     force: bool,
 ) -> anyhow::Result<()> {
-    config.require_personal()?;
+    upload_personal_tree(PersonalConfig::new(config)?, local, remote, contents, force).await
+}
+
+async fn upload_personal_tree(
+    config: PersonalConfig<&Config>,
+    local: &Path,
+    remote: &str,
+    contents: bool,
+    force: bool,
+) -> anyhow::Result<()> {
     safe_local(local)?;
     if !local.is_dir() {
         return Err(invalid("递归上传源必须是目录").into());
@@ -154,11 +185,11 @@ pub async fn upload_directory(
         }
         safe_local(&local.join(&entry.rel_path))?;
     }
-    upload_personal_directory(config, local, &root, entries, force).await
+    upload_directory_entries(config, local, &root, entries, force).await
 }
 
-async fn upload_personal_directory(
-    config: &crate::config::Config,
+async fn upload_directory_entries(
+    config: PersonalConfig<&Config>,
     local: &Path,
     root: &str,
     entries: Vec<FileEntry>,
@@ -269,7 +300,7 @@ fn finish_upload(name: &str, pb: &Option<Progress>) {
 
 /// Upload a unique sibling before replacing the destination.
 pub(super) async fn upload_sync_to_parent(
-    config: &crate::config::Config,
+    config: PersonalConfig<&Config>,
     local_path: &std::path::Path,
     plan: SyncUploadPlan<'_>,
     pb: Option<Progress>,
@@ -772,8 +803,12 @@ mod tests {
             ..Default::default()
         };
         let client = HttpClientWrapper::new();
-        let personal =
-            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
         for gib in [5_i64, 8, 50, 500] {
             let size = gib * 1024 * 1024 * 1024 + 1;
             let request = server.mock(|when, then| {
@@ -832,8 +867,12 @@ mod tests {
                 authorization: format!("fictional-{plan}-token"),
                 ..Default::default()
             };
-            let personal =
-                PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+            let personal = PersonalClient::with_host(
+                PersonalConfig::new(&config).unwrap(),
+                server.base_url(),
+                &client,
+                ListingRetry::None,
+            );
             for size in [5 * gib, 5 * gib + 1, 8 * gib, 8 * gib + 1] {
                 let accepted = size <= limit;
                 let part_size = 100 * 1024 * 1024;
@@ -928,8 +967,12 @@ mod tests {
             })
             .collect();
         let client = HttpClientWrapper::new();
-        let personal =
-            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
         upload_parts(UploadPartsParams {
             personal: &personal,
             local_path: source.path(),
@@ -969,8 +1012,12 @@ mod tests {
             then.json_body(json!({"success":true}));
         });
         let client = HttpClientWrapper::new();
-        let personal =
-            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
         let error = upload_parts(UploadPartsParams {
             personal: &personal,
             local_path: source.path(),
@@ -1018,8 +1065,12 @@ mod tests {
             then.json_body(json!({"success":true}));
         });
         let client = HttpClientWrapper::new();
-        let personal =
-            PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
         let files = personal.list_files("/").await.unwrap();
         let mut file_changed = false;
         let error = install_uploaded_file(
@@ -1075,8 +1126,12 @@ mod tests {
                 then.json_body(json!({"success":true}));
             });
             let client = HttpClientWrapper::new();
-            let personal =
-                PersonalClient::with_host(&config, server.base_url(), &client, ListingRetry::None);
+            let personal = PersonalClient::with_host(
+                PersonalConfig::new(&config).unwrap(),
+                server.base_url(),
+                &client,
+                ListingRetry::None,
+            );
             let files = personal.list_files("/").await.unwrap();
             let mut file_changed = false;
             let result = install_uploaded_file(

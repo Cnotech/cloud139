@@ -1,7 +1,7 @@
 use super::directory as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;
 use crate::utils::remote_path;
 pub async fn rename(
@@ -10,7 +10,7 @@ pub async fn rename(
     target: &str,
     force: bool,
 ) -> Result<(), ClientError> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     let source = remote_path::non_root(source)?;
     remote_path::validate_name(target)?;
     let client = HttpClientWrapper::new();

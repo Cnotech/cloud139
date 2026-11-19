@@ -6,7 +6,7 @@ use crate::client::http::HttpClientWrapper;
 use crate::utils::remote_file::is_non_root_file_id;
 use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};
 use crate::{
-    config::Config,
+    config::{Config, PersonalConfig},
     debug,
     error::ClientError,
     protocol,
@@ -254,6 +254,7 @@ pub async fn get_upload_urls(
     part_size: i64,
     file_size: i64,
 ) -> Result<HashMap<i32, String>, ClientError> {
+    let config = PersonalConfig::new(config)?;
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
     let mut upload_urls = HashMap::new();

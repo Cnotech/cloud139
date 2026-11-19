@@ -33,6 +33,67 @@ async fn non_personal_api_requests_are_rejected_before_transport() {
     }
 }
 
+#[tokio::test]
+async fn non_personal_config_is_rejected_before_upload_progress_and_sync_work() {
+    use cloud139::services::sync::{
+        SyncRequest, SyncScanOptions,
+        executor::{SyncExecuteOptions, execute_sync_actions},
+    };
+    use cloud139::services::upload::upload_path;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("source.txt");
+    std::fs::write(&file, "fixture").unwrap();
+    let config = Config {
+        storage_type: "family".into(),
+        ..Config::default()
+    };
+    let error = upload_path(&config, file.to_str().unwrap(), "/", false, |_, _| {
+        panic!("不支持的配置不应创建上传进度")
+    })
+    .await
+    .unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<ClientError>(),
+        Some(ClientError::UnsupportedStorage)
+    ));
+
+    let options = SyncExecuteOptions {
+        dry_run: true,
+        jobs: 1,
+        print_actions: false,
+    };
+    let missing = dir.path().join("missing");
+    let request = SyncRequest::new(
+        missing.to_str().unwrap(),
+        "cloud:/",
+        SyncScanOptions {
+            recursive: true,
+            exclude: Vec::new(),
+        },
+        options,
+        false,
+        false,
+    )
+    .unwrap();
+    let error = request
+        .plan(config.clone(), false)
+        .await
+        .err()
+        .expect("不支持的配置不应生成同步计划");
+    assert!(matches!(
+        error.downcast_ref::<ClientError>(),
+        Some(ClientError::UnsupportedStorage)
+    ));
+    let error = execute_sync_actions(&config, Vec::new(), options)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<ClientError>(),
+        Some(ClientError::UnsupportedStorage)
+    ));
+}
+
 #[test]
 fn config_requires_an_explicit_storage_type() {
     let profile = r#"account = "test"

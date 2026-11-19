@@ -1,7 +1,7 @@
 //! Remote directory resolution, traversal, and mutation preflight.
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::remote_file::is_non_root_file_id;
@@ -15,7 +15,7 @@ pub struct RemoteEntry {
 }
 
 pub async fn resolve(config: &Config, path: &str) -> Result<RemoteEntry, ClientError> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     let path = remote_path::normalize(path)?;
     if path == "/" {
         return Ok(remote_root().0);
@@ -149,6 +149,7 @@ pub async fn children(
     config: &Config,
     path: &str,
 ) -> Result<Vec<(String, RemoteEntry, Option<i64>, String)>, ClientError> {
+    let config = PersonalConfig::new(config)?;
     let path = remote_path::normalize(path)?;
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
@@ -185,7 +186,14 @@ async fn children_by_id(
 }
 
 pub async fn tree(config: &Config, root: &str) -> Result<Vec<TreeEntry>, ClientError> {
-    let root = remote_path::normalize(root)?;
+    let config = PersonalConfig::new(config)?;
+    tree_normalized(config, remote_path::normalize(root)?).await
+}
+
+pub(super) async fn tree_normalized(
+    config: PersonalConfig<&Config>,
+    root: String,
+) -> Result<Vec<TreeEntry>, ClientError> {
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
     let root_id = directory_with_listing(&listing, &root).await?;
@@ -243,7 +251,7 @@ pub async fn transfer(
     force: bool,
     moving: bool,
 ) -> Result<(), ClientError> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     if sources.is_empty() {
         return Err(ClientError::NoSourceFiles);
     }

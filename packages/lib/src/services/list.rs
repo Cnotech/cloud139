@@ -1,6 +1,7 @@
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
+use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::models::file_item::{EntryKind, FileItem};
 use crate::protocol;
@@ -23,11 +24,16 @@ pub struct ListOptions<'a> {
 }
 
 pub async fn list<'a>(
-    config: &crate::config::Config,
+    config: &Config,
     options: impl Into<ListOptions<'a>>,
 ) -> anyhow::Result<ListResult> {
-    let args = options.into();
-    config.require_personal()?;
+    list_personal(PersonalConfig::new(config)?, options.into()).await
+}
+
+pub(super) async fn list_personal(
+    config: PersonalConfig<&Config>,
+    args: ListOptions<'_>,
+) -> anyhow::Result<ListResult> {
     if args.page < 1 || args.page_size < 1 {
         anyhow::bail!("页码和每页数量必须大于 0");
     }
@@ -85,13 +91,11 @@ pub async fn list<'a>(
 }
 
 /// Full listing grouped by directory, including empty directories.
-pub async fn list_recursive(
-    config: &crate::config::Config,
-    root: &str,
-) -> anyhow::Result<Vec<ListResult>> {
+pub async fn list_recursive(config: &Config, root: &str) -> anyhow::Result<Vec<ListResult>> {
     use super::directory as dirs;
+    let config = PersonalConfig::new(config)?;
     let root = remote_path::normalize(root)?;
-    let entries = dirs::tree(config, &root).await?;
+    let entries = dirs::tree_normalized(config, root.clone()).await?;
     let mut grouped = std::collections::BTreeMap::<String, Vec<FileItem>>::new();
     grouped.insert(root, vec![]);
     for entry in entries {

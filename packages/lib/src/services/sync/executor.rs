@@ -1,6 +1,7 @@
 use super::remote::SyncCloud;
 use super::report::SyncReport;
 use super::{CloudSyncScan, format_action_line};
+use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::local_scan::LocalSyncScan;
@@ -20,15 +21,16 @@ pub struct SyncExecuteOptions {
 }
 
 pub async fn execute_sync_actions(
-    config: &crate::config::Config,
+    config: &Config,
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
 ) -> Result<SyncSummary> {
+    let config = PersonalConfig::new(config)?;
     execute_scanned_sync(config, actions, options, None, None, None, None).await
 }
 
 pub(super) async fn execute_scanned_sync(
-    config: &crate::config::Config,
+    config: PersonalConfig<&Config>,
     actions: Vec<SyncAction>,
     options: SyncExecuteOptions,
     cloud: Option<&CloudSyncScan>,
@@ -36,7 +38,6 @@ pub(super) async fn execute_scanned_sync(
     mut report: Option<&mut SyncReport>,
     progress: Option<&ProgressFactory<'_>>,
 ) -> Result<SyncSummary> {
-    config.require_personal()?;
     ensure!(
         (1..=MAX_JOBS).contains(&options.jobs),
         "同步并发数量必须介于 1 和 {MAX_JOBS} 之间"
@@ -254,7 +255,7 @@ fn action_rel_path(action: &SyncAction) -> &str {
 }
 
 async fn execute_one_action(
-    config: &crate::config::Config,
+    config: PersonalConfig<&Config>,
     action: &SyncAction,
     pb: Option<Progress>,
     remote: &SyncCloud<'_>,
@@ -331,7 +332,7 @@ async fn execute_one_action(
                         .await?;
                         Ok(())
                     } else {
-                        crate::services::download::download(
+                        crate::services::download::download_remote_path(
                             config,
                             remote_abs,
                             &local_path,

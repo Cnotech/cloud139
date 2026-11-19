@@ -1,7 +1,7 @@
 use super::directory as dirs;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::utils::remote_path;
 
@@ -12,7 +12,7 @@ pub enum MkdirMode {
 }
 
 pub async fn mkdir(config: &Config, path: &str, mode: MkdirMode) -> Result<(), ClientError> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     let parents = mode == MkdirMode::Parents;
     let path = remote_path::normalize(path)?;
     if path == "/" {

@@ -6,7 +6,7 @@ use crate::client::{
     api::{headers::build_personal_headers, route::query_route_policy},
     http::HttpClientWrapper,
 };
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;
@@ -31,7 +31,7 @@ impl ListingRetry {
 }
 
 pub(crate) struct PersonalClient<'a> {
-    pub(super) config: &'a Config,
+    pub(super) config: PersonalConfig<&'a Config>,
     host: Cow<'a, str>,
     http_client: &'a HttpClientWrapper,
     retry: ListingRetry,
@@ -39,16 +39,16 @@ pub(crate) struct PersonalClient<'a> {
 
 impl<'a> PersonalClient<'a> {
     pub(crate) async fn connect(
-        config: &'a Config,
+        config: PersonalConfig<&'a Config>,
         client: &'a HttpClientWrapper,
         retry: ListingRetry,
     ) -> Result<Self, ClientError> {
-        let host = client.get_personal_cloud_host(&mut config.clone()).await?;
+        let host = client.resolve_personal_cloud_host(config).await?;
         Ok(Self::with_host(config, host, client, retry))
     }
 
     pub(crate) fn with_host(
-        config: &'a Config,
+        config: PersonalConfig<&'a Config>,
         host: impl Into<Cow<'a, str>>,
         http_client: &'a HttpClientWrapper,
         retry: ListingRetry,
@@ -75,7 +75,7 @@ impl<'a> PersonalClient<'a> {
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
         self.http_client
-            .personal_api_request(self.config, &format!("{}{endpoint}", self.host), body)
+            .personal_request(self.config, &format!("{}{endpoint}", self.host), body)
             .await
     }
 }
@@ -85,22 +85,24 @@ impl HttpClientWrapper {
         &self,
         config: &mut Config,
     ) -> Result<String, ClientError> {
-        config.require_personal()?;
+        let host = self
+            .resolve_personal_cloud_host(PersonalConfig::new(&*config)?)
+            .await?;
+        config
+            .personal_cloud_host
+            .get_or_insert_with(|| host.clone());
+        Ok(host)
+    }
+
+    pub(crate) async fn resolve_personal_cloud_host(
+        &self,
+        config: PersonalConfig<&Config>,
+    ) -> Result<String, ClientError> {
         if let Some(ref host) = config.personal_cloud_host {
             debug!("使用缓存的个人云地址 host={}", host);
             return Ok(host.clone());
         }
 
-        let host = self.fetch_personal_cloud_host(config).await?;
-        config.personal_cloud_host = Some(host.clone());
-        Ok(host)
-    }
-
-    pub(crate) async fn fetch_personal_cloud_host(
-        &self,
-        config: &Config,
-    ) -> Result<String, ClientError> {
-        config.require_personal()?;
         let host = query_route_policy(
             self,
             &config.account,
@@ -123,7 +125,16 @@ impl HttpClientWrapper {
         url: &str,
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
-        config.require_personal()?;
+        self.personal_request(PersonalConfig::new(config)?, url, body)
+            .await
+    }
+
+    async fn personal_request<T: for<'de> serde::Deserialize<'de>>(
+        &self,
+        config: PersonalConfig<&Config>,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> Result<T, ClientError> {
         self.signed_post(&config.authorization, url, body, build_personal_headers)
             .await
     }

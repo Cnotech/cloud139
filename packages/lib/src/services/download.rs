@@ -1,7 +1,7 @@
 use crate::client::api::personal::transfer::DownloadLink;
 use crate::client::api::personal::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::progress::Progress;
 use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};
@@ -42,7 +42,7 @@ async fn download_personal(
 }
 
 pub(super) async fn download_scanned_personal(
-    config: &Config,
+    config: PersonalConfig<&Config>,
     host: &str,
     file_id: &str,
     local_path: &Path,
@@ -73,7 +73,7 @@ async fn download_to_path(
 }
 
 pub(super) async fn personal_content_sha256(
-    config: &Config,
+    config: PersonalConfig<&Config>,
     host: &str,
     file_id: &str,
     expected_size: Option<u64>,
@@ -187,7 +187,7 @@ pub async fn download_path(
     local: &Option<String>,
     recursive: bool,
 ) -> Result<()> {
-    config.require_personal()?;
+    let config = PersonalConfig::new(config)?;
     let remote = remote_path::normalize(remote)?;
     let local = crate::utils::path::resolve_local_path(&remote, local);
     crate::debug!("准备下载文件 remote={} local={}", remote, local);
@@ -203,13 +203,22 @@ pub async fn download(
     pb: Option<Progress>,
     recursive: bool,
 ) -> Result<()> {
-    config.require_personal()?;
+    download_remote_path(PersonalConfig::new(config)?, remote, local, pb, recursive).await
+}
+
+pub(super) async fn download_remote_path(
+    config: PersonalConfig<&Config>,
+    remote: &str,
+    local: &str,
+    pb: Option<Progress>,
+    recursive: bool,
+) -> Result<()> {
     let remote = remote_path::normalize(remote)?;
     download_normalized(config, remote, local, pb, recursive).await
 }
 
 async fn download_normalized(
-    config: &Config,
+    config: PersonalConfig<&Config>,
     remote: String,
     local: &str,
     pb: Option<Progress>,

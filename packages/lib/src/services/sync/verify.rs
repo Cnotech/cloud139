@@ -2,7 +2,7 @@ use super::CloudSyncScan;
 use super::executor::{SyncExecuteOptions, make_action_progress};
 use super::remote::{SyncCloud, remote_sha256};
 use super::report::SyncReport;
-use crate::config::Config;
+use crate::config::{Config, PersonalConfig};
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::upload::{SyncUploadPlan, checked_upload_size, upload_sync_to_parent};
@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::time::Instant;
 
 pub(super) async fn execute_verified_sync(
-    config: &Config,
+    config: PersonalConfig<&Config>,
     cloud: &CloudSyncScan,
     actions: &[SyncAction],
     objects: usize,
@@ -110,7 +110,7 @@ pub(super) async fn execute_verified_sync(
 }
 
 struct VerifiedSync<'a> {
-    config: &'a Config,
+    config: PersonalConfig<&'a Config>,
     cloud: &'a CloudSyncScan,
     cloud_root: &'a str,
     remote: SyncCloud<'a>,
