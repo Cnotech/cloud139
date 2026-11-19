@@ -19,7 +19,7 @@ cloud139/
         ├── Cargo.toml             # cloud139 库 package
         ├── src/
         │   ├── lib.rs             # 库入口
-        │   ├── config.rs          # 显式路径的配置读写
+        │   ├── config/            # 配置类型、个人云校验与 TOML 读写
         │   ├── client/            # API 请求与认证
         │   ├── services/          # 文件操作及同步
         │   ├── error.rs           # 库错误类型和共用错误构造
@@ -40,4 +40,4 @@ CLI 单向依赖 `cloud139`。CLI 每次调用选择配置文件，持锁更新�
 
 `services/sync/` 中的 `plan.rs` 定义同步请求和计划，调用 `scan.rs` 收集条目、`diff.rs` 生成操作，并通过 `executor.rs` 或 `verify.rs` 执行计划。`publish.rs` 负责同步时校验临时文件并替换目标。`report.rs` 负责生成报告和格式化操作明细。本地和云端扫描共用 `services::path_filter` 的路径过滤规则，同步和目录上传共用 `services::local_scan` 的本地扫描。
 
-`services/upload.rs` 定义上传入口和普通文件上传流程。`services/upload/` 中的 `directory.rs` 负责递归上传目录，`transfer.rs` 负责计算哈希和上传分片，供普通上传和同步共用。
+`services/upload/mod.rs` 定义上传入口和普通文件上传流程。`services/upload/` 中的 `directory.rs` 负责递归上传目录，`transfer.rs` 负责计算哈希和上传分片，供普通上传和同步共用。

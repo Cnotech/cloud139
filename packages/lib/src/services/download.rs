@@ -1,7 +1,7 @@
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::transfer::DownloadLink;
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::progress::Progress;
 use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};

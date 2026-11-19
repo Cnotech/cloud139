@@ -1,6 +1,6 @@
 use super::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
 use crate::models::files::QueryFileData;

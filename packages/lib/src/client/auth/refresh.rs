@@ -1,5 +1,5 @@
 use crate::client::http::insert_static_headers;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
 use crate::protocol;

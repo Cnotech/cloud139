@@ -1,6 +1,6 @@
 use super::list::{ListOptions, list_personal};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::info;
 
 /// 验证 Token 并返回可用配置，供调用方选择保存位置。

@@ -4,7 +4,7 @@ use super::paths::{normalize_sync_endpoint, parse_sync_endpoint, sync_direction}
 use super::report::SyncReport;
 use super::scan::{CloudSyncScan, SyncScanOptions, scan_personal_cloud};
 use super::verify::execute_verified_sync;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::models::sync_item::{
     FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncSummary,
 };

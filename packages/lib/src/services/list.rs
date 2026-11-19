@@ -1,7 +1,7 @@
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::debug;
 use crate::models::file_item::{EntryKind, FileItem};
 use crate::models::list::parse_personal_time;

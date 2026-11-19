@@ -4,7 +4,7 @@ use crate::client::api::response::{
 };
 use crate::client::http::HttpClientWrapper;
 use crate::{
-    config::{Config, PersonalConfig},
+    config::{Config, personal::PersonalConfig},
     debug,
     error::ClientError,
     protocol::{self, is_non_root_file_id},
@@ -273,7 +273,7 @@ mod tests {
     use crate::client::api::headers::PC_CLIENT_INFO;
     use crate::client::api::personal::client::{ListingRetry, PersonalClient};
     use crate::client::http::HttpClientWrapper;
-    use crate::config::PersonalConfig;
+    use crate::config::personal::PersonalConfig;
     use crate::models::upload::UploadLayout;
     use httpmock::prelude::*;
     use serde_json::json;

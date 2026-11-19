@@ -3,7 +3,7 @@ use super::remote::{SYNC_LIST_RETRY, remote_sha256};
 use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::ClientError;
 use crate::models::list::PersonalFileItem;
 use crate::progress::Progress;
@@ -312,7 +312,7 @@ mod tests {
     use super::install_uploaded_file;
     use crate::client::api::personal::client::{ListingRetry, PersonalClient};
     use crate::client::http::HttpClientWrapper;
-    use crate::config::PersonalConfig;
+    use crate::config::personal::PersonalConfig;
     use httpmock::prelude::*;
     use serde_json::json;
 

@@ -1,7 +1,7 @@
 use super::directory as dirs;
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::invalid;
 use crate::utils::remote_path;
 pub async fn delete(config: &Config, path: &str, recursive: bool) -> anyhow::Result<()> {

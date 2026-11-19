@@ -3,7 +3,7 @@ use super::remote::SYNC_LIST_RETRY;
 use crate::client::api::personal::client::PersonalClient;
 use crate::client::api::personal::listing::ListPageOptions;
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::models::sync_item::{FileEntry, SyncDirection, SyncEntryKind};
 use crate::protocol::is_non_root_file_id;
 use crate::services::directory::directory_with_listing;

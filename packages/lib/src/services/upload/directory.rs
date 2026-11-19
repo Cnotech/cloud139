@@ -1,7 +1,7 @@
 use super::upload_file;
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::services::directory as dirs;

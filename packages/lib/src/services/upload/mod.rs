@@ -6,7 +6,7 @@ use self::transfer::transfer_to_parent;
 use super::directory as dirs;
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::{ClientError, invalid};
 use crate::progress::Progress;
 use crate::utils::{path::safe_local, remote_path};

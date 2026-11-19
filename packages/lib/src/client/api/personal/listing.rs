@@ -1,7 +1,7 @@
 use super::client::{ListingRetry, PersonalClient};
 use crate::client::api::response::require_success;
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::debug;
 use crate::error::{ClientError, invalid};
 use crate::models::list::{PersonalFileItem, PersonalListData, PersonalListResp};

@@ -1,7 +1,7 @@
 use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::services::{directory as dirs, download};
 use crate::utils::{
     remote_path::{self, cloud_child_path},

@@ -171,7 +171,7 @@ mod tests {
     use super::{UploadPartsParams, upload_parts};
     use crate::client::api::personal::client::{ListingRetry, PersonalClient};
     use crate::client::http::HttpClientWrapper;
-    use crate::config::PersonalConfig;
+    use crate::config::personal::PersonalConfig;
     use crate::error::ClientError;
     use crate::models::upload::UploadLayout;
     use httpmock::prelude::*;

@@ -3,7 +3,7 @@ use super::publish::{SyncUploadPlan, upload_sync_to_parent};
 use super::remote::{SyncCloud, remote_sha256};
 use super::report::SyncReport;
 use super::scan::CloudSyncScan;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::upload::checked_upload_size;

@@ -2,7 +2,7 @@ use super::publish::{SyncUploadPlan, upload_sync_to_parent};
 use super::remote::{SYNC_BACKOFF_SECS, SYNC_RETRIES, SyncCloud};
 use super::report::{SyncReport, format_action_line};
 use super::scan::CloudSyncScan;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::models::sync_item::{SyncAction, SyncSummary, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::local_scan::LocalSyncScan;

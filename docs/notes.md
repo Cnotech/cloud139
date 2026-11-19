@@ -27,7 +27,7 @@
 
 ## 上传实现
 
-- `services/upload.rs` 协调文件和目录上传，处理分片读取与进度。
+- `services/upload/mod.rs` 协调文件和目录上传，处理分片读取与进度。
 - `client/api/upload.rs` 构造个人云上传 API 请求并解析结果。
 
 ## 测试

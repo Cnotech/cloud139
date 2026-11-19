@@ -31,7 +31,7 @@ use crate::{error, info, success, warn};
 | 变量 | snake_case | `storage_type`, `file_info` |
 | 常量 | SCREAMING_SNAKE_CASE | `KEY_HEX_1` |
 
-模块和文件名使用职责命名，省略所在目录已经表达的类别，例如 `services/upload.rs` 和 `presentation/sync.rs`。
+模块和文件名使用职责命名，省略所在目录已经表达的类别，例如 `services/list.rs` 和 `presentation/sync.rs`。
 | Trait | PascalCase | `ApiTrait` |
 
 ### 条件操作

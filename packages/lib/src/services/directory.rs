@@ -1,7 +1,7 @@
 //! 云端目录解析、遍历和修改操作的前置检查。
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
-use crate::config::{Config, PersonalConfig};
+use crate::config::{Config, personal::PersonalConfig};
 use crate::error::ClientError;
 use crate::models::list::parse_personal_time;
 use crate::protocol::{self, is_non_root_file_id};
