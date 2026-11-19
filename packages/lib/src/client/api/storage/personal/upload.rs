@@ -1,5 +1,11 @@
-use super::client::{ListingRetry, PersonalClient, mutation_succeeded};
+use super::client::{ListingRetry, PersonalClient};
 use crate::client::http::HttpClientWrapper;
+use crate::utils::api_response::{
+    is_mutation_successful, is_response_successful, json_api_error, upload_creation_error,
+};
+use crate::utils::remote_file::is_non_root_file_id;
+pub use crate::utils::upload_parts::get_part_size;
+use crate::utils::upload_parts::{checked_part_count, part_offset_and_size};
 use crate::{
     client::ClientError,
     config::Config,
@@ -42,26 +48,14 @@ impl PersonalClient<'_> {
         let body = build_upload_body(file)?;
         let response: PersonalUploadResp = self.request(protocol::CREATE_FILE, &body).await?;
         if !response.base.success {
-            let code = response.base.code.as_deref();
-            let quota_hint = if code == Some(protocol::UPLOAD_ENTITLEMENT_ERROR_CODE) {
-                format!("；文件大小 {file_size} 字节，请核对账号当前的单文件上传额度")
-            } else {
-                String::new()
-            };
-            return Err(ClientError::Api(format!(
-                "创建上传任务失败: {}{}{}",
-                response.base.message.as_deref().unwrap_or("未知错误"),
-                code.map(|code| format!("（错误码: {code}）"))
-                    .unwrap_or_default(),
-                quota_hint,
-            )));
+            return Err(upload_creation_error(&response.base, file_size));
         }
         let data = response
             .data
             .ok_or_else(|| ClientError::Api("服务端未返回上传结果".into()))?;
         let file_id = data
             .file_id
-            .filter(|id| !id.is_empty() && id != protocol::ROOT_FILE_ID)
+            .filter(|id| is_non_root_file_id(id))
             .ok_or_else(|| ClientError::Api("服务端未返回新文件 ID".into()))?;
         let pending = match data.part_infos.filter(|parts| !parts.is_empty()) {
             Some(parts) => {
@@ -107,12 +101,12 @@ impl PersonalClient<'_> {
 
         let resp_json: serde_json::Value = self.request(protocol::UPLOAD_URL, &body).await?;
 
-        if resp_json["success"].as_bool() != Some(true) {
-            return Err(ClientError::Api(format!(
-                "获取分片上传地址失败: {}（错误码: {}）",
-                resp_json["message"].as_str().unwrap_or("未知错误"),
-                resp_json["code"].as_str().unwrap_or("未返回")
-            )));
+        if !is_response_successful(&resp_json) {
+            return Err(json_api_error(
+                "获取分片上传地址失败",
+                &resp_json,
+                "未知错误",
+            ));
         }
 
         if let Some(part_infos) = resp_json
@@ -148,14 +142,12 @@ impl PersonalClient<'_> {
         });
 
         let resp_json: serde_json::Value = self.request(protocol::COMPLETE_UPLOAD, &body).await?;
-        if !mutation_succeeded(&resp_json) {
-            let message = resp_json["message"]
-                .as_str()
-                .unwrap_or("服务端未确认上传完成");
-            let code = resp_json["code"].as_str().unwrap_or("未返回");
-            return Err(ClientError::Api(format!(
-                "完成上传失败: {message}（错误码: {code}）"
-            )));
+        if !is_mutation_successful(&resp_json) {
+            return Err(json_api_error(
+                "完成上传失败",
+                &resp_json,
+                "服务端未确认上传完成",
+            ));
         }
         Ok(())
     }
@@ -188,21 +180,6 @@ fn build_upload_body(file: UploadFile<'_>) -> Result<serde_json::Value, ClientEr
     }))
 }
 
-pub fn get_part_size(size: i64, custom_size: i64) -> i64 {
-    if custom_size != 0 {
-        return custom_size;
-    }
-    if size / (1024 * 1024 * 1024) > 30 {
-        return 512 * 1024 * 1024;
-    }
-    100 * 1024 * 1024
-}
-
-pub(crate) fn part_offset_and_size(index: i64, part_size: i64, file_size: i64) -> (i64, i64) {
-    let offset = index * part_size;
-    (offset, part_size.min(file_size - offset))
-}
-
 fn build_part_infos(parts: Range<i64>, part_size: i64, file_size: i64) -> Vec<serde_json::Value> {
     parts
         .map(|index| {
@@ -214,19 +191,6 @@ fn build_part_infos(parts: Range<i64>, part_size: i64, file_size: i64) -> Vec<se
             })
         })
         .collect()
-}
-
-pub(crate) fn checked_part_count(file_size: i64, part_size: i64) -> Result<i64, ClientError> {
-    if file_size < 0 || part_size <= 0 {
-        return Err(ClientError::Api(
-            "文件大小必须非负，上传分片大小必须大于 0".into(),
-        ));
-    }
-    let count = file_size / part_size + i64::from(file_size % part_size != 0);
-    if count > i32::MAX as i64 {
-        return Err(ClientError::Api("上传分片数量超出协议范围".into()));
-    }
-    Ok(count)
 }
 
 fn get_content_type(path: &Path) -> &'static str {

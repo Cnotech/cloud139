@@ -140,31 +140,3 @@ pub fn build_personal_headers(
         sign,
     )
 }
-
-pub(super) fn require_success(
-    response: crate::models::BaseResp,
-    default_error: &str,
-) -> Result<(), ClientError> {
-    if !response.success {
-        return Err(ClientError::Api(
-            response.message.unwrap_or_else(|| default_error.to_owned()),
-        ));
-    }
-    Ok(())
-}
-
-/// Some batch responses carry per-item success flags under data.
-pub(super) fn mutation_succeeded(response: &serde_json::Value) -> bool {
-    fn no_failure(value: &serde_json::Value) -> bool {
-        match value {
-            serde_json::Value::Object(map) => {
-                map.get("success").and_then(serde_json::Value::as_bool) != Some(false)
-                    && map.values().all(no_failure)
-            }
-            serde_json::Value::Array(items) => items.iter().all(no_failure),
-            _ => true,
-        }
-    }
-    response.get("success").and_then(serde_json::Value::as_bool) == Some(true)
-        && no_failure(response)
-}

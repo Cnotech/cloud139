@@ -5,13 +5,15 @@ use crate::debug;
 use crate::domain::{
     ChangeKind, FileEntry, SyncAction, SyncDirection, SyncEndpoint, SyncEntryKind, SyncTarget,
 };
-use crate::protocol;
+use crate::utils::path::rel_to_local;
+use crate::utils::remote_file::{is_non_root_file_id, normalize_content_sha256};
+pub use crate::utils::remote_path::{cloud_child_path, normalize_cloud_path};
 use anyhow::{Result, anyhow};
 pub use execution::{SyncOutcome, SyncPlan, SyncRequest};
 use futures_util::TryStreamExt;
 use glob::Pattern;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::pin;
 
 mod execution;
@@ -42,21 +44,6 @@ pub fn sync_direction(src: &SyncEndpoint, dest: &SyncEndpoint) -> Result<SyncDir
             Err(anyhow!("SRC 和 DEST 都是云端路径，请使用 cp/mv 命令"))
         }
     }
-}
-
-pub fn normalize_cloud_path(path: &str) -> String {
-    let trimmed = path.trim();
-    if trimmed.is_empty() || trimmed == "/" {
-        return "/".to_string();
-    }
-    format!("/{}", trimmed.trim_start_matches('/').trim_end_matches('/'))
-}
-
-fn rel_to_local(root: &Path, rel_path: &str) -> PathBuf {
-    rel_path
-        .split('/')
-        .filter(|part| !part.is_empty())
-        .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
 pub fn compute_diff(
@@ -385,14 +372,6 @@ pub(super) fn is_excluded(rel_path: &str, patterns: &[Pattern]) -> bool {
     })
 }
 
-pub fn cloud_child_path(parent: &str, name: &str) -> String {
-    format!(
-        "{}/{}",
-        parent.trim_end_matches('/'),
-        name.trim_matches('/')
-    )
-}
-
 pub fn personal_item_to_file_entry(
     rel_parent: &str,
     item: &crate::models::PersonalFileItem,
@@ -475,25 +454,13 @@ impl From<&crate::models::PersonalFileItem> for CloudSyncFile {
         let id = item
             .file_id
             .as_ref()
-            .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID)
+            .filter(|id| is_non_root_file_id(id))
             .cloned();
         let size = item.size.and_then(|size| u64::try_from(size).ok());
-        let sha256 = item
-            .content_hash
-            .as_deref()
-            .map(str::trim)
-            .filter(|hash| {
-                item.content_hash_algorithm
-                    .as_deref()
-                    .is_some_and(|algorithm| {
-                        let algorithm = algorithm.trim();
-                        algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256)
-                            || algorithm.eq_ignore_ascii_case(protocol::CONTENT_HASH_SHA256_ALIAS)
-                    })
-                    && hash.len() == 64
-                    && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-            })
-            .map(str::to_ascii_lowercase);
+        let sha256 = normalize_content_sha256(
+            item.content_hash.as_deref(),
+            item.content_hash_algorithm.as_deref(),
+        );
         Self {
             id,
             size,
@@ -688,10 +655,7 @@ impl CloudScanner {
                 }
 
                 if item.is_folder() {
-                    let child_id = item
-                        .file_id
-                        .as_deref()
-                        .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID);
+                    let child_id = item.file_id.as_deref().filter(|id| is_non_root_file_id(id));
                     if !self.upload_target && self.recursive && child_id.is_none() {
                         return Err(anyhow!("云端目录缺少有效 ID: {rel_path}"));
                     }

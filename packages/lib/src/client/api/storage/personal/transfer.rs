@@ -5,6 +5,7 @@ use crate::client::{
 };
 use crate::config::Config;
 use crate::protocol;
+use crate::utils::api_response::format_api_error;
 use futures_util::Stream;
 use reqwest::{
     Body, Response, StatusCode,
@@ -81,9 +82,10 @@ impl PersonalClient<'_> {
             )
             .await?;
         if !response.base.success {
-            return Err(ClientError::Api(format!(
-                "获取下载链接失败: {}",
-                response.base.message.as_deref().unwrap_or("未知错误")
+            return Err(ClientError::Api(format_api_error(
+                "获取下载链接失败",
+                response.base.message.as_deref().unwrap_or("未知错误"),
+                None,
             )));
         }
         let data = response

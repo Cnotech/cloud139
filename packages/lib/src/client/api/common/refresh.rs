@@ -1,5 +1,6 @@
 use crate::client::{ClientError, http::insert_static_headers};
 use crate::protocol;
+use crate::utils::xml::escape_text;
 use reqwest::{Client, header::HeaderMap};
 use serde::Deserialize;
 use std::time::Duration;
@@ -43,13 +44,6 @@ fn refresh_http_client(timeout: Duration) -> Result<Client, ClientError> {
 }
 
 fn build_refresh_body(account: &str, token: &str) -> String {
-    fn escape_text(value: &str) -> String {
-        value
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-    }
-
     format!(
         "<root><token>{}</token><account>{}</account><clienttype>{}</clienttype></root>",
         escape_text(token),

@@ -1,6 +1,7 @@
 use crate::client::{ClientError, api};
 use crate::domain::{FileEntry, SyncEntryKind};
 use crate::services::progress::Progress;
+use crate::utils::path::safe_local;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -19,7 +20,7 @@ pub async fn upload_path(
         return Err(ClientError::FileNotFound.into());
     }
 
-    dirs::safe_local(local_path)?;
+    safe_local(local_path)?;
     if local_path.is_dir() {
         return upload_directory(
             config,
@@ -73,7 +74,7 @@ pub async fn upload_path(
 
 /// Re-read metadata before hashing or any destructive sync operation.
 pub fn checked_upload_size(path: &Path) -> Result<i64, ClientError> {
-    dirs::safe_local(path)?;
+    safe_local(path)?;
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(dirs::invalid("只支持普通文件；目录请使用递归上传"));
@@ -114,7 +115,7 @@ pub async fn upload_directory(
 ) -> anyhow::Result<()> {
     use super::sync_service::{SyncScanOptions, scan_local};
     config.require_personal()?;
-    dirs::safe_local(local)?;
+    safe_local(local)?;
     if !local.is_dir() {
         return Err(dirs::invalid("递归上传源必须是目录").into());
     }
@@ -141,7 +142,7 @@ pub async fn upload_directory(
         for name in entry.rel_path.split('/') {
             dirs::validate_name(name)?;
         }
-        dirs::safe_local(&local.join(&entry.rel_path))?;
+        safe_local(&local.join(&entry.rel_path))?;
     }
     upload_personal_directory(config, local, &root, entries, force).await
 }

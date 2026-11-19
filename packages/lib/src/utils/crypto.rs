@@ -1,6 +1,10 @@
 use anyhow::{Result, anyhow};
 use sha2::{Digest, Sha256};
 
+pub(crate) fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 pub fn md5_hash(data: &str) -> String {
     let mut hasher = md5::Md5::new();
     hasher.update(data.as_bytes());

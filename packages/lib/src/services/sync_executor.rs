@@ -3,6 +3,7 @@ use super::sync_remote::SyncCloud;
 use super::sync_report::SyncReport;
 use crate::domain::{SyncAction, SyncSummary, SyncTarget};
 use crate::services::sync_service::{CloudSyncScan, LocalSyncScan, format_action_line};
+use crate::utils::path::safe_local;
 use anyhow::{Context, Result, ensure};
 use futures_util::StreamExt;
 use std::path::Path;
@@ -303,7 +304,7 @@ async fn execute_one_action(
             cloud_mtime,
             ..
         } => {
-            super::directory_service::safe_local(local_abs)?;
+            safe_local(local_abs)?;
             ensure!(
                 !local_abs.is_dir(),
                 "本地同名目录阻止下载: {}",
@@ -377,7 +378,7 @@ async fn execute_one_action(
             }
             SyncTarget::Local => {
                 let path = Path::new(target_abs);
-                super::directory_service::safe_local(path)?;
+                safe_local(path)?;
                 tokio::fs::create_dir_all(path).await?;
             }
         },

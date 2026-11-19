@@ -1,10 +1,15 @@
-use crate::client::api::upload::{UploadFile, checked_part_count, part_offset_and_size};
+use crate::client::api::upload::UploadFile;
 use crate::client::{ClientError, api};
 use crate::models::PersonalFileItem;
 use crate::protocol;
 
 use crate::services::progress::Progress;
 use crate::services::sync_service::{CloudSyncFile, SYNC_UPLOAD_PREFIX, UPLOAD_BACKUP_PREFIX};
+use crate::utils::{
+    crypto::is_sha256_hex,
+    remote_file::is_non_root_file_id,
+    upload_parts::{checked_part_count, part_offset_and_size},
+};
 use anyhow::Context;
 use tokio::io::{AsyncSeekExt, SeekFrom};
 
@@ -49,7 +54,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
     super::super::directory_service::validate_name(file_name)?;
     // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
     // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
-    let verify_content_addressed = hash_missing.is_some() && is_content_addressed(file_name);
+    let verify_content_addressed = hash_missing.is_some() && is_sha256_hex(file_name);
     if verify_content_addressed {
         let path = local_path.to_path_buf();
         let local_hash =
@@ -83,7 +88,7 @@ pub(in crate::services) async fn upload_sync_to_parent(
             .map(|item| {
                 item.file_id
                     .as_deref()
-                    .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID)
+                    .filter(|id| is_non_root_file_id(id))
                     .context("旧条目缺少文件 ID")
             })
             .transpose()?
@@ -179,11 +184,6 @@ pub(in crate::services) async fn upload_sync_to_parent(
     .await
     .with_context(|| format!("临时名称 {saved_name}，替换 {file_name} 未完成"))?;
     Ok(promote)
-}
-
-/// 内容寻址对象：文件名即内容的 SHA-256（64 个十六进制字符）。
-fn is_content_addressed(name: &str) -> bool {
-    name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn check_destination(
@@ -405,7 +405,7 @@ async fn install_uploaded_file(
         let old_id = item
             .file_id
             .as_deref()
-            .filter(|id| !id.is_empty() && *id != protocol::ROOT_FILE_ID && *id != file_id)
+            .filter(|id| is_non_root_file_id(id) && *id != file_id)
             .ok_or(ClientError::InvalidFilePath)?;
         if conflicts.next().is_some() || item.is_folder().then_some(old_id) != replace_directory_id
         {
@@ -561,8 +561,10 @@ mod tests {
             .await
             .err()
             .expect("server should reject the upload");
-        let message = error.to_string();
-        assert!(message.contains("04010319") && message.contains("权益不足"));
+        assert_eq!(
+            error.to_string(),
+            "API 错误: 创建上传任务失败: 权益不足（错误码: 04010319）；文件大小 1 字节，请核对账号当前的单文件上传额度"
+        );
         rejected.assert_calls(1);
     }
 

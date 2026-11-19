@@ -1,9 +1,10 @@
-use super::client::{ListingRetry, PersonalClient, require_success};
+use super::client::{ListingRetry, PersonalClient};
 use crate::client::{ClientError, http::HttpClientWrapper};
 use crate::config::Config;
 use crate::debug;
 use crate::models::{PersonalFileItem, PersonalListData, PersonalListResp};
 use crate::protocol;
+use crate::utils::api_response::require_success;
 use futures_util::{Stream, TryStreamExt};
 use std::{collections::HashSet, pin::pin};
 

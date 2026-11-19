@@ -1,7 +1,8 @@
 use super::{
     directory_service as dirs,
-    sync_service::{CloudSyncFile, CloudSyncScan, cloud_child_path},
+    sync_service::{CloudSyncFile, CloudSyncScan},
 };
+use crate::utils::remote_path::cloud_child_path;
 use crate::{client::api, config::Config};
 use anyhow::{Context, Result, ensure};
 use std::{collections::HashMap, sync::Arc};

@@ -1,8 +1,9 @@
-use super::client::{ListingRetry, PersonalClient, mutation_succeeded, require_success};
+use super::client::{ListingRetry, PersonalClient};
 use crate::client::{ClientError, http::HttpClientWrapper};
 use crate::config::Config;
 use crate::debug;
 use crate::protocol;
+use crate::utils::api_response::{is_mutation_successful, require_success};
 
 impl PersonalClient<'_> {
     pub(crate) async fn file_detail(
@@ -52,7 +53,7 @@ impl PersonalClient<'_> {
                 &serde_json::json!({ "fileIds": [file_id] }),
             )
             .await?;
-        if !mutation_succeeded(&response) {
+        if !is_mutation_successful(&response) {
             return Err(ClientError::Api(
                 response["message"]
                     .as_str()
@@ -94,7 +95,7 @@ impl PersonalClient<'_> {
                 &serde_json::json!({ "fileIds": file_ids, "toParentFileId": target_id }),
             )
             .await?;
-        if !mutation_succeeded(&response) {
+        if !is_mutation_successful(&response) {
             return Err(ClientError::Api(
                 "批量操作失败（可能部分完成），请检查云端状态".into(),
             ));

@@ -52,3 +52,19 @@ pub fn non_root(path: &str) -> Result<String, ClientError> {
     }
     Ok(path)
 }
+
+pub fn normalize_cloud_path(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "/" {
+        return "/".to_string();
+    }
+    format!("/{}", trimmed.trim_start_matches('/').trim_end_matches('/'))
+}
+
+pub fn cloud_child_path(parent: &str, name: &str) -> String {
+    format!(
+        "{}/{}",
+        parent.trim_end_matches('/'),
+        name.trim_matches('/')
+    )
+}

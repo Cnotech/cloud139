@@ -2,6 +2,7 @@ use super::sync_service::{
     CloudSyncScan, SyncScanOptions, compile_exclude_patterns, is_excluded, path_and_ancestors,
 };
 use crate::domain::{FileEntry, SyncEntryKind};
+use crate::utils::path::{check_destination_collisions, safe_local};
 use anyhow::{Result, anyhow};
 use glob::Pattern;
 use std::{
@@ -52,7 +53,7 @@ impl LocalSyncScan {
     }
 
     pub(super) fn confirm(&self, rel_path: &str, path: &Path) -> Result<fs::Metadata> {
-        super::directory_service::safe_local(path)?;
+        safe_local(path)?;
         let original = self
             .paths
             .get(rel_path)
@@ -82,7 +83,7 @@ impl LocalSyncScan {
                 .and_modify(|is_dir| *is_dir |= folder)
                 .or_insert(folder);
         }
-        super::directory_service::check_destination_collisions(
+        check_destination_collisions(
             root,
             paths
                 .into_iter()
@@ -111,7 +112,7 @@ fn same_local_object(original: &fs::Metadata, current: &fs::Metadata) -> bool {
 }
 
 pub(crate) fn scan_local_target(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
-    super::directory_service::safe_local(root)?;
+    safe_local(root)?;
     match fs::symlink_metadata(root) {
         Ok(metadata) if metadata.is_dir() => scan_local_snapshot(root, options),
         Ok(_) => Err(anyhow!("本地同步目标必须是目录: {}", root.display())),
@@ -121,7 +122,7 @@ pub(crate) fn scan_local_target(root: &Path, options: &SyncScanOptions) -> Resul
 }
 
 fn scan_local_snapshot(root: &Path, options: &SyncScanOptions) -> Result<LocalSyncScan> {
-    super::directory_service::safe_local(root)?;
+    safe_local(root)?;
     let patterns = compile_exclude_patterns(&options.exclude)?;
     let mut scan = LocalSyncScan::default();
     let metadata = fs::symlink_metadata(root)?;

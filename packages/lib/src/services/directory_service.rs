@@ -2,9 +2,10 @@
 use crate::client::{ClientError, api};
 use crate::config::Config;
 use crate::protocol;
+use crate::utils::remote_file::is_non_root_file_id;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 
+pub use crate::utils::path::safe_local;
 pub use crate::utils::remote_path::{invalid, non_root, normalize, validate_name};
 
 #[derive(Debug, Clone)]
@@ -130,92 +131,8 @@ pub(super) async fn ensure_personal_child_dir(
         item
     };
     item.file_id
-        .filter(|id| !id.is_empty() && id != protocol::ROOT_FILE_ID)
+        .filter(|id| is_non_root_file_id(id))
         .ok_or(ClientError::InvalidFilePath)
-}
-
-/// Reject symlinks at every existing component, including user-supplied parents.
-pub fn safe_local(path: &Path) -> Result<(), ClientError> {
-    let absolute = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
-    #[cfg(target_os = "macos")]
-    let absolute = {
-        let mut resolved = absolute.clone();
-        for alias in ["/var", "/tmp", "/etc"] {
-            if let Ok(rest) = absolute.strip_prefix(alias) {
-                resolved = std::fs::canonicalize(alias)?.join(rest);
-                break;
-            }
-        }
-        resolved
-    };
-    let mut current = PathBuf::new();
-    for component in absolute.components() {
-        if component == std::path::Component::ParentDir {
-            return Err(invalid("本地路径不允许 .."));
-        }
-        current.push(component);
-        match std::fs::symlink_metadata(&current) {
-            Ok(meta) if meta.file_type().is_symlink() => {
-                return Err(invalid(format!("拒绝符号链接: {}", current.display())));
-            }
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn local_parent_directory(path: &Path) -> &Path {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-}
-
-pub(super) fn check_destination_collisions<'a>(
-    destination_root: &Path,
-    paths: impl IntoIterator<Item = (&'a Path, bool)>,
-) -> anyhow::Result<()> {
-    let mut paths = paths.into_iter().peekable();
-    if paths.peek().is_none() {
-        return Ok(());
-    }
-    let mut parent = destination_root;
-    loop {
-        match std::fs::metadata(parent) {
-            Ok(metadata) if metadata.is_dir() => break,
-            Ok(_) => return Err(invalid("本地文件与目录冲突").into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                parent = local_parent_directory(parent)
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    // Use the destination filesystem's own case and Unicode name rules.
-    let probe = tempfile::tempdir_in(parent)?;
-    for (relative, folder) in paths {
-        let path = probe.path().join(relative);
-        let result = if folder {
-            std::fs::create_dir(path)
-        } else {
-            std::fs::File::create_new(path).map(drop)
-        };
-        if let Err(error) = result {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
-                return Err(invalid(format!(
-                    "多个远程条目映射到同一本地路径: {}",
-                    destination_root.join(relative).display()
-                ))
-                .into());
-            }
-            return Err(error.into());
-        }
-    }
-    Ok(())
 }
 
 #[derive(Debug)]

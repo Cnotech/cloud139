@@ -2,6 +2,7 @@ use crate::client::ClientError;
 use crate::client::api::{DownloadLink, HttpClientWrapper, ListingRetry, PersonalClient};
 use crate::config::Config;
 use crate::services::progress::Progress;
+use crate::utils::path::{check_destination_collisions, local_parent_directory, safe_local};
 use anyhow::Result;
 use sha2::{Digest, Sha256};
 use std::io::{ErrorKind, Write};
@@ -104,7 +105,7 @@ async fn write_download(
     pb: Option<Progress>,
     listed_size: Option<i64>,
 ) -> Result<(), ClientError> {
-    super::directory_service::safe_local(local_path)?;
+    safe_local(local_path)?;
     let existing = local_file_metadata(local_path)?;
     // 重试会复用同一个进度条（clone 共享状态）；每次下载都从头写文件，进度也要归零。
     if let Some(pb) = &pb {
@@ -113,7 +114,7 @@ async fn write_download(
 
     let mut response = link.open().await?;
 
-    let parent = super::directory_service::local_parent_directory(local_path);
+    let parent = local_parent_directory(local_path);
     std::fs::create_dir_all(parent)?;
 
     let expected_size = listed_size
@@ -150,7 +151,7 @@ async fn write_download(
             )));
         }
     }
-    super::directory_service::safe_local(local_path)?;
+    safe_local(local_path)?;
     if let Some(metadata) = local_file_metadata(local_path)? {
         file.as_file().set_permissions(metadata.permissions())?;
     }
@@ -212,7 +213,7 @@ async fn download_normalized(
     recursive: bool,
 ) -> Result<()> {
     use super::directory_service as dirs;
-    dirs::safe_local(Path::new(local))?;
+    safe_local(Path::new(local))?;
     if remote == "/" && !recursive {
         return Err(ClientError::UnsupportedDownloadDirectory.into());
     }
@@ -237,7 +238,7 @@ async fn download_normalized(
             .trim_start_matches('/');
         let rel = PathBuf::from(rel);
         let dest = destination_root.join(&rel);
-        dirs::safe_local(&dest)?;
+        safe_local(&dest)?;
         if dest.exists() {
             if dest.is_dir() != entry.folder {
                 return Err(dirs::invalid("本地文件与目录冲突").into());
@@ -257,11 +258,11 @@ async fn download_normalized(
                 entry.folder,
             )
         });
-        dirs::check_destination_collisions(destination_root, paths)?;
+        check_destination_collisions(destination_root, paths)?;
     }
     std::fs::create_dir_all(destination_root)?;
     for (entry, id, dest) in plan {
-        dirs::safe_local(&dest)?;
+        safe_local(&dest)?;
         if entry.folder {
             std::fs::create_dir_all(&dest)?;
         } else {
