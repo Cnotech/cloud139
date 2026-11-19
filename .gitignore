@@ -2,6 +2,7 @@
 /alist-main
 /target
 /nul
+/.DS_Store
 /cloud139rc.toml
 /output.json
 /cloud139_e2e*

@@ -1,84 +1,17 @@
-# AGENTS.md - cloud139 开发指南
+# cloud139 开发指南
 
-本文档为 AI Agent 提供开发指导。
+## 代码边界
 
-## 快速开始
+- `packages/cli`（`cloud139-cli`）负责参数、配置文件选择和凭据续期写回、输出及退出码。每个子命令在 `commands/` 下保留独立适配器，别名复用同一适配器。库 `packages/lib`（`cloud139`）负责认证、协议和文件操作，通过显式配置或路径接收输入。见[项目结构](docs/structure.md)。
+- CLI 和库的操作入口仅支持个人云 `personal_new`。入口校验配置，内部复用已校验的配置；需要前置校验的命令在凭据续期和远端操作前检查参数。
+- 目录模块使用 `<模块名>/mod.rs`，实现按职责放在对应文件。调用方优先从定义模块导入。见[代码约定](docs/style.md)。
+- 自有代码注释和日志正文使用简体中文。使用各包的日志宏，调试字段使用稳定的英文 `key=value`。Token、Cookie 和其他凭据不得出现在日志中。见[日志与输出](docs/logging.md)。
 
-### 构建与测试
+## 验证
 
-```bash
-# Debug 构建
-cargo build
+- 公开 API 或 CLI 行为测试放在对应包的 `tests/`，需要访问 crate 内部接口的独立测试放在 `src/tests/`。私有实现的单测可在对应源码文件中用 `#[cfg(test)]` 内联。
+- 常用检查为 `cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --locked` 和 `cargo test --workspace --locked`。构建和定向测试见[开发命令](docs/commands.md)。
+- CLI 命令变更后，立即核对 [cloud139-e2e-test 的 SKILL.md](.agents/skills/cloud139-e2e-test/SKILL.md)。检查命令示例、测试矩阵和预期结果是否覆盖变更后的参数、默认值及行为，有遗漏或过时内容就随本次变更一并更新。
+- 用户要求在真实云盘测试时，使用 [cloud139-e2e-test 技能](.agents/skills/cloud139-e2e-test/SKILL.md)。
 
-# 运行所有测试
-cargo test
-
-# 代码质量检查
-cargo clippy
-```
-
-更多命令见 [docs/commands.md](docs/commands.md)
-
-### 项目结构
-
-```
-src/
-├── main.rs               # 程序入口
-├── lib.rs                # 库入口
-├── cli/                  # CLI 层：命令行参数定义
-├── application/          # 应用层：业务逻辑服务
-│   └── services/         # 业务服务实现
-│       ├── login / list / download / upload / delete
-│       ├── mkdir / mv / cp / rename / sync
-│       └── upload/       # 上传子模块（按存储类型拆分）
-├── domain/               # 领域层：核心业务模型
-├── presentation/         # 展示层：输出格式化、进度条
-├── commands/             # 命令层：命令执行逻辑
-├── client/               # 基础设施：API 客户端
-├── models/               # 数据模型（API 请求/响应）
-├── config/               # 配置管理
-└── utils/                # 工具函数
-```
-
-详细结构见 [docs/structure.md](docs/structure.md)
-
-### 架构分层
-
-- **CLI 层 (cli/)**: 定义命令行参数结构，使用 clap 解析
-- **应用层 (application/)**: 业务逻辑服务，协调领域对象和基础设施
-- **领域层 (domain/)**: 核心业务模型，不依赖外部
-- **展示层 (presentation/)**: 输出格式化、错误展示
-- **命令层 (commands/)**: 适配器，连接 CLI 层和应用层
-- **基础设施层 (client/)**: API 客户端、外部服务交互
-
-### 代码风格
-
-参考现有代码风格，见 [docs/style.md](docs/style.md)
-
-### 常用依赖
-
-clap, reqwest, tokio, serde, thiserror 等
-
-详细依赖见 [docs/dependencies.md](docs/dependencies.md)
-
-## 开发注意事项
-
-- 139 云盘 API 区分三种存储类型: PersonalNew, Family, Group
-- 某些操作在不同存储类型下行为不同
-- 遵循分层架构，避免跨层依赖
-
-详细注意事项见 [docs/notes.md](docs/notes.md)
-
-### 日志打印规范
-
-- 禁止直接使用 `println!`/`eprintln!`/`log::`，统一使用 `src/utils/logger.rs` 提供的日志宏
-- 常用宏：`success!`（绿，成功）、`step!`（蓝，步骤）、`info!`（青，提示）、`warn!`（黄，警告）、`error!`（红，错误）、`debug!`（灰，调试）
-- 进度条场景下使用 `pb_*` / `mp_*` 系列函数，避免破坏进度条布局
-
-详细规范见 [docs/logging.md](docs/logging.md)
-
-## 相关文档
-
-- [README.md](../README.md): 项目说明
-- [.agents/skills/cloud139-e2e-test](../.agents/skills/cloud139-e2e-test/SKILL.md): E2E 测试流程
-- [docs/command-docs-style.md](docs/command-docs-style.md): 命令文档编写规范
+修改命令参数、默认值或行为时，对照 `--help` 和相关测试更新 [README.md](README.md)。格式见[命令文档约定](docs/command-docs-style.md)。

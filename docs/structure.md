@@ -1,53 +1,28 @@
 # 项目结构
 
-```
-src/
-├── main.rs                    # 程序入口
-├── lib.rs                     # 库入口
-├── cli/                       # CLI 层：命令行参数定义
-├── application/               # 应用层：业务逻辑服务
-│   └── services/              # 业务服务实现
-│       ├── login / list / download / upload / delete
-│       ├── mkdir / mv / cp / rename / sync
-│       └── upload/            # 上传子模块（按存储类型拆分）
-├── domain/                    # 领域层：核心业务模型
-├── presentation/              # 展示层：输出格式化、进度条
-├── commands/                  # 命令层：命令执行逻辑
-├── client/                    # 基础设施：API 客户端
-├── models/                    # 数据模型（API 请求/响应）
-├── config/                    # 配置管理
-└── utils/                     # 工具函数
-```
+## CLI
 
-## 架构分层说明
+`cloud139-cli` 构建名为 `cloud139` 的可执行文件，单向依赖库 `cloud139`。工作区默认构建 CLI。两个包的直接依赖、feature 和平台条件分别见 [CLI Cargo.toml](../packages/cli/Cargo.toml) 和[库 Cargo.toml](../packages/lib/Cargo.toml)，锁定版本见 [Cargo.lock](../Cargo.lock)。
 
-### 1. CLI 层 (cli/)
-- 使用 clap 定义命令行参数结构
-- `app.rs` 中定义 `Cli` 和 `Commands` 枚举
-- 解析用户输入，传递给命令层
+| 位置 | 职责 |
+| --- | --- |
+| [`src/main.rs`](../packages/cli/src/main.rs) 和 [`src/cli.rs`](../packages/cli/src/cli.rs) | 进程入口、clap 参数声明、日志初始化、退出码 |
+| [`src/commands/`](../packages/cli/src/commands/) | `dispatch.rs` 负责分发和共用配置准备。各子命令适配参数、调用库服务并处理结果 |
+| [`src/config/`](../packages/cli/src/config/) | 配置路径选择、持锁保存与续期写回 |
+| [`src/presentation/`](../packages/cli/src/presentation/) | 文本、JSON 和终端进度条 |
 
-### 2. 命令层 (commands/)
-- 包含各命令的 Args 定义和 thin execute 适配器
-- 连接 CLI 层和应用层
-- 调用应用层服务执行业务逻辑
+CLI 使用显式的 `--config` 路径，省略时先查找当前目录，配置缺失才查找用户配置目录。需要续期时，CLI 尝试对加载配置的同一路径持锁更新，随后重读并校验配置。删除和同步的参数前置检查在续期前执行。库操作入口校验外部配置的 `storage_type`，内部调用可复用 `PersonalConfig`。
 
-### 3. 应用层 (application/)
-- 包含业务逻辑服务
-- 协调领域对象和基础设施
-- 实现核心业务用例
-- `upload/` 子模块按存储类型拆分上传逻辑
+## 库
 
-### 4. 领域层 (domain/)
-- 核心业务模型
-- 不依赖外部框架或基础设施
-- 包含业务规则和验证
+| 位置 | 职责 |
+| --- | --- |
+| [`src/config/`](../packages/lib/src/config/) | TOML 读写、原子保存和个人云配置校验 |
+| [`src/client/`](../packages/lib/src/client/) 和 [`src/protocol.rs`](../packages/lib/src/protocol.rs) | 认证、HTTP 与签名、个人云请求和协议常量 |
+| [`src/services/`](../packages/lib/src/services/) | 文件和目录操作、传输与同步 |
+| [`src/models/`](../packages/lib/src/models/) | 请求响应模型、文件条目、同步计划和结果所用类型 |
+| [`src/progress.rs`](../packages/lib/src/progress.rs) | 库与宿主之间的传输进度接口 |
 
-### 5. 展示层 (presentation/)
-- 输出格式化
-- 进度条展示
-- 用户界面相关逻辑
-
-### 6. 基础设施层 (client/)
-- API 客户端实现
-- 外部服务交互
-- 技术细节实现
+- 文件查询和下载链接从 `client::api::files` 进入，上传请求位于 `client::api::upload`，Token 解析和续期分别位于 `client::auth::token` 和 `client::auth::refresh`。
+- 文件和目录上传在 `services::upload` 协调。目录上传和同步共用本地扫描，普通上传和同步共用分片传输。
+- 同步由 `services::sync::plan` 校验方向、并发和排除规则，生成计划后交给执行器或校验流程。文件替换与清理的行为见[目录操作实现与验证](directory-operations.md)。

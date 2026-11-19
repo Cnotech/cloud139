@@ -1,0 +1,145 @@
+//! 云端目录的分页列表和递归列表。
+
+use crate::client::api::personal::client::{ListingRetry, PersonalClient};
+use crate::client::api::personal::listing::ListPageOptions;
+use crate::client::http::HttpClientWrapper;
+use crate::config::{Config, personal::PersonalConfig};
+use crate::debug;
+use crate::models::file_item::{EntryKind, FileItem};
+use crate::models::list::parse_personal_time;
+use crate::protocol;
+use crate::utils::remote_path;
+use futures_util::TryStreamExt;
+use std::pin::pin;
+
+/// 单个云端目录的列表结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListResult {
+    /// 规范化后的云端目录路径。
+    pub path: String,
+    /// 该目录直属条目的总数。
+    pub total: i32,
+    /// 本次返回的条目。
+    pub items: Vec<FileItem>,
+}
+
+/// 列表路径和分页参数。
+pub struct ListOptions<'a> {
+    /// 云端目录路径。
+    pub path: &'a str,
+    /// 从 `1` 开始的页码。
+    pub page: i32,
+    /// 每页条目数，必须大于 `0`。
+    pub page_size: i32,
+}
+
+/// 返回指定目录的一页直属条目，并遍历服务端分页以计算条目总数。
+pub async fn list<'a>(
+    config: &Config,
+    options: impl Into<ListOptions<'a>>,
+) -> anyhow::Result<ListResult> {
+    list_personal(PersonalConfig::new(config)?, options.into()).await
+}
+
+pub(super) async fn list_personal(
+    config: PersonalConfig<&Config>,
+    args: ListOptions<'_>,
+) -> anyhow::Result<ListResult> {
+    if args.page < 1 || args.page_size < 1 {
+        anyhow::bail!("页码和每页数量必须大于 0");
+    }
+    let path = remote_path::normalize(args.path)?;
+    let client = HttpClientWrapper::new();
+    let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
+    let parent = super::directory::directory_with_listing(&listing, &path).await?;
+    let thumbnails = if config.use_large_thumbnail {
+        protocol::THUMBNAILS_WITH_ORIGINAL
+    } else {
+        protocol::STANDARD_THUMBNAILS
+    };
+    let mut pages = pin!(listing.pages(
+        &parent,
+        ListPageOptions {
+            size: args.page_size,
+            thumbnails: Some(thumbnails),
+        }
+    ));
+    let page_size = args.page_size as usize;
+    let start = (args.page as usize - 1).saturating_mul(page_size);
+    let mut total: usize = 0;
+    let mut items = Vec::new();
+    while let Some(page) = pages.try_next().await? {
+        let offset = start.saturating_sub(total);
+        total += page.len();
+        items.extend(
+            page.into_iter()
+                .skip(offset)
+                .take(page_size - items.len())
+                .map(|item| {
+                    let kind = if item.is_folder() {
+                        EntryKind::Folder
+                    } else {
+                        EntryKind::File
+                    };
+                    let modified = parse_personal_time(item.modified_time().unwrap_or_default());
+                    FileItem {
+                        name: item.name.unwrap_or_default(),
+                        kind,
+                        size: item.size.unwrap_or(0),
+                        modified,
+                        content_hash: item.content_hash,
+                        content_hash_algorithm: item.content_hash_algorithm,
+                    }
+                }),
+        );
+    }
+    debug!("云端目录列表读取完成 count={} total={}", items.len(), total);
+    Ok(ListResult {
+        path,
+        total: i32::try_from(total)?,
+        items,
+    })
+}
+
+/// 按目录分组返回完整列表，包含空目录。
+pub async fn list_recursive(config: &Config, root: &str) -> anyhow::Result<Vec<ListResult>> {
+    use super::directory as dirs;
+    let config = PersonalConfig::new(config)?;
+    let root = remote_path::normalize(root)?;
+    let entries = dirs::tree_normalized(config, root.clone()).await?;
+    let mut grouped = std::collections::BTreeMap::<String, Vec<FileItem>>::new();
+    grouped.insert(root, vec![]);
+    for entry in entries {
+        if entry.folder {
+            grouped.entry(entry.path.clone()).or_default();
+        }
+        let (parent, name) = entry.path.rsplit_once('/').unwrap();
+        grouped
+            .entry(if parent.is_empty() {
+                "/".into()
+            } else {
+                parent.into()
+            })
+            .or_default()
+            .push(FileItem {
+                name: name.into(),
+                kind: if entry.folder {
+                    EntryKind::Folder
+                } else {
+                    EntryKind::File
+                },
+                size: entry.size.unwrap_or(0),
+                modified: entry.modified,
+                content_hash: None,
+                content_hash_algorithm: None,
+            });
+    }
+    Ok(grouped
+        .into_iter()
+        .map(|(path, items)| ListResult {
+            path,
+            total: items.len() as i32,
+            items,
+        })
+        .collect())
+}

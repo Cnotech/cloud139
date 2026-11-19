@@ -1,0 +1,16 @@
+mod cli_args_test;
+mod commands_args_test;
+mod commands_args_test_extended;
+mod commands_cli_test;
+mod commands_list_test;
+mod commands_test;
+mod config_atomic_test;
+mod config_extended_test;
+mod config_startup_test;
+mod config_test;
+mod cp_test;
+mod download_test;
+mod list_test;
+mod sync_args_test;
+mod upload_extra_test;
+mod upload_test;
