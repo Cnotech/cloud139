@@ -20,7 +20,7 @@ pub struct PersonalListData {
     pub next_page_cursor: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PersonalFileItem {
     #[serde(rename = "fileId", default)]
     pub file_id: Option<String>,
@@ -88,7 +88,7 @@ pub fn parse_personal_time(time_str: &str) -> String {
     time_str.to_string()
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct PersonalThumbnail {
     pub style: Option<String>,
     pub url: Option<String>,

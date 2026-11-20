@@ -35,11 +35,12 @@ cargo test --locked --offline -p cloud139 --test download_dir_paging_test --test
 | 13.1 | [directory_operations_test](../../../../packages/cli/tests/directory_operations_test.rs) 的 `root_mutations_are_rejected_for_personal_storage_without_network` 检查路径根别名；`server_root_id_alias_is_rejected_before_delete_or_rename` 检查服务端根 ID 与实际变更请求。[api_path_paging_test](../../../../packages/lib/tests/api_path_paging_test.rs) 覆盖公共路径查找入口拒绝根 ID 子项。 |
 | 13.3 | [pagination_cursor_guard_test](../../../../packages/lib/tests/pagination_cursor_guard_test.rs) 与目录用例中的 `recursive_listing_collects_all_pages_empty_dirs_and_detects_cycles`、`ordinary_ls_rejects_cursor_cycles` 覆盖分页游标和目录循环。`failed_or_missing_listing_data_is_never_treated_as_empty` 核对失败或缺数据的列表。 |
 | 13.4 | 目录用例的 `normalizes_root_aliases_and_checks_names`、`malicious_names_and_local_kind_conflicts_fail_before_writes`、`symlinks_in_upload_and_download_are_rejected` 及大小写、Unicode 冲突用例。检查绝对路径、穿越、Windows 设备名、链接和类型冲突。记录平台条件，核对临时根外及受保护文件未被覆盖。 |
-| 13.5 | 目录用例覆盖上传部分失败、批量条目失败、分页重试与断连、下载大小不符、失败列表和上传回执缺失。看 `upload_and_batch_errors_propagate_partial_failure`、`recursive_upload_retries_the_failed_page_without_replaying_writes`、`recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconnect` 和 `recursive_download_validates_listed_size_without_content_length`。确认已完成部分、重试范围和错误结果。 |
+| 13.5 | 目录用例覆盖上传部分失败、批量条目失败、分页重试与断连、下载大小不符、失败列表和上传回执缺失。看 `upload_and_batch_errors_propagate_partial_failure`、`recursive_upload_retries_the_failed_page_without_replaying_writes` 和 `recursive_download_validates_listed_size_without_content_length`。确认已完成部分、重试范围和错误结果。 |
 | 13.8 | `cargo test --locked --offline -p cloud139 --lib services::download::tests` 验证下载断流、错误响应、已有文件及进度重试。[download_dir_paging_test](../../../../packages/lib/tests/download_dir_paging_test.rs) 核对下载链接的业务错误和空 CDN 地址的回退。 |
 | 13.9 | [personal_pc_test](../../../../packages/lib/tests/personal_pc_test.rs) 和 `cargo test --locked --offline -p cloud139 --lib client::api::upload::tests` 核对 PC 请求头、上传权益由远端判断、分片和完成失败时保留原同步目标。用 mock 覆盖大文件权益错误。 |
 | 13.12 | `cargo test --locked --offline -p cloud139 --test personal_pc_test rapid_upload_` 核对 `rapidUpload: true` 且无分片时返回成功，未确认秒传且无分片时返回失败。 |
 | 13.13 | `cargo test --locked --offline -p cloud139 --lib client::api::personal::transfer::tests` 使用虚拟时钟验证单个分片持续传输时可超过 30 秒，最后一次发送数据后停滞 30 秒则超时。 |
+| 13.14 | 目录测试的 `batch_copy_and_move_reuse_source_directory_pages` 对各 302 个源文件断言只有 8 次列表请求和一次批量写入。`recursive_upload_reuses_each_parents_listing_for_multiple_files` 对两个父目录的 242 个文件核对列表次数、上传请求和内容哈希。`recursive_upload_checks_names_assigned_by_the_server` 核对同一轮上传时已确认的新文件名参与后续冲突检查。 |
 
 ## 同步和清理
 

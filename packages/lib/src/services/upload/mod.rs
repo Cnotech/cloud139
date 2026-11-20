@@ -164,19 +164,30 @@ async fn upload_file(
 ) -> Result<(), ClientError> {
     let size = checked_upload_size(path)?;
     let items = listing.list_files(parent_id).await?;
-    for item in items
-        .iter()
-        .filter(|item| item.name.as_deref() == Some(name))
-    {
-        if item.is_folder() {
+    check_upload_conflicts(
+        items
+            .iter()
+            .filter(|item| item.name.as_deref() == Some(name))
+            .map(|item| item.is_folder()),
+        force,
+    )?;
+    let saved_name = upload_to_parent(listing, path, parent_id, name, size, pb.clone()).await?;
+    finish_upload(&saved_name, &pb);
+    Ok(())
+}
+
+fn check_upload_conflicts(
+    same_name_entries: impl IntoIterator<Item = bool>,
+    force: bool,
+) -> Result<(), ClientError> {
+    for folder in same_name_entries {
+        if folder {
             return Err(invalid("云端同名目录阻止上传文件"));
         }
         if !force {
             return Err(ClientError::ForceRequired);
         }
     }
-    let saved_name = upload_to_parent(listing, path, parent_id, name, size, pb.clone()).await?;
-    finish_upload(&saved_name, &pb);
     Ok(())
 }
 

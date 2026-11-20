@@ -1,9 +1,10 @@
 //! 云端路径解析、目录遍历、复制和移动。
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
+use crate::client::api::personal::listing::PathLookup;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
 use crate::error::ClientError;
-use crate::models::list::parse_personal_time;
+use crate::models::list::{PersonalFileItem, parse_personal_time};
 use crate::protocol::{self, is_non_root_file_id};
 use crate::utils::remote_path;
 use std::collections::HashSet;
@@ -41,7 +42,13 @@ pub(super) async fn resolve_entry(
     listing: &PersonalClient<'_>,
     path: &str,
 ) -> Result<(RemoteEntry, Option<i64>), ClientError> {
-    match listing.resolve_path(path).await? {
+    resolved_entry(listing.resolve_path(path).await?)
+}
+
+fn resolved_entry(
+    item: Option<PersonalFileItem>,
+) -> Result<(RemoteEntry, Option<i64>), ClientError> {
+    match item {
         Some(item) => {
             let folder = item.is_folder();
             let id = item.file_id.ok_or(ClientError::InvalidFilePath)?;
@@ -296,12 +303,12 @@ pub async fn transfer(
     }
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    let target_id = directory_with_listing(&listing, &target).await?;
-    let existing = listing.list_files(&target_id).await?;
+    let mut paths = PathLookup::new(&listing);
+    let target_id = require_directory(resolved_entry(paths.resolve_path(&target).await?)?.0)?;
     let mut names = HashSet::new();
     let mut ids = Vec::new();
     for source in &sources {
-        let (entry, _) = resolve_entry(&listing, source).await?;
+        let (entry, _) = resolved_entry(paths.resolve_path(source).await?)?;
         let name = source.rsplit('/').next().unwrap();
         if !names.insert(name.to_owned()) {
             return Err(crate::error::invalid("多个源条目同名"));
@@ -317,7 +324,7 @@ pub async fn transfer(
         {
             return Err(crate::error::invalid("源目录和目标目录相同"));
         }
-        if let Some(conflict) = existing.iter().find(|i| i.name.as_deref() == Some(name))
+        if let Some(conflict) = paths.find_child(&target_id, name).await?
             && (entry.folder || conflict.is_folder() || !force)
         {
             return Err(ClientError::ForceRequired);

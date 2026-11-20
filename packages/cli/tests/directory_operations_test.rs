@@ -20,6 +20,7 @@ struct State {
     requests: Vec<(String, Value)>,
     fail_name: Option<String>,
     fail_upload: bool,
+    assigned_upload_name: Option<(&'static str, &'static str)>,
     fail_rename_to: Option<String>,
     sync_mutations: bool,
     reuse_existing_upload_id: bool,
@@ -151,7 +152,17 @@ impl Server {
                                         &id
                                     };
                                     let parent = body["parentFileId"].as_str().unwrap().to_owned();
-                                    let mut item = json!({"fileId":staged_id,"name":body["name"],"type":body["type"],"size":body["size"]});
+                                    let requested_name = body["name"].as_str().unwrap();
+                                    let saved_name = match state.assigned_upload_name {
+                                        Some((requested, assigned))
+                                            if body["type"] == "file"
+                                                && requested == requested_name =>
+                                        {
+                                            assigned
+                                        }
+                                        _ => requested_name,
+                                    };
+                                    let mut item = json!({"fileId":staged_id,"name":saved_name,"type":body["type"],"size":body["size"]});
                                     if body["type"] == "file"
                                         && let Some((bytes, publish_hash)) = state.uploaded_content
                                     {
@@ -177,11 +188,11 @@ impl Server {
                                     } else if body["type"] == "file"
                                         && state.multipart_content.is_some()
                                     {
-                                        json!({"success":true,"data":{"fileId":id,"fileName":body["name"],"exist":false,"uploadId":"test-upload","partInfos":[{"partNumber":1,"uploadUrl":format!("{base}/part/{id}")}]}})
+                                        json!({"success":true,"data":{"fileId":id,"fileName":saved_name,"exist":false,"uploadId":"test-upload","partInfos":[{"partNumber":1,"uploadUrl":format!("{base}/part/{id}")}]}})
                                     } else {
                                         // 秒传仅凭哈希确认文件并返回上传回执。
                                         let file_id = (!state.omit_staged_id).then_some(&id);
-                                        json!({"success":true,"data":{"fileId":file_id,"fileName":body["name"],"exist":true,"partInfos":[]}})
+                                        json!({"success":true,"data":{"fileId":file_id,"fileName":saved_name,"exist":true,"partInfos":[]}})
                                     }
                                 }
                             }
@@ -1902,6 +1913,24 @@ async fn upload_maps_directory_or_contents_keeps_empty_and_never_skips_same_size
         .iter()
         .filter(|(_, b)| b["type"] == "file")
         .count();
+    let error = services::upload::upload_directory(
+        &server.config(),
+        &source,
+        "/missing/target",
+        false,
+        false,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("请使用 --force"));
+    assert_eq!(
+        server
+            .mutations()
+            .iter()
+            .filter(|(_, b)| b["type"] == "file")
+            .count(),
+        uploads
+    );
     services::upload::upload_directory(&server.config(), &source, "/missing/target", false, true)
         .await
         .unwrap();
@@ -1954,6 +1983,19 @@ async fn upload_and_batch_errors_propagate_partial_failure() {
             .count(),
         1
     );
+    {
+        let state = server.state.lock().unwrap();
+        let target_id = &state.children["/"][0]["fileId"];
+        assert_eq!(
+            state
+                .requests
+                .iter()
+                .filter(|(path, body)| path == "/file/list" && &body["parentFileId"] == target_id)
+                .count(),
+            2,
+            "写入失败后重新列举父目录"
+        );
+    }
     server.set("/", vec![folder("s", "src"), folder("d", "dest")]);
     server.state.lock().unwrap().fail_batch = true;
     assert!(
@@ -2016,14 +2058,37 @@ async fn recursive_upload_retries_the_failed_page_without_replaying_writes() {
         }
     }
     assert_eq!(ancestor_lookups, 2);
-    assert_eq!(target_cursors, ["", "100", "100", "", "100", "", "100"]);
+    assert_eq!(target_cursors, ["", "100", "100"]);
     assert_eq!(uploads, ["a.txt", "b.txt"]);
 }
 
 #[tokio::test]
-async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconnect() {
+async fn recursive_upload_checks_names_assigned_by_the_server() {
     let server = Server::new();
-    server.state.lock().unwrap().drop_list_cursor_once = Some("100".into());
+    server.state.lock().unwrap().assigned_upload_name = Some(("a.txt", "b.txt"));
+    let source = tempfile::tempdir().unwrap();
+    std::fs::write(source.path().join("a.txt"), b"first").unwrap();
+    std::fs::write(source.path().join("b.txt"), b"second").unwrap();
+
+    let error =
+        services::upload::upload_directory(&server.config(), source.path(), "/", true, false)
+            .await
+            .unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("上传 b.txt 失败"), "{message}");
+    assert!(message.contains("请使用 --force"), "{message}");
+    let state = server.state.lock().unwrap();
+    assert_eq!(state.children["/"].len(), 1);
+    assert_eq!(state.children["/"][0]["name"], "b.txt");
+    assert_eq!(state.requests.len(), 2);
+    assert_eq!(state.requests[0].0, "/file/list");
+    assert_eq!(state.requests[1].0, "/file/create");
+    assert_eq!(state.requests[1].1["name"], "a.txt");
+}
+
+#[tokio::test]
+async fn recursive_upload_reuses_each_parents_listing_for_multiple_files() {
+    let server = Server::new();
     let source = tempfile::tempdir().unwrap();
     let child = source.path().join("child");
     std::fs::create_dir(&child).unwrap();
@@ -2038,7 +2103,6 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
         .unwrap();
 
     let state = server.state.lock().unwrap();
-    assert!(state.drop_list_cursor_once.is_none());
     let root_id = state.children["/"][0]["fileId"].as_str().unwrap();
     let root = &state.children[root_id];
     assert_eq!(root.len(), 123);
@@ -2068,6 +2132,18 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
         })
         .collect();
     assert_eq!(files.len(), 242);
+    let list_parents: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/file/list")
+        .map(|(_, body)| body["parentFileId"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        list_parents,
+        [
+            "/", "/", "/", root_id, root_id, child_id, "/", root_id, root_id, root_id
+        ]
+    );
     assert_eq!(
         state
             .requests
@@ -2076,6 +2152,60 @@ async fn recursive_upload_finishes_the_paged_fixture_after_a_mid_upload_disconne
             .count(),
         245
     );
+}
+
+#[tokio::test]
+async fn batch_copy_and_move_reuse_source_directory_pages() {
+    let server = Server::new();
+    server.set("/", vec![folder("a", "a"), folder("dest", "dest")]);
+    server.set("a", vec![folder("b", "b")]);
+    server.set("b", vec![folder("c", "c")]);
+    let names: Vec<_> = (0..302).map(|index| format!("f-{index:03}.bin")).collect();
+    let sources: Vec<_> = names.iter().map(|name| format!("/a/b/c/{name}")).collect();
+    server.set("c", names.iter().map(|name| file(name, name)).collect());
+
+    for moving in [false, true] {
+        server.state.lock().unwrap().requests.clear();
+        let endpoint = if moving {
+            services::directory::mv(&server.config(), &sources, "/dest", false)
+                .await
+                .unwrap();
+            "/file/batchMove"
+        } else {
+            services::directory::cp(&server.config(), &sources, "/dest", false)
+                .await
+                .unwrap();
+            "/file/batchCopy"
+        };
+        let state = server.state.lock().unwrap();
+        let (write_path, write_body) = state.requests.last().unwrap();
+        assert_eq!(write_path, endpoint);
+        assert_eq!(write_body["fileIds"], json!(names));
+        assert_eq!(write_body["toParentFileId"], "dest");
+        let pages: Vec<_> = state.requests[..state.requests.len() - 1]
+            .iter()
+            .map(|(path, body)| {
+                assert_eq!(path, "/file/list");
+                (
+                    body["parentFileId"].as_str().unwrap(),
+                    body["pageInfo"]["pageCursor"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            pages,
+            [
+                ("/", ""),
+                ("a", ""),
+                ("b", ""),
+                ("c", ""),
+                ("dest", ""),
+                ("c", "100"),
+                ("c", "200"),
+                ("c", "300"),
+            ]
+        );
+    }
 }
 
 #[tokio::test]
