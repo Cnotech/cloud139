@@ -6,11 +6,11 @@
 
 - 测试前后记录 `git status --short` 和 `git diff --name-status`。工作区有改动时，在独立检出中构建待测快照并记录 SHA。保留原工作区的改动。
 - 主代理负责预检、登录、台账和报告。按阶段分派用例，2–5 为传输，6–10 为目录变更，11 为同步，12 由专门的代理清理。各阶段共用一处请求日志目录。阶段代理只在分配的配置、云端子树、本地目录和权限内操作，反馈用例编号、脱敏命令、退出码、文件证据和待清理项。共享配置或目标的写入串行，独立夹具可并行。
-- 台账登记用户要求、UUID 和精确云端根、脱敏账号、测试提交和二进制、配置和临时目录、负责人、预期与实际退出码、清单与哈希、对象归属和 ID（若可见）、不确定结果和清理状态。创建前先登记预期对象，结果不明时标为待核验。
+- 台账登记用户要求、UUID 和精确云端根、脱敏账号、测试提交和二进制、配置路径、临时工作目录和日志目录、负责人、预期与实际退出码、清单与哈希、对象归属和 ID（若可见）、不确定结果和清理状态。创建前先登记预期对象，结果不明时标为待核验。
 
 ## 阶段 1 · 登录和创建本轮根
 
-`REPO` 和 `BIN` 使用已核对的绝对路径。需要构建时运行 `cargo build --locked --release`。Windows 使用 Git Bash，设 `MSYS_NO_PATHCONV=1`，云端路径用 `/`。
+`REPO` 指向发起测试的仓库根目录，`BIN` 指向待测二进制，两者均使用已核对的绝对路径。需要构建时运行 `cargo build --locked --release`。Windows 使用 Git Bash，设 `MSYS_NO_PATHCONV=1`，云端路径用 `/`。
 
 ```bash
 RUN_ID=$(python3 -c 'import uuid; print(uuid.uuid4().hex)')
@@ -21,8 +21,9 @@ CONFIG="$LOCAL/profile/cloud139rc.toml"
 FIX="$LOCAL/fixtures"
 TOOL="$REPO/.agents/skills/cloud139-e2e-test/scripts/fixture_tool.py"
 REQUEST_LOGS="$REPO/.agents/skills/cloud139-e2e-test/scripts/request_logs.py"
-LOG_DIR="$LOCAL/logs/requests"
-mkdir -p "$LOCAL/home" "$LOCAL/profile" "$LOG_DIR" "$LOCAL/manifests" "$LOCAL/downloads" "$LOCAL/work"
+mkdir -p "$REPO/logs"
+LOG_DIR=$(mktemp -d "$REPO/logs/cloud139-e2e-${RUN_ID}.XXXXXX")
+mkdir -p "$LOCAL/home" "$LOCAL/profile" "$LOCAL/logs" "$LOCAL/manifests" "$LOCAL/downloads" "$LOCAL/work"
 chmod 700 "$LOCAL" "$LOCAL/profile"
 python3 "$TOOL" init "$FIX"
 for fixture in tree paged empty; do
@@ -67,7 +68,7 @@ python3 "$TOOL" compare "$LOCAL/manifests/tree.json" "$LOCAL/manifests/actual-tr
 
 用例表里的 `c139` 命令继承当前用例的 `CASE_ID`。准备、轮询、核验和清理分别登记 `PURPOSE=setup/poll/verify/cleanup`。预期失败的命令登记 `EXPECTED_EXIT`，例如 `CASE_ID=2.6 EXPECTED_EXIT=1 c139 ls "$CLOUD/s02/not-created"`。自定义运行器也调用 `request_logs.py run`，使用同一个 `LOG_DIR`。运行器只登记用例、用途、命令名和退出码，保留 CLI 的 stdout 和 stderr。
 
-`--log-file` 每次新建文件。运行器为每条命令分配独立路径，避免并行覆盖。将有已知预算的用例提前登记，例如未变化文件的校验同步使用 `EXECUTE_LIST_LIMIT=0`，限制执行阶段的 `/file/list`。日志目录须位于传输和同步目录之外。
+`--log-file` 每次新建文件。运行器在本轮的 `$REPO/logs/cloud139-e2e-*` 中为每条命令分配独立路径，避免并行覆盖。将有已知预算的用例提前登记，例如未变化文件的校验同步使用 `EXECUTE_LIST_LIMIT=0`，限制执行阶段的 `/file/list`。传输和同步夹具放在临时工作目录，目录列表等命令输出可保存在 `$LOCAL/logs`。
 
 等所有阶段的 CLI 调用结束，包括清理与最后一次轮询，再运行汇总脚本。
 
@@ -77,7 +78,7 @@ python3 "$REQUEST_LOGS" analyze --directory "$LOG_DIR"
 
 脚本输出 `combined.log` 和 `analysis.json`。报告前核对台账和日志覆盖，检查异常退出、日志缺失、警告、错误、失败或未结束的 HTTP 请求以及 429。将预期拒绝、已恢复的重试与异常分开。按用例、阶段和端点核对请求数、P95 耗时与每秒峰值。对照夹具中的文件数、目录分页、写入复核和轮询用途，定位逐文件重复列举或意外请求突发。已知频率预算时可传 `--peak-limit`。频率峰值用于定位问题，服务端限流以 HTTP 429 等实际证据确认。
 
-报告写明日志覆盖、发现及判定依据。保留脱敏后的汇总日志和分析，归档前检查凭据或签名链接。
+报告写明本轮日志目录、日志覆盖、发现及判定依据。脱敏后的 `combined.log` 和 `analysis.json` 保留在本轮日志目录，归档前检查凭据或签名链接。
 
 ## 阶段 12 · 清理和报告
 
