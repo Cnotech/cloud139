@@ -43,7 +43,7 @@ cargo test --locked --offline -p cloud139 --test download_dir_paging_test --test
 | 13.9 | [personal_pc_test](../../../../packages/lib/tests/personal_pc_test.rs) 和 `cargo test --locked --offline -p cloud139 --lib client::api::upload::tests` 核对 PC 请求头、上传权益由远端判断、分片和完成失败时保留原同步目标。用 mock 覆盖大文件权益错误。 |
 | 13.12 | `cargo test --locked --offline -p cloud139 --test personal_pc_test rapid_upload_` 核对 `rapidUpload: true` 且无分片时返回成功，未确认秒传且无分片时返回失败。 |
 | 13.13 | `cargo test --locked --offline -p cloud139 --lib client::api::personal::transfer::tests` 使用虚拟时钟验证单个分片持续传输时可超过 30 秒，最后一次发送数据后停滞 30 秒则超时。 |
-| 13.14 | 目录测试的 `batch_copy_and_move_reuse_source_directory_pages` 对各 302 个源文件断言只有 8 次列表请求和一次批量写入。`recursive_upload_reuses_each_parents_listing_for_multiple_files` 对两个父目录的 242 个文件核对列表次数、上传请求和内容哈希。`recursive_upload_checks_names_assigned_by_the_server` 核对同一轮上传时已确认的新文件名参与后续冲突检查。 |
+| 13.14 | 目录测试的 `batch_copy_and_move_reuse_source_directory_pages` 对各 302 个源文件断言只有 8 次列表请求和一次批量写入。`recursive_upload_reuses_each_parents_listing_for_multiple_files` 对两个父目录的 242 个文件核对列表次数、上传请求和内容哈希。`recursive_upload_resolves_deep_destination_ancestors_once` 核对多层目标的 21 次列表请求，`recursive_upload_rejects_a_child_that_aliases_an_ancestor_of_the_target` 验证目录循环会阻止写入。`recursive_upload_checks_names_assigned_by_the_server` 核对已确认的新文件名参与后续冲突检查。`rename_reads_each_parent_page_once_and_checks_later_conflicts` 核对重命名复用列表且能发现后续页的同名目录。 |
 | 13.15 | `log_file_test` 核对全局参数在子命令前后生效、日志路径冲突在请求前报错、同步 JSON 仍为单行、分页和 HTTP 429 的事件数匹配实际请求，以及签名下载链接未写入日志。`sync_retries_list_request_and_succeeds` 核对断连重试分别记录。 |
 
 ## 同步和清理

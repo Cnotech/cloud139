@@ -21,20 +21,19 @@ pub async fn rename(
     remote_path::validate_name(target)?;
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    let (entry, _) = dirs::resolve_entry(&personal, &source).await?;
-    let (parent, name) = source.rsplit_once('/').unwrap();
-    if name == target {
+    if source.rsplit('/').next() == Some(target) {
+        dirs::resolve_entry(&personal, &source).await?;
         return Ok(());
     }
-    let parent_id = dirs::directory_with_listing(&personal, parent).await?;
-    if let Some(conflict) = personal
-        .list_files(&parent_id)
-        .await?
+    let (entry, siblings) = personal.resolve_path_with_siblings(&source).await?;
+    let entry = entry.ok_or(ClientError::FileNotFound)?;
+    if let Some(conflict) = siblings
         .iter()
         .find(|item| item.name.as_deref() == Some(target))
-        && (entry.folder || conflict.is_folder() || !force)
+        && (entry.is_folder() || conflict.is_folder() || !force)
     {
         return Err(ClientError::ForceRequired);
     }
-    personal.rename(&entry.id, target).await
+    let id = entry.file_id.ok_or(ClientError::InvalidFilePath)?;
+    personal.rename(&id, target).await
 }

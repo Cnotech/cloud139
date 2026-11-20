@@ -84,7 +84,7 @@ impl<'a, 'config> PathLookup<'a, 'config> {
         &mut self,
         path: &str,
     ) -> Result<Option<PersonalFileItem>, ClientError> {
-        resolve_path_with(path, async |parent, name| {
+        resolve_path_with(path, async |parent, name, _| {
             self.find_child(parent, name).await
         })
         .await
@@ -118,14 +118,15 @@ impl<'a, 'config> PathLookup<'a, 'config> {
 
 async fn resolve_path_with(
     path: &str,
-    mut find_child: impl AsyncFnMut(&str, &str) -> Result<Option<PersonalFileItem>, ClientError>,
+    mut find_child: impl AsyncFnMut(&str, &str, bool) -> Result<Option<PersonalFileItem>, ClientError>,
 ) -> Result<Option<PersonalFileItem>, ClientError> {
     if path.split('/').count() > 258 {
         return Err(invalid("目录层级过深"));
     }
     let mut current: Option<PersonalFileItem> = None;
     let mut seen = HashSet::from([protocol::ROOT_FILE_ID.to_owned()]);
-    for part in path.split('/').filter(|name| !name.is_empty()) {
+    let mut parts = path.split('/').filter(|name| !name.is_empty()).peekable();
+    while let Some(part) = parts.next() {
         let parent = match &current {
             Some(item) if item.is_folder() => item
                 .file_id
@@ -134,7 +135,7 @@ async fn resolve_path_with(
             Some(_) => return Err(invalid("父路径不是目录")),
             None => protocol::ROOT_FILE_ID,
         };
-        let item = find_child(parent, part)
+        let item = find_child(parent, part, parts.peek().is_none())
             .await?
             .ok_or(ClientError::FileNotFound)?;
         let id = item
@@ -156,10 +157,30 @@ impl PersonalClient<'_> {
         &self,
         path: &str,
     ) -> Result<Option<PersonalFileItem>, ClientError> {
-        resolve_path_with(path, async |parent, name| {
+        resolve_path_with(path, async |parent, name, _| {
             self.find_child(parent, name).await
         })
         .await
+    }
+
+    /// 解析条目，并复用最后一级列表返回同级条目。
+    pub(crate) async fn resolve_path_with_siblings(
+        &self,
+        path: &str,
+    ) -> Result<(Option<PersonalFileItem>, Vec<PersonalFileItem>), ClientError> {
+        let mut siblings = Vec::new();
+        let item = resolve_path_with(path, async |parent, name, last| {
+            if !last {
+                return self.find_child(parent, name).await;
+            }
+            siblings = self.list_files(parent).await?;
+            Ok(siblings
+                .iter()
+                .find(|item| item.name.as_deref() == Some(name))
+                .cloned())
+        })
+        .await?;
+        Ok((item, siblings))
     }
 
     pub(crate) async fn find_child(

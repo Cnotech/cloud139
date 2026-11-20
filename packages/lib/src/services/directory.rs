@@ -95,7 +95,7 @@ pub(super) async fn ensure_personal_dir(
     listing: &PersonalClient<'_>,
     path: &str,
     parents: bool,
-) -> Result<String, ClientError> {
+) -> Result<(String, HashSet<String>), ClientError> {
     let mut parent_id = protocol::ROOT_FILE_ID.to_owned();
     let mut parts = path.split('/').filter(|part| !part.is_empty()).peekable();
     let mut seen_ids = HashSet::from([parent_id.clone()]);
@@ -107,7 +107,7 @@ pub(super) async fn ensure_personal_dir(
         }
         parent_id = id;
     }
-    Ok(parent_id)
+    Ok((parent_id, seen_ids))
 }
 
 pub(super) async fn ensure_personal_child_dir(

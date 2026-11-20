@@ -2141,7 +2141,7 @@ async fn recursive_upload_reuses_each_parents_listing_for_multiple_files() {
     assert_eq!(
         list_parents,
         [
-            "/", "/", "/", root_id, root_id, child_id, "/", root_id, root_id, root_id
+            "/", "/", root_id, root_id, child_id, root_id, root_id, root_id
         ]
     );
     assert_eq!(
@@ -2152,6 +2152,74 @@ async fn recursive_upload_reuses_each_parents_listing_for_multiple_files() {
             .count(),
         245
     );
+}
+
+#[tokio::test]
+async fn recursive_upload_resolves_deep_destination_ancestors_once() {
+    let server = Server::new();
+    server.set("/", vec![folder("run", "run")]);
+    server.set("run", vec![folder("stage", "stage")]);
+    let tmp = tempfile::tempdir().unwrap();
+    let source = tmp.path().join("tree");
+    for dir in ["empty", "nested/deep", "nested/empty"] {
+        std::fs::create_dir_all(source.join(dir)).unwrap();
+    }
+    for name in ["root.txt", "nested/note.txt", "nested/deep/data.bin"] {
+        std::fs::write(source.join(name), b"data").unwrap();
+    }
+
+    services::upload::upload_directory(
+        &server.config(),
+        &source,
+        "/run/stage/missing/parents/dest",
+        false,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let state = server.state.lock().unwrap();
+    let list_parents: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/file/list")
+        .map(|(_, body)| body["parentFileId"].as_str().unwrap())
+        .collect();
+    // 10 层或子目录查找、8 次创建后确认、3 次文件同名检查。
+    assert_eq!(list_parents.len(), 21);
+    assert_eq!(list_parents.iter().filter(|&&id| id == "/").count(), 1);
+    assert_eq!(list_parents.iter().filter(|&&id| id == "run").count(), 1);
+    assert_eq!(
+        state
+            .requests
+            .iter()
+            .filter(|(path, _)| path == "/file/create")
+            .count(),
+        11
+    );
+}
+
+#[tokio::test]
+async fn recursive_upload_rejects_a_child_that_aliases_an_ancestor_of_the_target() {
+    let server = Server::new();
+    server.set("/", vec![folder("outer", "outer")]);
+    server.set("outer", vec![folder("target", "target")]);
+    server.set("target", vec![folder("outer", "nested")]);
+    let source = tempfile::tempdir().unwrap();
+    std::fs::create_dir(source.path().join("nested")).unwrap();
+    std::fs::write(source.path().join("nested/file.txt"), b"data").unwrap();
+
+    let error = services::upload::upload_directory(
+        &server.config(),
+        source.path(),
+        "/outer/target",
+        true,
+        false,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("目录循环"));
+    assert!(server.mutations().is_empty());
 }
 
 #[tokio::test]
@@ -2206,6 +2274,57 @@ async fn batch_copy_and_move_reuse_source_directory_pages() {
             ]
         );
     }
+}
+
+#[tokio::test]
+async fn rename_reads_each_parent_page_once_and_checks_later_conflicts() {
+    let server = Server::new();
+    server.set("/", vec![folder("a", "a")]);
+    server.set("a", vec![folder("b", "b")]);
+    server.set("b", vec![folder("c", "c")]);
+    server.set(
+        "c",
+        vec![file("source", "source.txt"), folder("taken", "taken")],
+    );
+    server.state.lock().unwrap().page_size = 1;
+
+    let error = services::rename::rename(&server.config(), "/a/b/c/source.txt", "taken", true)
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ClientError::ForceRequired));
+    assert!(server.mutations().is_empty());
+    {
+        let mut state = server.state.lock().unwrap();
+        let pages: Vec<_> = state
+            .requests
+            .iter()
+            .map(|(path, body)| {
+                assert_eq!(path, "/file/list");
+                (
+                    body["parentFileId"].as_str().unwrap(),
+                    body["pageInfo"]["pageCursor"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            pages,
+            [("/", ""), ("a", ""), ("b", ""), ("c", ""), ("c", "1")]
+        );
+        state.requests.clear();
+        state.page_size = 100;
+    }
+
+    services::rename::rename(&server.config(), "/a/b/c/source.txt", "renamed.txt", false)
+        .await
+        .unwrap();
+    let state = server.state.lock().unwrap();
+    assert_eq!(state.requests.len(), 5);
+    for ((path, body), parent) in state.requests.iter().zip(["/", "a", "b", "c"]) {
+        assert_eq!(path, "/file/list");
+        assert_eq!(body["parentFileId"], parent);
+    }
+    assert_eq!(state.requests[4].0, "/file/update");
+    assert_eq!(state.requests[4].1["fileId"], "source");
 }
 
 #[tokio::test]

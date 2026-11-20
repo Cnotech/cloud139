@@ -6,6 +6,7 @@ use crate::error::{ClientError, invalid};
 use crate::models::sync_item::{FileEntry, SyncEntryKind};
 use crate::services::directory as dirs;
 use crate::services::local_scan::scan_items;
+use crate::services::path_filter::path_and_ancestors;
 use crate::utils::{path::safe_local, remote_path};
 use std::collections::{HashMap, hash_map::Entry};
 use std::path::Path;
@@ -55,18 +56,33 @@ async fn upload_directory_entries(
     }
     let http_client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &http_client, ListingRetry::DIRECTORY).await?;
-    let root_id = dirs::ensure_personal_dir(&listing, root, true).await?;
-    let mut directories = HashMap::from([(root.to_owned(), root_id)]);
+    let (root_id, root_ancestors) = dirs::ensure_personal_dir(&listing, root, true).await?;
+    let mut directories = HashMap::from([("", root_id)]);
     let mut names_by_parent = HashMap::<String, HashMap<String, bool>>::new();
     let mut uploaded = 0;
     let mut failures = Vec::new();
-    for entry in entries {
-        let destination = format!("{}/{}", root.trim_end_matches('/'), entry.rel_path);
-        let (parent, name) = destination.rsplit_once('/').unwrap();
-        let parent = if parent.is_empty() { "/" } else { parent };
+    for entry in &entries {
+        let (parent, name) = entry
+            .rel_path
+            .rsplit_once('/')
+            .unwrap_or(("", &entry.rel_path));
+        let parent_id = directories
+            .get(parent)
+            .ok_or_else(|| invalid("上传计划缺少父目录"))?;
         if entry.kind == SyncEntryKind::Directory {
-            let id = dirs::ensure_personal_dir(&listing, &destination, true)
+            // 本地扫描按相对路径排序，父目录在子条目之前处理。
+            let id = dirs::ensure_personal_child_dir(&listing, parent_id, name, true, false)
                 .await
+                .and_then(|id| {
+                    if root_ancestors.contains(&id)
+                        || path_and_ancestors(parent)
+                            .filter_map(|ancestor| directories.get(ancestor))
+                            .any(|ancestor_id| ancestor_id == &id)
+                    {
+                        return Err(invalid("路径解析返回根目录别名或目录循环"));
+                    }
+                    Ok(id)
+                })
                 .map_err(|error| {
                     anyhow::anyhow!(
                         "创建目录 {} 失败；此前条目可能已完成: {:#}",
@@ -74,18 +90,12 @@ async fn upload_directory_entries(
                         anyhow::Error::new(error)
                     )
                 })?;
-            if let Some(names) = directories
-                .get(parent)
-                .and_then(|id| names_by_parent.get_mut(id))
-            {
+            if let Some(names) = names_by_parent.get_mut(parent_id) {
                 names.insert(name.to_owned(), true);
             }
-            directories.insert(destination, id);
+            directories.insert(&entry.rel_path, id);
             continue;
         }
-        let parent_id = directories
-            .get(parent)
-            .ok_or_else(|| invalid("上传计划缺少父目录"))?;
         let path = local.join(&entry.rel_path);
         let result = async {
             let size = checked_upload_size(&path)?;
