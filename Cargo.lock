@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "cloud139-cli"
-version = "3.0.0"
+version = "3.0.1"
 dependencies = [
  "anstream",
  "anyhow",

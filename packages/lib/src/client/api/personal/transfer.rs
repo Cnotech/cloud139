@@ -3,12 +3,18 @@ use crate::client::api::response::format_api_error;
 use crate::client::http::{HttpClientWrapper, insert_static_headers};
 use crate::error::ClientError;
 use crate::protocol;
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use reqwest::{
     Body, Response, StatusCode,
     header::{CONTENT_LENGTH, HeaderMap, HeaderValue},
 };
 use std::io;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Notify;
+use tokio::time::{error::Elapsed, timeout};
+
+const UPLOAD_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(crate) struct DownloadLink<'a> {
     client: &'a HttpClientWrapper,
@@ -115,14 +121,39 @@ pub(crate) async fn put_upload_part(
     size: u64,
     stream: impl Stream<Item = Result<Vec<u8>, io::Error>> + Send + 'static,
 ) -> Result<(), ClientError> {
-    let response = client
+    let activity = Arc::new(Notify::new());
+    let stream_activity = Arc::clone(&activity);
+    let stream = stream.inspect(move |chunk| {
+        if chunk.as_ref().is_ok_and(|bytes| !bytes.is_empty()) {
+            stream_activity.notify_one();
+        }
+    });
+    let request = client
         .client
         .put(url)
         .headers(build_upload_part_headers(size))
         .body(Body::wrap_stream(stream))
-        .send()
+        .send();
+    let response = with_upload_idle_timeout(request, &activity)
         .await
-        .map_err(reqwest::Error::without_url)?;
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "分片 {part_number} 上传超时，连续 {} 秒未发送数据或收到响应",
+                    UPLOAD_IDLE_TIMEOUT.as_secs()
+                ),
+            )
+        })?
+        .map_err(|error| {
+            crate::debug!(
+                "发送上传分片请求失败 part={} connect={} timeout={}",
+                part_number,
+                error.is_connect(),
+                error.is_timeout()
+            );
+            error.without_url()
+        })?;
 
     let status = response.status();
     if status != StatusCode::OK {
@@ -132,4 +163,52 @@ pub(crate) async fn put_upload_part(
         )));
     }
     Ok(())
+}
+
+async fn with_upload_idle_timeout<T>(
+    request: impl Future<Output = T>,
+    activity: &Notify,
+) -> Result<T, Elapsed> {
+    tokio::select! {
+        biased;
+        response = request => Ok(response),
+        expired = async {
+            loop {
+                timeout(UPLOAD_IDLE_TIMEOUT, activity.notified()).await?;
+            }
+        } => expired,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::pending;
+    use tokio::time::{Instant, sleep};
+
+    #[tokio::test(start_paused = true)]
+    async fn upload_can_take_longer_than_the_idle_timeout_with_progress() {
+        let activity = Notify::new();
+        let request = async {
+            sleep(Duration::from_secs(20)).await;
+            activity.notify_one();
+            sleep(Duration::from_secs(20)).await;
+        };
+
+        with_upload_idle_timeout(request, &activity).await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn upload_times_out_without_progress_after_sending_data() {
+        let activity = Notify::new();
+        let start = Instant::now();
+        let request = async {
+            sleep(Duration::from_secs(20)).await;
+            activity.notify_one();
+            pending::<()>().await;
+        };
+
+        assert!(with_upload_idle_timeout(request, &activity).await.is_err());
+        assert_eq!(start.elapsed(), Duration::from_secs(50));
+    }
 }
