@@ -18,7 +18,7 @@
 | 11.10 | 将 `SYNCDST/file1.txt` 改为不同大小，再做 11.9。 | 0，恢复云端内容，哈希一致。 |
 | 11.11 | 以缺失的本地目录作源，另分别试两端均本地和两端均云端。 | 均为 2，报告扫描或方向错误，未创建对象。 |
 | 11.12 | 用缺失的 `"$CLOUD/s11/not-created-dir"` 作云端同步根。 | 2，目标必须先创建。 |
-| 11.13 | 在独立目标上传 `same-v1/same.bin`，以 `"$FIX/same-v2"` 作源，先普通同步，再加 `--verify --json`。内容验证通过后，以 `EXECUTE_LIST_LIMIT=0` 再执行一次相同的校验同步。 | 均为 0。普通同步保留 AAAA，校验同步的单行 JSON 中有 `same.bin` 的 `upload`，最终下载为 BBBB。重复校验报告跳过 1 个文件，汇总日志核对执行阶段零次 `/file/list`。 |
+| 11.13 | 在独立目标上传 `same-v1/same.bin`，以 `"$FIX/same-v2"` 作源，先普通同步，再加 `--verify --json`。内容验证通过后，以 `REQUEST_LIMITS='execute:/file/list=0'` 再执行一次相同的校验同步。 | 均为 0。普通同步保留 AAAA，校验同步的单行 JSON 中有 `same.bin` 的 `upload`，最终下载为 BBBB。重复校验报告跳过 1 个文件，汇总日志核对执行阶段零次 `/file/list`。 |
 | 11.14 | 为 11.13 的目标新增并登记一个多余文件和空目录。先用 `-r -n --verify --delete --json`，再去掉 `-n`。 | 均为 0。预览 `dryRun: true`，`changes` 为空，`plan` 包含 `verify` 和文件的 `delete`，云端不变。执行后报告删除该文件，保留空目录及 BBBB。 |
 | 11.15 | 预建独立目标，以 `"$FIX/files/a.txt"` 作单文件源执行 `sync --json`，再加 `--delete`。 | 首次 0，目标含 `a.txt` 且哈希一致。第二次 2，报告单文件不支持 `--delete`，前后清单不变。 |
 

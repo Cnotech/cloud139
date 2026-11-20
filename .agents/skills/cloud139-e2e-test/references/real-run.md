@@ -32,9 +32,11 @@ done
 cd "$LOCAL/work"
 c139() {
     local options=()
-    if [[ -n ${EXECUTE_LIST_LIMIT:-} ]]; then
-        options+=(--execute-list-limit "$EXECUTE_LIST_LIMIT")
-    fi
+    local limits=() limit
+    read -r -a limits <<< "${REQUEST_LIMITS:-}"
+    for limit in "${limits[@]}"; do
+        options+=(--request-limit "$limit")
+    done
     env HOME="$LOCAL/home" XDG_CONFIG_HOME="$LOCAL/home/.config" USERPROFILE="$LOCAL/home" \
         python3 "$REQUEST_LOGS" run --directory "$LOG_DIR" --bin "$BIN" --config "$CONFIG" \
         --case "${CASE_ID:?请登记用例编号}" --purpose "${PURPOSE:-case}" \
@@ -66,9 +68,11 @@ python3 "$TOOL" compare "$LOCAL/manifests/tree.json" "$LOCAL/manifests/actual-tr
 
 ## 日志收集与分析
 
-用例表里的 `c139` 命令继承当前用例的 `CASE_ID`。准备、轮询、核验和清理分别登记 `PURPOSE=setup/poll/verify/cleanup`。预期失败的命令登记 `EXPECTED_EXIT`，例如 `CASE_ID=2.6 EXPECTED_EXIT=1 c139 ls "$CLOUD/s02/not-created"`。自定义运行器也调用 `request_logs.py run`，使用同一个 `LOG_DIR`。运行器只登记用例、用途、命令名和退出码，保留 CLI 的 stdout 和 stderr。
+用例表里的 `c139` 命令继承当前用例的 `CASE_ID`。被测命令登记 `PURPOSE=case`，准备、轮询、核验和清理分别登记 `PURPOSE=setup/poll/verify/cleanup`。例如，用来测试分页的 `ls` 是被测命令，用来确认上传结果的 `ls` 是核验。预期失败的命令登记 `EXPECTED_EXIT`，例如 `CASE_ID=2.6 EXPECTED_EXIT=1 c139 ls "$CLOUD/s02/not-created"`。自定义运行器也调用 `request_logs.py run`，使用同一个 `LOG_DIR`。运行器登记用例、用途、命令名、退出码和请求预算，保留 CLI 的 stdout 和 stderr。
 
-`--log-file` 每次新建文件。运行器在本轮的 `$REPO/logs/cloud139-e2e-*` 中为每条命令分配独立路径，避免并行覆盖。将有已知预算的用例提前登记，例如未变化文件的校验同步使用 `EXECUTE_LIST_LIMIT=0`，限制执行阶段的 `/file/list`。传输和同步夹具放在临时工作目录，目录列表等命令输出可保存在 `$LOCAL/logs`。
+`--log-file` 每次新建文件。运行器在本轮的 `$REPO/logs/cloud139-e2e-*` 中为每条命令分配独立路径，避免并行覆盖。传输和同步夹具放在临时工作目录，目录列表等命令输出可保存在 `$LOCAL/logs`。
+
+根据用例的路径层级、分页和实际读写步骤预先登记请求上限。包装器通过 `REQUEST_LIMITS` 接收以空格分隔的 `ENDPOINT=N` 或 `PHASE:ENDPOINT=N`。例如，`execute:/file/list=0` 限制未变化校验的执行阶段，`/file/batchCopy=1` 限制一次批量复制的写请求。自定义运行器可重复传 `--request-limit`。
 
 等所有阶段的 CLI 调用结束，包括清理与最后一次轮询，再运行汇总脚本。
 
@@ -76,7 +80,7 @@ python3 "$TOOL" compare "$LOCAL/manifests/tree.json" "$LOCAL/manifests/actual-tr
 python3 "$REQUEST_LOGS" analyze --directory "$LOG_DIR"
 ```
 
-脚本输出 `combined.log` 和 `analysis.json`。报告前核对台账和日志覆盖，检查异常退出、日志缺失、警告、错误、失败或未结束的 HTTP 请求以及 429。将预期拒绝、已恢复的重试与异常分开。按用例、阶段和端点核对请求数、P95 耗时与每秒峰值。对照夹具中的文件数、目录分页、写入复核和轮询用途，定位逐文件重复列举或意外请求突发。已知频率预算时可传 `--peak-limit`。频率峰值用于定位问题，服务端限流以 HTTP 429 等实际证据确认。
+脚本将全部命令日志写入 `combined.log`，并在 `analysis.json` 中只分析 `PURPOSE=case`。报告前核对台账和日志覆盖。对每条被测命令，优先核对各端点的请求总数与预算，检查逐文件重复列举、重复写入和异常重试。没有预设预算时，按用例的目录分页、路径解析和写入前后复核逐项解释请求。将预期拒绝、已恢复的重试和异常分开。P95 和每秒峰值辅助定位，服务端限流以 HTTP 429 等实际证据确认。
 
 报告写明本轮日志目录、日志覆盖、发现及判定依据。脱敏后的 `combined.log` 和 `analysis.json` 保留在本轮日志目录，归档前检查凭据或签名链接。
 

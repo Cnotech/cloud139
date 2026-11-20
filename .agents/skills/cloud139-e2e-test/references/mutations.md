@@ -11,7 +11,7 @@
 | 6.1 | 创建空目标 `"$CP/dest-single"`。 | 0，轮询确认。 |
 | 6.2 | 将目录源复制到 `dest-single`。 | 0，源仍在，目标 `dest-single/tree` 的清单一致。 |
 | 6.3 | 单独创建空目标 `"$CP/dest-multi"`。 | 0，目标为空。 |
-| 6.4 | 在一次命令中复制 `files/a.txt` 和 `files/b.txt` 到 `dest-multi`。 | 0，源与目标均有对应文件，哈希一致。 |
+| 6.4 | 以 `REQUEST_LIMITS='/file/batchCopy=1'` 在一次命令中复制 `files/a.txt` 和 `files/b.txt` 到 `dest-multi`。 | 0，源与目标均有对应文件，哈希一致。日志中批量复制请求最多 1 次。 |
 | 6.5 | 复制目录到自身，再加 `--force` 复制到其 `nested`。 | 均为 1，源不变。 |
 | 6.6 | 用 `files/blocker.bin` 和另一个缺失路径分别作目标。 | 均为 1，源与目标状态不变。 |
 | 6.7 | 在独立目标放同名非空 `tree`，再用 `--force` 复制目录源过去。 | 1，两个目录清单不变。 |
@@ -45,7 +45,7 @@
 | --- | --- | --- |
 | 8.1 | `c139 mv "$MV/source/tree" "$MV/dest-dir"` | 0，旧路径消失，目标 `dest-dir/tree` 出现。 |
 | 8.2 | 列出并下载 8.1 的目标。 | 哈希、多层目录和空目录与夹具一致。 |
-| 8.3 | 同时将 `files/a.txt`、`files/b.txt` 移到 `dest-multi`。 | 0，两个源消失，目标哈希一致。 |
+| 8.3 | 以 `REQUEST_LIMITS='/file/batchMove=1'` 同时将 `files/a.txt`、`files/b.txt` 移到 `dest-multi`。 | 0，两个源消失，目标哈希一致。日志中批量移动请求最多 1 次。 |
 | 8.4 | 将 `conflict-source/tree` 移到自身及其 `nested`，再检查 `--force` 变体。 | 均为 1，目录清单不变。 |
 | 8.5 | 用 `files/blocker.bin` 和缺失路径分别作目标。 | 均为 1，源与目标状态不变。 |
 | 8.6 | 将 `same-source/a.txt` 移到 `same-name`。 | 1，源和目标哈希不变。 |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""为每次 cloud139 调用收集日志，并汇总整轮请求与异常。"""
+"""归档整轮 cloud139 日志，分析用例主命令的请求。"""
 
 import argparse
 from collections import Counter, defaultdict
@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -34,6 +35,7 @@ def run(args):
         "command": next((value for value in argv if value in COMMANDS), "unknown"),
         "expected_exit": args.expected_exit,
         "execute_list_limit": args.execute_list_limit,
+        "request_limits": args.request_limit,
         "started_ms": time.time_ns() // 1_000_000,
         "exit": None,
     }
@@ -63,12 +65,15 @@ def peak_per_second(timestamps):
     return peak
 
 
-def read_invocation(directory, metadata, merged, endpoint_stats, findings):
-    invocation = directory.name
+def archive_header(directory, metadata, merged):
     merged.write(
-        f"\n--- invocation={invocation} case={metadata['case']} "
+        f"\n--- invocation={directory.name} case={metadata['case']} "
         f"purpose={metadata['purpose']} command={metadata['command']} exit={metadata['exit']} ---\n"
     )
+
+
+def read_case(directory, metadata, merged, endpoint_stats, findings):
+    invocation = directory.name
 
     def flag(kind, **details):
         findings.append({"invocation": invocation, "case": metadata["case"], "kind": kind, **details})
@@ -147,16 +152,33 @@ def read_invocation(directory, metadata, merged, endpoint_stats, findings):
     if levels["warn"] or levels["error"]:
         flag("diagnostics", warnings=levels["warn"], errors=levels["error"],
              expected_failure=metadata["exit"] == metadata["expected_exit"] != 0)
-    execute_lists = counts[("execute", "/file/list")]
-    limit = metadata["execute_list_limit"]
-    if limit is not None:
-        if "execute" not in completed_phases:
-            flag("missing_execute_phase")
-        if execute_lists > limit:
-            flag("execute_list_limit", endpoint="/file/list", count=execute_lists, limit=limit)
+    limits = list(metadata.get("request_limits", []))
+    if (limit := metadata.get("execute_list_limit")) is not None:
+        limits.append({"phase": "execute", "endpoint": "/file/list", "limit": limit})
+    checked = []
+    for limit in limits:
+        phase, endpoint = limit["phase"], limit["endpoint"]
+        actual = (
+            sum(count for (_, label), count in counts.items() if label == endpoint)
+            if phase is None
+            else counts[(phase, endpoint)]
+        )
+        result = {**limit, "count": actual}
+        if actual > limit["limit"]:
+            flag("request_limit", **result)
+            status = "exceeded"
+        elif not path.is_file() or metadata["exit"] is None:
+            status = "unverified"
+        elif phase in ("scan", "execute") and phase not in completed_phases:
+            flag("missing_budget_phase", **limit)
+            status = "unverified"
+        else:
+            status = "passed"
+        checked.append({**result, "status": status})
     return {
         "invocation": invocation,
         **metadata,
+        "request_budget_results": checked,
         "requests": [
             {"phase": phase, "endpoint": endpoint, "count": count,
              "peak_requests_in_one_second": peak_per_second(timestamps[(phase, endpoint)])}
@@ -167,24 +189,36 @@ def read_invocation(directory, metadata, merged, endpoint_stats, findings):
 
 def analyze(args):
     invocations = []
-    findings = []
+    capture_issues = []
     for directory in args.directory.glob("cmd-*"):
         try:
             metadata = json.loads((directory / "invocation.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            findings.append({"invocation": directory.name, "kind": "missing_or_invalid_metadata"})
+            capture_issues.append(
+                {"invocation": directory.name, "kind": "missing_or_invalid_metadata"}
+            )
             continue
         invocations.append((directory, metadata))
-    if not invocations and not findings:
+    if not invocations and not capture_issues:
         raise ValueError("本轮没有已登记的 CLI 调用")
     stats = defaultdict(
         lambda: {"timestamps": [], "durations": [], "status": Counter(), "outcomes": Counter()}
     )
+    findings = []
+    runs = []
+    by_purpose = Counter()
     with (args.directory / "combined.log").open("w", encoding="utf-8") as merged:
-        runs = [
-            read_invocation(directory, metadata, merged, stats, findings)
-            for directory, metadata in sorted(invocations, key=lambda pair: pair[1]["started_ms"])
-        ]
+        for directory, metadata in sorted(invocations, key=lambda pair: pair[1]["started_ms"]):
+            purpose = metadata["purpose"]
+            by_purpose[purpose] += 1
+            archive_header(directory, metadata, merged)
+            if purpose == "case":
+                runs.append(read_case(directory, metadata, merged, stats, findings))
+            else:
+                path = directory / "cli.log"
+                if path.is_file():
+                    with path.open(encoding="utf-8", errors="replace") as log:
+                        shutil.copyfileobj(log, merged)
     endpoints = {}
     for endpoint, data in sorted(stats.items()):
         durations = sorted(data["durations"])
@@ -201,8 +235,15 @@ def analyze(args):
             findings.append({"kind": "peak_limit", "endpoint": endpoint, "count": peak,
                              "limit": args.peak_limit})
     path = args.directory / "analysis.json"
-    save_json(path, {"invocations": runs, "endpoints": endpoints, "findings": findings})
-    print(f"分析完成，共 {len(runs)} 次 CLI 调用，{len(findings)} 条待核对记录。")
+    save_json(path, {
+        "scope": "case",
+        "capture": {"by_purpose": by_purpose, "issues": capture_issues},
+        "invocations": runs,
+        "endpoints": endpoints,
+        "findings": findings,
+    })
+    print(f"已归档 {len(invocations)} 次 CLI 调用，分析 {len(runs)} 次用例主命令，"
+          f"{len(findings)} 条待核对记录。")
     print(path)
     return 0
 
@@ -212,6 +253,14 @@ def nonnegative(value):
     if parsed < 0:
         raise argparse.ArgumentTypeError("数值须为非负整数")
     return parsed
+
+
+def request_limit(value):
+    match = re.fullmatch(r"(?:(scan|execute|command):)?([/a-zA-Z0-9_.-]+)=([0-9]+)", value)
+    if match is None:
+        raise argparse.ArgumentTypeError("请求预算须为 ENDPOINT=N 或 PHASE:ENDPOINT=N")
+    phase, endpoint, limit = match.groups()
+    return {"phase": phase, "endpoint": endpoint, "limit": int(limit)}
 
 
 def main():
@@ -225,6 +274,7 @@ def main():
     capture.add_argument("--purpose", choices=("case", "setup", "poll", "verify", "cleanup"), default="case")
     capture.add_argument("--expected-exit", type=nonnegative, default=0)
     capture.add_argument("--execute-list-limit", type=nonnegative)
+    capture.add_argument("--request-limit", action="append", type=request_limit, default=[])
     capture.add_argument("command_args", nargs=argparse.REMAINDER)
     summary = subparsers.add_parser("analyze")
     summary.add_argument("--directory", type=Path, required=True)
