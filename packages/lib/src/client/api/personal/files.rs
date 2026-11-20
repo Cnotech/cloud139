@@ -83,7 +83,7 @@ impl PersonalClient<'_> {
 
     async fn transfer_files(
         &self,
-        endpoint: &str,
+        endpoint: &'static str,
         file_ids: &[String],
         target_id: &str,
     ) -> Result<(), ClientError> {

@@ -3,10 +3,11 @@ use crate::error::ClientError;
 use crate::protocol;
 use crate::utils::crypto::{generate_rand_str, md5_hash};
 use reqwest::{
-    Client, ClientBuilder, RequestBuilder,
+    Client, ClientBuilder, RequestBuilder, StatusCode,
     header::{HeaderMap, HeaderValue},
 };
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 type SignedHeaderBuilder = fn(&str, &str, &str, &str) -> Result<HeaderMap, ClientError>;
 
@@ -47,12 +48,74 @@ impl HttpClientWrapper {
         &self,
         authorization: &str,
         url: &str,
+        endpoint: &'static str,
         body: &serde_json::Value,
         build_headers: SignedHeaderBuilder,
     ) -> Result<T, ClientError> {
-        let request = build_signed_post(authorization, url, body, &self.client, build_headers)?;
-        debug!("发送签名请求 method=POST url={}", url);
-        Ok(request.send().await?.error_for_status()?.json().await?)
+        let request = build_signed_post(authorization, url, body, &self.client, build_headers)?
+            .build()
+            .map_err(reqwest::Error::without_url)?;
+        let trace = RequestTrace::start("POST", endpoint);
+        let mut status = None;
+        let result = async {
+            let response = self.client.execute(request).await?;
+            status = Some(response.status());
+            response.error_for_status()?.json().await
+        }
+        .await;
+        trace.finish(status, &result);
+        Ok(result.map_err(reqwest::Error::without_url)?)
+    }
+}
+
+pub(super) struct RequestTrace {
+    method: &'static str,
+    endpoint: &'static str,
+    started: Option<(u64, Instant)>,
+}
+
+impl RequestTrace {
+    /// 端点使用协议常量或固定标签，避免记录请求 URL。
+    pub(super) fn start(method: &'static str, endpoint: &'static str) -> Self {
+        static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+        let started = if log::log_enabled!(target: "cloud139::debug", log::Level::Debug) {
+            let id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+            debug!(
+                "开始 API 请求 event=http_request_start request_id={id} method={method} endpoint={endpoint}"
+            );
+            Some((id, Instant::now()))
+        } else {
+            None
+        };
+        Self {
+            method,
+            endpoint,
+            started,
+        }
+    }
+
+    pub(super) fn finish<T>(self, status: Option<StatusCode>, result: &Result<T, reqwest::Error>) {
+        let outcome = match result {
+            Ok(_) => "ok",
+            Err(error) if error.is_timeout() => "timeout",
+            Err(error) if error.is_connect() => "connect_error",
+            Err(error) if error.is_status() => "http_error",
+            Err(error) if error.is_decode() => "decode_error",
+            Err(_) => "transport_error",
+        };
+        self.record(status, outcome);
+    }
+
+    pub(super) fn record(self, status: Option<StatusCode>, outcome: &'static str) {
+        if let Some((id, started)) = self.started {
+            let status = status.map_or_else(|| "-".to_owned(), |code| code.as_u16().to_string());
+            debug!(
+                "结束 API 请求 event=http_request_end request_id={id} method={} endpoint={} status={status} elapsed_ms={:.3} outcome={outcome}",
+                self.method,
+                self.endpoint,
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
     }
 }
 

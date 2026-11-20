@@ -135,6 +135,16 @@ cloud139 rm -r --yes /a
 |------|------|--------|------|
 | --verbose | -v | info | 在子命令前使用 `-v debug` 开启调试日志 |
 | --config | -c | - | 仅使用指定的配置文件。`login` 将配置写入该路径 |
+| --log-file | - | - | 新建文件并写入调试日志，可放在子命令前后 |
+
+`--log-file` 需要指定一个尚不存在的文件，父目录须已存在。日志路径应与配置、命令输出及本地传输目录分开。文件记录调试日志，终端仍由 `-v` 控制。`sync --json` 继续在 stdout 只输出一行 JSON。
+
+```bash
+# 记录同步扫描与执行阶段的 API 请求
+cloud139 sync ./source cloud:/backup --verify --json --log-file /tmp/cloud139-verify.log
+```
+
+日志字段与计数方式见 [日志与输出](docs/logging.md)。
 
 ## 命令参考
 

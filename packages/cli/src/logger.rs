@@ -1,5 +1,8 @@
-use std::sync::OnceLock;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[macro_export]
 macro_rules! info {
@@ -39,7 +42,7 @@ macro_rules! step {
 #[macro_export]
 macro_rules! debug {
     ($($arg:tt)*) => {
-        if $crate::logger::is_debug() {
+        if $crate::logger::debug_enabled() {
             $crate::logger::status("90", "debug", format_args!($($arg)*))
         }
     };
@@ -54,6 +57,11 @@ macro_rules! print {
 
 static VERBOSE_DEBUG: OnceLock<bool> = OnceLock::new();
 static STATUS_TO_STDERR: AtomicBool = AtomicBool::new(false);
+static LOG_FILE: OnceLock<Mutex<Option<BufWriter<File>>>> = OnceLock::new();
+
+pub(crate) fn init_file(file: File) {
+    LOG_FILE.set(Mutex::new(Some(BufWriter::new(file)))).ok();
+}
 
 pub(crate) fn route_status_to_stderr() {
     STATUS_TO_STDERR.store(true, Ordering::Relaxed);
@@ -61,6 +69,22 @@ pub(crate) fn route_status_to_stderr() {
 
 #[doc(hidden)]
 pub(crate) fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>) {
+    write_file(|file| {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        // 服务端的错误详情可能包含敏感数据，文件保留级别与请求诊断。
+        let message = match level {
+            "error" => "操作失败，详情见终端".to_owned(),
+            "warn" => "操作警告，详情见终端".to_owned(),
+            _ => message.to_string().replace(['\r', '\n', '\x1b'], " "),
+        };
+        writeln!(file, "ts_ms={timestamp} {level} {message}")
+    });
+    if level == "debug" && !is_debug() {
+        return;
+    }
     crate::presentation::progress::suspend(|| {
         if level == "error" || STATUS_TO_STDERR.load(Ordering::Relaxed) {
             anstream::eprintln!("\x1b[{color}m{level}\x1b[0m {message}");
@@ -68,6 +92,21 @@ pub(crate) fn status(color: &str, level: &str, message: std::fmt::Arguments<'_>)
             anstream::println!("\x1b[{color}m{level}\x1b[0m {message}");
         }
     });
+}
+
+fn write_file(write: impl FnOnce(&mut BufWriter<File>) -> io::Result<()>) {
+    if let Some(sink) = LOG_FILE.get()
+        && let Ok(mut sink) = sink.lock()
+        && let Some(file) = sink.as_mut()
+        && let Err(error) = write(file)
+    {
+        *sink = None;
+        anstream::eprintln!("无法写入日志文件: {error}");
+    }
+}
+
+pub(crate) fn flush_file() {
+    write_file(Write::flush);
 }
 
 pub(crate) fn init_verbose(level: &str) {
@@ -79,10 +118,14 @@ pub(crate) fn is_debug() -> bool {
     *VERBOSE_DEBUG.get().unwrap_or(&false)
 }
 
+pub(crate) fn debug_enabled() -> bool {
+    is_debug() || LOG_FILE.get().is_some()
+}
+
 pub(crate) fn init_core_logger() {
     static LOGGER: CoreLogger = CoreLogger;
     if log::set_logger(&LOGGER).is_ok() {
-        log::set_max_level(if is_debug() {
+        log::set_max_level(if debug_enabled() {
             log::LevelFilter::Debug
         } else {
             log::LevelFilter::Info
@@ -110,7 +153,9 @@ impl log::Log for CoreLogger {
         status(color, label, *record.args());
     }
 
-    fn flush(&self) {}
+    fn flush(&self) {
+        flush_file();
+    }
 }
 
 #[cfg(test)]

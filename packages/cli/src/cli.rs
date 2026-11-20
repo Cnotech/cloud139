@@ -16,6 +16,10 @@ pub(crate) struct Cli {
     /// 指定配置文件路径 (覆盖默认查找顺序)
     #[arg(short, long, global = true, value_name = "PATH")]
     pub(crate) config: Option<PathBuf>,
+
+    /// 新建文件并写入调试日志
+    #[arg(long, global = true, value_name = "PATH")]
+    pub(crate) log_file: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]

@@ -33,10 +33,13 @@ pub(super) async fn execute(
     request: SyncRequest,
     config: Config,
 ) -> anyhow::Result<()> {
-    let plan = request
-        .plan(config, args.json)
-        .await
-        .map_err(|error| CommandExit::new(2, error.to_string()))?;
+    crate::debug!("开始同步扫描 event=sync_phase_start phase=scan");
+    let plan = request.plan(config, args.json).await;
+    crate::debug!(
+        "结束同步扫描 event=sync_phase_end phase=scan ok={}",
+        plan.is_ok()
+    );
+    let plan = plan.map_err(|error| CommandExit::new(2, error.to_string()))?;
     if args.dry_run {
         print_plan(plan.actions());
     }
@@ -45,7 +48,13 @@ pub(super) async fn execute(
     } else {
         None
     };
-    let outcome = plan.execute_with_progress(progress).await?;
+    crate::debug!("开始同步执行 event=sync_phase_start phase=execute");
+    let outcome = plan.execute_with_progress(progress).await;
+    crate::debug!(
+        "结束同步执行 event=sync_phase_end phase=execute ok={}",
+        outcome.as_ref().is_ok_and(|result| result.failed() == 0)
+    );
+    let outcome = outcome?;
     let failed = outcome.failed();
     print_outcome(outcome, &args.src, &args.dest, args.dry_run, args.json)?;
     if !args.dry_run && failed > 0 {

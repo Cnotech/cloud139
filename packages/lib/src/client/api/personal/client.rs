@@ -67,11 +67,16 @@ impl<'a> PersonalClient<'a> {
 
     pub(in crate::client::api) async fn request<T: for<'de> serde::Deserialize<'de>>(
         &self,
-        endpoint: &str,
+        endpoint: &'static str,
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
         self.http_client
-            .personal_request(self.config, &format!("{}{endpoint}", self.host), body)
+            .personal_request(
+                self.config,
+                &format!("{}{endpoint}", self.host),
+                endpoint,
+                body,
+            )
             .await
     }
 }
@@ -95,7 +100,7 @@ impl HttpClientWrapper {
         config: PersonalConfig<&Config>,
     ) -> Result<String, ClientError> {
         if let Some(ref host) = config.personal_cloud_host {
-            debug!("使用缓存的个人云地址 host={}", host);
+            debug!("使用缓存的个人云地址");
             return Ok(host.clone());
         }
 
@@ -111,7 +116,7 @@ impl HttpClientWrapper {
         .map(|p| p.https_url.unwrap_or_default())
         .ok_or_else(|| ClientError::Other("未找到个人云地址".into()))?;
 
-        debug!("已解析个人云地址 host={}", host);
+        debug!("已解析个人云地址");
         Ok(host)
     }
 
@@ -121,7 +126,7 @@ impl HttpClientWrapper {
         url: &str,
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
-        self.personal_request(PersonalConfig::new(config)?, url, body)
+        self.personal_request(PersonalConfig::new(config)?, url, "personal_api", body)
             .await
     }
 
@@ -129,9 +134,16 @@ impl HttpClientWrapper {
         &self,
         config: PersonalConfig<&Config>,
         url: &str,
+        endpoint: &'static str,
         body: &serde_json::Value,
     ) -> Result<T, ClientError> {
-        self.signed_post(&config.authorization, url, body, build_personal_headers)
-            .await
+        self.signed_post(
+            &config.authorization,
+            url,
+            endpoint,
+            body,
+            build_personal_headers,
+        )
+        .await
     }
 }

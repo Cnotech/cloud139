@@ -1,6 +1,6 @@
 use super::client::PersonalClient;
 use crate::client::api::response::format_api_error;
-use crate::client::http::{HttpClientWrapper, insert_static_headers};
+use crate::client::http::{HttpClientWrapper, RequestTrace, insert_static_headers};
 use crate::error::ClientError;
 use crate::protocol;
 use futures_util::{Stream, StreamExt};
@@ -25,14 +25,18 @@ pub(crate) struct DownloadLink<'a> {
 impl DownloadLink<'_> {
     pub(crate) async fn open(&self) -> Result<DownloadContent, ClientError> {
         // 下载链接带签名，错误中不能包含 URL。
-        let response = self
+        let request = self
             .client
             .client
             .get(&self.url)
-            .send()
-            .await
-            .and_then(Response::error_for_status)
+            .build()
             .map_err(reqwest::Error::without_url)?;
+        let trace = RequestTrace::start("GET", "cdn_download");
+        let response = self.client.client.execute(request).await;
+        let status = response.as_ref().ok().map(Response::status);
+        let response = response.and_then(Response::error_for_status);
+        trace.finish(status, &response);
+        let response = response.map_err(reqwest::Error::without_url)?;
         Ok(DownloadContent { response })
     }
 
@@ -133,10 +137,13 @@ pub(crate) async fn put_upload_part(
         .put(url)
         .headers(build_upload_part_headers(size))
         .body(Body::wrap_stream(stream))
-        .send();
-    let response = with_upload_idle_timeout(request, &activity)
+        .build()
+        .map_err(reqwest::Error::without_url)?;
+    let trace = RequestTrace::start("PUT", "cdn_upload_part");
+    let response = with_upload_idle_timeout(client.client.execute(request), &activity)
         .await
         .map_err(|_| {
+            // 分片的空闲计时器独立于 reqwest 的请求超时。
             io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
@@ -144,24 +151,25 @@ pub(crate) async fn put_upload_part(
                     UPLOAD_IDLE_TIMEOUT.as_secs()
                 ),
             )
-        })?
-        .map_err(|error| {
-            crate::debug!(
-                "发送上传分片请求失败 part={} connect={} timeout={}",
-                part_number,
-                error.is_connect(),
-                error.is_timeout()
-            );
-            error.without_url()
-        })?;
+        });
+    let response = match response {
+        Ok(result) => result,
+        Err(error) => {
+            trace.record(None, "timeout");
+            return Err(error.into());
+        }
+    };
 
-    let status = response.status();
-    if status != StatusCode::OK {
+    let status = response.as_ref().ok().map(Response::status);
+    if let Some(status) = status.filter(|status| *status != StatusCode::OK) {
+        trace.record(Some(status), "http_error");
         return Err(ClientError::Api(format!(
             "分片 {part_number} 上传失败: HTTP {}",
             status.as_u16()
         )));
     }
+    trace.finish(status, &response);
+    response.map_err(reqwest::Error::without_url)?;
     Ok(())
 }
 

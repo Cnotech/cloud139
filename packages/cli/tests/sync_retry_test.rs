@@ -55,7 +55,7 @@ fn write_config(dir: &std::path::Path, host: &str) -> std::path::PathBuf {
     path
 }
 
-/// 列目录第一次 500、第二次 200：sync 应当就地重试并成功，退出码 0。
+/// 列目录第一次断连、第二次 200：sync 应当就地重试并记录两次请求。
 #[test]
 fn sync_retries_list_request_and_succeeds() {
     let (host, hits) = spawn_flaky_server();
@@ -63,8 +63,11 @@ fn sync_retries_list_request_and_succeeds() {
     let config = write_config(tmp.path(), &host);
     let empty_local = tmp.path().join("empty");
     std::fs::create_dir_all(&empty_local).expect("dir");
+    let log = tmp.path().join("requests.log");
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
+        .arg("--log-file")
+        .arg(&log)
         .arg("-c")
         .arg(&config)
         .arg("sync")
@@ -89,8 +92,13 @@ fn sync_retries_list_request_and_succeeds() {
     assert_eq!(
         hits.load(Ordering::SeqCst),
         2,
-        "应当正好重试一次：首次 500 + 重试 200"
+        "应当正好重试一次：首次断连 + 重试 200"
     );
+    let log = std::fs::read_to_string(log).unwrap();
+    assert_eq!(log.matches("event=http_request_start").count(), 2);
+    assert_eq!(log.matches("event=http_request_end").count(), 2);
+    assert!(log.contains("endpoint=/file/list status=200"));
+    assert!(!combined.contains("event=http_request_start"));
 }
 
 /// 所有请求都返回同一段 JSON（验证确定性错误不重试）。
@@ -126,8 +134,11 @@ fn sync_does_not_retry_incompatible_json() {
     let config = write_config(tmp.path(), &host);
     let empty_local = tmp.path().join("empty");
     std::fs::create_dir_all(&empty_local).expect("dir");
+    let log = tmp.path().join("requests.log");
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_cloud139"))
+        .arg("--log-file")
+        .arg(&log)
         .arg("-c")
         .arg(&config)
         .arg("sync")
@@ -146,4 +157,9 @@ fn sync_does_not_retry_incompatible_json() {
         1,
         "解码错误不应重试，只应请求一次"
     );
+    let log = std::fs::read_to_string(log).unwrap();
+    assert_eq!(log.matches("event=http_request_start").count(), 1);
+    assert_eq!(log.matches("event=http_request_end").count(), 1);
+    assert!(log.contains("endpoint=/file/list status=200"));
+    assert!(log.contains("outcome=decode_error"));
 }

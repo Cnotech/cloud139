@@ -1,4 +1,4 @@
-use crate::client::http::insert_static_headers;
+use crate::client::http::{RequestTrace, insert_static_headers};
 use crate::config::{Config, personal::PersonalConfig};
 use crate::debug;
 use crate::error::ClientError;
@@ -39,7 +39,7 @@ async fn refresh_personal_token(
     config: PersonalConfig<&Config>,
     options: RefreshOptions<'_>,
 ) -> Result<Config, ClientError> {
-    debug!("开始续期 Token account={}", config.account);
+    debug!("开始续期 Token");
 
     // 注意：不要在这里做过期判断。refresh token 在 authorization 过期后仍然有效，
     // 正是靠它来换取新 token；提前判死会让唯一能自愈的路径失效。
@@ -131,14 +131,26 @@ async fn request_refresh(
 ) -> Result<RefreshedToken, ClientError> {
     let url = options.endpoint.unwrap_or(protocol::AUTH_TOKEN_REFRESH_URL);
     let client = refresh_http_client(options.timeout)?;
-    let text = client
+    let request = client
         .post(url)
         .headers(build_refresh_headers())
         .body(build_refresh_body(account, token))
-        .send()
-        .await?
-        .text()
-        .await?;
+        .build()
+        .map_err(reqwest::Error::without_url)?;
+    let trace = RequestTrace::start("POST", "token_refresh");
+    let mut status = None;
+    let result = async {
+        let response = client.execute(request).await?;
+        status = Some(response.status());
+        response.text().await
+    }
+    .await;
+    if status.is_some_and(|code| code.is_client_error() || code.is_server_error()) {
+        trace.record(status, "http_error");
+    } else {
+        trace.finish(status, &result);
+    }
+    let text = result.map_err(reqwest::Error::without_url)?;
     parse_refresh_response(&text)
 }
 
