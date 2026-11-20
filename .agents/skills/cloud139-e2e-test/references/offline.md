@@ -46,7 +46,7 @@ cargo test --locked --offline -p cloud139 --test download_dir_paging_test --test
 | 用例 | 覆盖与定位 |
 | --- | --- |
 | 13.7 | `cargo test --locked --offline -p cloud139-cli --bin cloud139 sync_args_test` 核对并发、方向和 JSON 参数。再跑 `storage_support_test` 中的 `invalid_command_arguments_are_rejected_before_token_refresh`，覆盖 `--verify` 方向、并发和非法排除规则。 |
-| 13.10 | 目录测试的 `verified_sync` 用例覆盖缺哈希回退、同大小修复、空源清理拒绝、发布前校验、重新核对保留/删除对象及远端竞态。`pc_sync`、`ordinary_sync` 用例覆盖保留恢复副本与祖先、目录替换范围、按扫描 ID 清理和先子后父。 |
+| 13.10 | 目录测试的 `verified_sync` 用例覆盖 302 个未变化文件在执行阶段零列表请求、缺哈希时按 ID 读取一次、拒绝哈希与文件名不符的内容寻址对象、同大小修复、空源清理拒绝、发布前校验、清理前复核保留/删除对象及远端竞态。`pc_sync`、`ordinary_sync` 用例覆盖保留恢复副本与祖先、目录替换范围、按扫描 ID 清理和先子后父。 |
 | 13.11 | 目录测试的 `sync_json` 用例核对计划和实际变更、部分失败跳过清理，以及发布成功但备份回收失败时仍报告已发布文件。`sync_retry_test` 核对暂时性列表错误可以恢复、JSON 不兼容时没有无效重试。 |
 
 阶段 13 可以单独运行。缺少断言时记为待补用例，已有源码行为说明也不能作为测试已通过的证据。

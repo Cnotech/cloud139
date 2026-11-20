@@ -50,19 +50,7 @@ pub(super) async fn upload_sync_to_parent(
     } = plan;
     let file_size = checked_upload_size(local_path)?;
     remote_path::validate_name(file_name)?;
-    // --verify 发布内容寻址对象（64-hex 文件名）前，先确认本地内容哈希与文件名一致；
-    // 不一致说明本地内容已损坏，直接失败并保留远端旧副本（此时还没创建任何远端对象）。
     let verify_content_addressed = hash_missing.is_some() && is_sha256_hex(file_name);
-    if verify_content_addressed {
-        let path = local_path.to_path_buf();
-        let local_hash =
-            tokio::task::spawn_blocking(move || crate::utils::crypto::calc_file_sha256(&path))
-                .await??;
-        anyhow::ensure!(
-            local_hash.eq_ignore_ascii_case(file_name),
-            "内容寻址对象 {file_name} 的实际内容哈希 {local_hash} 与文件名不一致，已保留远端旧副本"
-        );
-    }
     let temporary_name = format!("{SYNC_UPLOAD_PREFIX}{}", generate_rand_str(24));
     let client = HttpClientWrapper::new();
     let personal = PersonalClient::with_host(config, host, &client, ListingRetry::None);
@@ -94,6 +82,14 @@ pub(super) async fn upload_sync_to_parent(
         replace_directory_id.is_none() || scan.is_some(),
         "替换目录需要扫描记录"
     );
+    if hash_missing.is_some() {
+        dirs::confirm_directory(
+            &personal.with_listing_retry(SYNC_LIST_RETRY),
+            remote_parent,
+            parent_id,
+        )
+        .await?;
+    }
     let uploaded = transfer_to_parent(
         &personal,
         local_path,

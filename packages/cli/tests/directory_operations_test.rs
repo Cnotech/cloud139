@@ -491,11 +491,18 @@ fn verified_sync_reports_known_and_streamed_content_matches_without_writes() {
         assert_eq!(report["hashMissing"], usize::from(!publish_hash));
         assert_eq!(report["changes"], json!([]));
         assert!(server.mutations().is_empty());
+        let state = server.state.lock().unwrap();
         assert_eq!(
-            server
-                .state
-                .lock()
-                .unwrap()
+            state
+                .requests
+                .iter()
+                .filter(|(path, _)| path == "/file/list")
+                .count(),
+            1,
+            "校验只列举初始扫描所需的目录"
+        );
+        assert_eq!(
+            state
                 .requests
                 .iter()
                 .filter(|(path, _)| path == "/file/getDownloadUrl")
@@ -803,6 +810,37 @@ fn verified_sync_rejects_corrupt_content_addressed_local_file_and_keeps_remote()
             .any(|item| item["fileId"] == "extra"),
         "删除闸门必须关闭，多余文件不能删"
     );
+}
+
+#[test]
+fn verified_sync_rejects_matching_content_that_disagrees_with_its_name() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let name = hash_bytes(b"good");
+    let bytes = b"bad!";
+    server.set("/", vec![verified_file("old", &name, bytes, true)]);
+    let source = root.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join(&name), bytes).unwrap();
+    let report = sync_report(
+        server
+            .cli(root.path())
+            .arg("sync")
+            .arg(&source)
+            .args(["cloud:/", "--verify", "--json"])
+            .output()
+            .unwrap(),
+        1,
+    );
+    assert_eq!(report["skipped"], 0);
+    assert_eq!(report["failures"][0]["path"], name);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("与文件名不一致")
+    );
+    assert!(server.mutations().is_empty());
 }
 
 #[test]
@@ -2377,11 +2415,94 @@ fn cloud_file_is_preserved_when_local_directory_has_the_same_name() {
 }
 
 #[test]
-fn verified_sync_rechecks_matches_even_without_delete() {
+fn verified_sync_unchanged_files_only_list_during_the_scan() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let nested = source.join("nested");
+    std::fs::create_dir_all(&nested).unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("nested-id", "nested")]);
+    let bytes = b"unchanged";
+    let mut files = Vec::new();
+    for index in 0..302 {
+        let name = format!("object-{index:03}.bin");
+        std::fs::write(nested.join(&name), bytes).unwrap();
+        files.push(verified_file(&format!("id-{index}"), &name, bytes, true));
+    }
+    server.set("nested-id", files);
+    let report = sync_report(
+        server
+            .cli(root.path())
+            .arg("sync")
+            .arg(&source)
+            .args(["cloud:/backup", "-r", "--verify", "--json", "--delete"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(report["skipped"], 302);
+    assert_eq!(report["changes"], json!([]));
+    let state = server.state.lock().unwrap();
+    let pages: Vec<_> = state
+        .requests
+        .iter()
+        .map(|(path, body)| {
+            assert_eq!(path, "/file/list");
+            (
+                body["parentFileId"].as_str().unwrap(),
+                body["pageInfo"]["pageCursor"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pages,
+        [
+            ("/", ""),
+            ("backup-id", ""),
+            ("nested-id", ""),
+            ("nested-id", "100"),
+            ("nested-id", "200"),
+            ("nested-id", "300"),
+        ]
+    );
+}
+
+#[test]
+fn verified_sync_uses_scan_matches_and_rechecks_them_before_deleting() {
+    for delete in [false, true] {
+        let server = Server::new();
+        server.set(
+            "/",
+            vec![
+                verified_file("original", "movie.bin", b"new content", true),
+                file("extra", "extra.txt"),
+            ],
+        );
+        server.state.lock().unwrap().replace_after_scan = Some(("original", "different"));
+        let root = tempfile::tempdir().unwrap();
+        let mut command = server.sync_command(root.path());
+        command.args(["--verify", "--json"]);
+        if delete {
+            command.arg("--delete");
+        }
+        let report = sync_report(command.output().unwrap(), i32::from(delete));
+        assert_eq!(report["skipped"], 1);
+        if delete {
+            assert_eq!(report["failures"][0]["path"], "movie.bin");
+        } else {
+            assert_eq!(report["failures"], json!([]));
+        }
+        assert!(server.mutations().is_empty());
+    }
+}
+
+#[test]
+fn verified_sync_refuses_to_replace_a_target_changed_after_scan() {
     let server = Server::new();
     server.set(
         "/",
-        vec![verified_file("original", "movie.bin", b"new content", true)],
+        vec![verified_file("original", "movie.bin", b"old content", true)],
     );
     server.state.lock().unwrap().replace_after_scan = Some(("original", "different"));
     let root = tempfile::tempdir().unwrap();

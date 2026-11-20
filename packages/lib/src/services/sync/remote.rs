@@ -166,25 +166,6 @@ impl<'a> SyncCloud<'a> {
         dirs::confirm_directory(&listing, path, id).await
     }
 
-    pub(super) async fn current_file(
-        &self,
-        parent: &str,
-        name: &str,
-        id: &str,
-    ) -> Result<CloudSyncFile> {
-        let listing = self.listing().await?;
-        let files = listing.list_files(parent).await?;
-        let mut matching = files
-            .iter()
-            .filter(|item| item.name.as_deref() == Some(name));
-        let file = matching
-            .next()
-            .filter(|item| !item.is_folder() && item.file_id.as_deref() == Some(id))
-            .context("云端文件在扫描后发生变化")?;
-        ensure!(matching.next().is_none(), "云端存在多个同名文件: {name}");
-        Ok(CloudSyncFile::from(file))
-    }
-
     pub(super) async fn delete_extra(&self, rel_path: &str) -> Result<()> {
         let scan = self.scan.context("删除云端条目需要扫描记录")?;
         let path = cloud_child_path(&scan.root, rel_path);

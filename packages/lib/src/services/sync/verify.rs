@@ -2,11 +2,12 @@ use super::executor::{SyncExecuteOptions, make_action_progress};
 use super::publish::{SyncUploadPlan, upload_sync_to_parent};
 use super::remote::{SyncCloud, remote_sha256};
 use super::report::SyncReport;
-use super::scan::CloudSyncScan;
+use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::config::{Config, personal::PersonalConfig};
 use crate::models::sync_item::{ChangeKind, SyncAction, SyncTarget};
 use crate::progress::{Progress, ProgressFactory};
 use crate::services::upload::checked_upload_size;
+use crate::utils::crypto::{calc_file_sha256, is_sha256_hex};
 use crate::utils::remote_path::cloud_child_path;
 use anyhow::{Context, Result, anyhow, ensure};
 use std::collections::{BTreeMap, HashSet};
@@ -33,13 +34,6 @@ pub(super) async fn execute_verified_sync(
         cloud_root,
         remote: SyncCloud::new(config, Some(cloud)),
     };
-    if !options.dry_run
-        && let Err(error) = sync.confirm_root().await
-    {
-        report.log_failure(cloud_root, error);
-        report.seconds = started.elapsed().as_secs_f64();
-        return report;
-    }
     for action in actions {
         match action {
             SyncAction::Conflict { rel_path, reason } => {
@@ -118,11 +112,6 @@ struct VerifiedSync<'a> {
 }
 
 impl VerifiedSync<'_> {
-    async fn confirm_root(&self) -> Result<()> {
-        self.remote.ensure_directory(self.cloud_root).await?;
-        Ok(())
-    }
-
     async fn upload_or_verify(
         &self,
         action: &SyncAction,
@@ -142,45 +131,34 @@ impl VerifiedSync<'_> {
         };
         let size = checked_upload_size(local_abs)? as u64;
         let (parent, name) = parent_and_name(rel_path);
-        let remote_parent = cloud_child_path(self.cloud_root, parent);
-        let parent_id = self.remote.ensure_directory(&remote_parent).await?;
-        if *change == ChangeKind::Verify {
-            let expected_id = self.cloud.expected_id(rel_path)?.context("原文件缺少 ID")?;
-            self.remote
-                .confirm_directory(&remote_parent, &parent_id)
-                .await?;
-            let file = self
-                .remote
-                .current_file(&parent_id, name, expected_id)
-                .await?;
-            if file.size.is_none_or(|remote_size| remote_size == size) {
-                let path = local_abs.clone();
-                let local_hash = tokio::task::spawn_blocking(move || {
-                    crate::utils::crypto::calc_file_sha256(&path)
-                })
-                .await??;
-                let remote_hash = remote_sha256(
-                    self.config,
-                    &self.cloud.host,
-                    &file,
-                    file.size,
-                    hash_missing,
-                )
-                .await?;
+        let scanned_file = if *change == ChangeKind::Verify {
+            Some(self.cloud.file(rel_path).context("扫描缺少原文件")?)
+        } else {
+            None
+        };
+        let comparable =
+            scanned_file.filter(|file| file.size.is_none_or(|remote_size| remote_size == size));
+        let content_addressed = is_sha256_hex(name);
+        if content_addressed || comparable.is_some() {
+            let path = local_abs.clone();
+            let local_hash = tokio::task::spawn_blocking(move || calc_file_sha256(&path)).await??;
+            ensure!(
+                !content_addressed || local_hash.eq_ignore_ascii_case(name),
+                "内容寻址对象 {name} 的实际内容哈希 {local_hash} 与文件名不一致，已保留远端旧副本"
+            );
+            if let Some(file) = comparable {
+                let expected_id = file.id.as_deref().context("扫描未返回有效文件 ID")?;
+                let remote_hash =
+                    remote_sha256(self.config, &self.cloud.host, file, file.size, hash_missing)
+                        .await?;
                 if local_hash == remote_hash {
-                    self.remote
-                        .confirm_directory(&remote_parent, &parent_id)
-                        .await?;
-                    let latest = self
-                        .remote
-                        .current_file(&parent_id, name, expected_id)
-                        .await?;
-                    ensure!(file == latest, "云端文件在校验期间发生变化");
                     return Ok(expected_id.to_owned());
                 }
             }
         }
 
+        let remote_parent = cloud_child_path(self.cloud_root, parent);
+        let parent_id = self.remote.ensure_directory(&remote_parent).await?;
         upload_sync_to_parent(
             self.config,
             local_abs,
@@ -260,8 +238,14 @@ impl VerifiedSync<'_> {
             }
             for (path, expected_id) in files {
                 let name = parent_and_name(path).1;
+                let scanned_file = self
+                    .cloud
+                    .file(path)
+                    .filter(|file| file.id.as_deref() == Some(expected_id));
                 if !by_name.get(name).is_some_and(|item| {
-                    !item.is_folder() && item.file_id.as_deref() == Some(expected_id)
+                    !item.is_folder()
+                        && item.file_id.as_deref() == Some(expected_id)
+                        && scanned_file.is_none_or(|file| CloudSyncFile::from(*item) == *file)
                 }) {
                     return Err((path, anyhow!("删除前复核发现云端文件已变更")));
                 }
