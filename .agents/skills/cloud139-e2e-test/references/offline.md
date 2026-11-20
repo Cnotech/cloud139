@@ -4,6 +4,8 @@
 
 用例表中的测试名可追加到对应 Cargo 命令末尾作为过滤条件。仅报告实际运行并命中相关断言的用例。
 
+手动执行离线 CLI 用例时，也通过[统一日志运行器](real-run.md#日志收集与分析)采集日志。Cargo 测试中的 CLI 子进程由各测试夹具管理。
+
 ```bash
 cargo test --locked --offline -p cloud139-cli --test directory_operations_test
 cargo test --locked --offline -p cloud139-cli --test storage_support_test
