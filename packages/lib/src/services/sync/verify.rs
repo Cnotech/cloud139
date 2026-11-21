@@ -160,9 +160,9 @@ impl VerifiedSync<'_> {
         let remote_parent = cloud_child_path(self.cloud_root, parent);
         let parent_id = match self.cloud.directory_id(parent) {
             Some(id) => {
-                self.remote
-                    .confirm_scanned_directory(&remote_parent, id)
-                    .await?;
+                // 创建临时文件是不可逆写操作：必须 fresh 复核绝对路径，
+                // 不能复用整轮缓存（父目录被改名移出同步根时会写到范围外）。
+                self.remote.confirm_directory(&remote_parent, id).await?;
                 id.to_owned()
             }
             None => self.remote.ensure_directory(&remote_parent).await?,

@@ -177,6 +177,9 @@ impl<'a> SyncCloud<'a> {
     ///
     /// 扫描已记录每一级目录的 ID；从同步根向下逐级 `find_child` 即可恢复完整路径语义，
     /// 分页结果在一轮同步内复用，请求数不随路径深度或目录数量线性增长。
+    ///
+    /// 只用于只读预检。写操作（创建临时文件、回收）前必须改用 `confirm_directory`
+    /// 做 fresh 的绝对路径确认：缓存只能证明子项未变，不能证明父目录仍在原路径。
     pub(super) async fn confirm_scanned_directory(&self, path: &str, id: &str) -> Result<()> {
         let Some(scan) = self.scan else {
             return self.confirm_directory(path, id).await;
@@ -279,7 +282,9 @@ impl<'a> SyncCloud<'a> {
                 "云端目录 {path} 仍有内容，保留目录"
             );
         }
-        self.confirm_scanned_directory(&cloud_child_path(&scan.root, parent), parent_id)
+        // 回收是不可逆写操作：必须 fresh 复核绝对路径。按旧 ID 重列只能证明
+        // 子项未变，不能证明父目录仍在同步根下（被改名移出时会删到范围外对象）。
+        self.confirm_directory(&cloud_child_path(&scan.root, parent), parent_id)
             .await?;
         let siblings = listing.list_files(parent_id).await?;
         let mut matching = siblings

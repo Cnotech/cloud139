@@ -2769,7 +2769,9 @@ fn verified_sync_fails_when_an_ancestor_is_renamed_after_scan() {
     assert!(
         report["failures"][0]["error"]
             .as_str()
-            .is_some_and(|error| error.contains("扫描后发生变化")),
+            .is_some_and(
+                |error| error.contains("无法复核云端目录") || error.contains("扫描后发生变化")
+            ),
         "{}",
         report["failures"][0]
     );
@@ -2900,10 +2902,109 @@ fn verified_sync_delete_preflight_only_lists_directories_being_pruned() {
     for index in 0..12 {
         assert_eq!(count(&format!("keep-{index:02}-id")), 1);
     }
-    // data 只在扫描和待删目录的路径确认时各列一次。
-    assert_eq!(count("data-id"), 2);
-    // target 在扫描、预检、提交删除前各列一次。
+    // data 在扫描、预检链核对、回收前 fresh 全路径确认时各列一次。
+    assert_eq!(count("data-id"), 3);
+    // target 在扫描、预检列目录、回收前 fresh 全路径确认后的列目录时各一次。
     assert_eq!(count("target-id"), 3);
+}
+
+#[test]
+fn verified_sync_stops_deleting_when_parent_is_renamed_after_preflight() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = source.join("data").join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("keep.bin"), b"same").unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    server.set("data-id", vec![folder("target-id", "target")]);
+    server.set(
+        "target-id",
+        vec![
+            verified_file("target-keep", "keep.bin", b"same", true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    // 扫描、保留文件的写前确认之后，回收前的 fresh 全路径确认时把祖先 data 改名。
+    server.state.lock().unwrap().rename_after_root_list =
+        Some((3, "repo-id", "data", "data-moved"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args([
+            "cloud:/backup/archive/repo",
+            "-r",
+            "--verify",
+            "--json",
+            "--delete",
+        ])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 1);
+    assert_eq!(report["deleted"], 0);
+    assert_eq!(report["uploaded"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .is_some_and(
+                |error| error.contains("无法复核云端目录") || error.contains("扫描后发生变化")
+            ),
+        "{}",
+        report["failures"][0]
+    );
+    assert!(server.mutations().is_empty(), "{:?}", server.mutations());
+}
+
+#[test]
+fn verified_sync_stops_uploading_when_parent_is_renamed_between_uploads() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = source.join("data").join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("a.bin"), b"data").unwrap();
+    std::fs::write(target.join("b.bin"), b"data").unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    server.set("data-id", vec![folder("target-id", "target")]);
+    server.set("target-id", vec![]);
+    server.state.lock().unwrap().sync_mutations = true;
+    // 第一个上传发布之后，第二个上传的写前 fresh 全路径确认时把祖先 data 改名。
+    server.state.lock().unwrap().rename_after_root_list =
+        Some((4, "repo-id", "data", "data-moved"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/backup/archive/repo", "-r", "--verify", "--json"])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 1);
+    assert_eq!(report["uploaded"], 1);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .is_some_and(
+                |error| error.contains("无法复核云端目录") || error.contains("扫描后发生变化")
+            ),
+        "{}",
+        report["failures"][0]
+    );
+    // 第二个上传在写临时对象前就停止，远端只应出现一次文件创建。
+    let creates = server
+        .mutations()
+        .iter()
+        .filter(|(path, _)| path == "/file/create")
+        .count();
+    assert_eq!(creates, 1);
 }
 
 #[test]
