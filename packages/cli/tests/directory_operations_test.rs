@@ -3114,6 +3114,49 @@ fn verified_sync_stops_cleanup_when_retained_file_in_delete_directory_changes() 
 }
 
 #[test]
+fn verified_sync_does_not_upload_temp_file_when_new_directory_moves_before_transfer() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = source.join("data").join("newdir");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("a.bin"), b"data").unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    server.set("data-id", vec![]);
+    server.state.lock().unwrap().sync_mutations = true;
+    // 本轮新建的目录在「写临时文件前」的 fresh 确认时被移走。
+    server.state.lock().unwrap().rename_after_root_list =
+        Some((4, "data-id", "newdir", "newdir-moved"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/backup/archive/repo", "-r", "--verify", "--json"])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 1);
+    assert_eq!(report["uploaded"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("无法复核云端目录")),
+        "{}",
+        report["failures"][0]
+    );
+    // 只允许建目录，不允许写临时文件。
+    let file_creates = server
+        .mutations()
+        .iter()
+        .filter(|(path, body)| path == "/file/create" && body["type"] == "file")
+        .count();
+    assert_eq!(file_creates, 0);
+}
+
+#[test]
 fn verified_sync_uses_scan_matches_and_rechecks_them_before_deleting() {
     for delete in [false, true] {
         let server = Server::new();
