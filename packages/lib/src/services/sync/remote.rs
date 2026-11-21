@@ -1,5 +1,6 @@
 use super::scan::{CloudSyncFile, CloudSyncScan};
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
+use crate::client::api::personal::listing::PathLookupCache;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
 use crate::services::{directory as dirs, download};
@@ -53,6 +54,9 @@ pub(super) struct SyncCloud<'a> {
     client: HttpClientWrapper,
     host: OnceCell<String>,
     directories: Mutex<HashMap<String, Arc<OnceCell<String>>>>,
+    confirmations: Mutex<HashMap<String, Arc<OnceCell<()>>>>,
+    listings: Mutex<PathLookupCache>,
+    root_confirmed: OnceCell<()>,
 }
 
 impl<'a> SyncCloud<'a> {
@@ -63,6 +67,9 @@ impl<'a> SyncCloud<'a> {
             client: HttpClientWrapper::new(),
             host: OnceCell::new(),
             directories: Mutex::default(),
+            confirmations: Mutex::default(),
+            listings: Mutex::default(),
+            root_confirmed: OnceCell::new(),
         }
     }
 
@@ -166,6 +173,97 @@ impl<'a> SyncCloud<'a> {
         dirs::confirm_directory(&listing, path, id).await
     }
 
+    /// 用扫描记录的目录 ID 沿路径逐级核对，并按父目录复用列表分页。
+    ///
+    /// 扫描已记录每一级目录的 ID；从同步根向下逐级 `find_child` 即可恢复完整路径语义，
+    /// 分页结果在一轮同步内复用，请求数不随路径深度或目录数量线性增长。
+    ///
+    /// 只用于只读预检。写操作（创建临时文件、回收）前必须改用 `confirm_directory`
+    /// 做 fresh 的绝对路径确认：缓存只能证明子项未变，不能证明父目录仍在原路径。
+    pub(super) async fn confirm_scanned_directory(&self, path: &str, id: &str) -> Result<()> {
+        let Some(scan) = self.scan else {
+            return self.confirm_directory(path, id).await;
+        };
+        // 同步根是写入前最值得复核的一级，每次都完整解析，不走缓存。
+        if remote_path::normalize(path)? == scan.root {
+            return self.confirm_directory(path, id).await;
+        }
+        let key = format!("{path}\u{0}{id}");
+        let cell = self
+            .confirmations
+            .lock()
+            .await
+            .entry(key)
+            .or_default()
+            .clone();
+        cell.get_or_try_init(|| async {
+            self.confirm_scanned_directory_uncached(scan, path, id)
+                .await
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn confirm_scanned_directory_uncached(
+        &self,
+        scan: &CloudSyncScan,
+        path: &str,
+        id: &str,
+    ) -> Result<()> {
+        let normalized = remote_path::normalize(path)?;
+        let root = scan.root.as_str();
+        let chain = scanned_directory_chain(scan, path, id);
+        if normalized != root && chain.is_none() {
+            // 本轮新建目录或不在同步范围内：退回完整路径解析。
+            let listing = self.listing().await?;
+            return dirs::confirm_directory(&listing, path, id).await;
+        }
+        let listing = self.listing().await?;
+        let mut cache = self.listings.lock().await;
+        let mut lookup = cache.lookup(&listing);
+        self.confirm_sync_root(&listing, scan).await?;
+        let Some(chain) = chain else {
+            ensure!(
+                scan.directory_id("") == Some(id),
+                "云端根目录 {path} 的 ID 已变更"
+            );
+            return Ok(());
+        };
+        let mut parent_id = scan.directory_id("").context("同步根目录缺少扫描 ID")?;
+        for (name, child_id) in chain {
+            let current = lookup.find_child(parent_id, &name).await?;
+            ensure!(
+                current.is_some_and(
+                    |item| item.is_folder() && item.file_id.as_deref() == Some(child_id)
+                ),
+                "云端目录 {path} 在扫描后发生变化"
+            );
+            parent_id = child_id;
+        }
+        ensure!(parent_id == id, "云端目录 {path} 的 ID 已变更");
+        Ok(())
+    }
+
+    /// 同步根在每轮第一次写入前从云端根完整解析一次，后续复用。
+    async fn confirm_sync_root(
+        &self,
+        listing: &PersonalClient<'_>,
+        scan: &CloudSyncScan,
+    ) -> Result<()> {
+        if self.root_confirmed.get().is_some() {
+            return Ok(());
+        }
+        if scan.root == "/" {
+            // 云端根目录没有父目录，也不可被改名。
+            let _ = self.root_confirmed.set(());
+            return Ok(());
+        }
+        let root_id = scan.directory_id("").context("同步根目录缺少扫描 ID")?;
+        dirs::confirm_directory(listing, scan.root.as_str(), root_id).await?;
+        let _ = self.root_confirmed.set(());
+        Ok(())
+    }
+
     pub(super) async fn delete_extra(&self, rel_path: &str) -> Result<()> {
         let scan = self.scan.context("删除云端条目需要扫描记录")?;
         let path = cloud_child_path(&scan.root, rel_path);
@@ -184,6 +282,8 @@ impl<'a> SyncCloud<'a> {
                 "云端目录 {path} 仍有内容，保留目录"
             );
         }
+        // 回收是不可逆写操作：必须 fresh 复核绝对路径。按旧 ID 重列只能证明
+        // 子项未变，不能证明父目录仍在同步根下（被改名移出时会删到范围外对象）。
         self.confirm_directory(&cloud_child_path(&scan.root, parent), parent_id)
             .await?;
         let siblings = listing.list_files(parent_id).await?;
@@ -202,4 +302,34 @@ impl<'a> SyncCloud<'a> {
         listing.trash(expected_id).await?;
         Ok(())
     }
+}
+
+/// 返回从同步根到目标的逐级（名称，扫描 ID）链；不在扫描范围内时返回 None。
+fn scanned_directory_chain<'a>(
+    scan: &'a CloudSyncScan,
+    path: &str,
+    expected_id: &str,
+) -> Option<Vec<(String, &'a str)>> {
+    let root = scan.root.as_str();
+    let normalized = remote_path::normalize(path).ok()?;
+    let relative = normalized
+        .strip_prefix(root.trim_end_matches('/'))?
+        .strip_prefix('/')?;
+    if relative.is_empty() {
+        return None;
+    }
+    let mut chain = Vec::new();
+    let mut prefix = String::new();
+    for name in relative.split('/').filter(|name| !name.is_empty()) {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(name);
+        let id = scan.directory_id(&prefix)?;
+        chain.push((name.to_owned(), id));
+    }
+    if chain.last().map(|(_, id)| *id) != Some(expected_id) {
+        return None;
+    }
+    Some(chain)
 }
