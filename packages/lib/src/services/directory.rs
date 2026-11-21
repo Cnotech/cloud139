@@ -1,6 +1,6 @@
 //! 云端路径解析、目录遍历、复制和移动。
 use crate::client::api::personal::client::{ListingRetry, PersonalClient};
-use crate::client::api::personal::listing::PathLookup;
+use crate::client::api::personal::listing::PathLookupCache;
 use crate::client::http::HttpClientWrapper;
 use crate::config::{Config, personal::PersonalConfig};
 use crate::error::ClientError;
@@ -303,7 +303,8 @@ pub async fn transfer(
     }
     let client = HttpClientWrapper::new();
     let listing = PersonalClient::connect(config, &client, ListingRetry::None).await?;
-    let mut paths = PathLookup::new(&listing);
+    let mut cache = PathLookupCache::default();
+    let mut paths = cache.lookup(&listing);
     let target_id = require_directory(resolved_entry(paths.resolve_path(&target).await?)?.0)?;
     let mut names = HashSet::new();
     let mut ids = Vec::new();

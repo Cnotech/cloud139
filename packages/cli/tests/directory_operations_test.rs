@@ -43,6 +43,7 @@ struct State {
     replace_extra_on_promotion: bool,
     replace_extra_after_trash: bool,
     move_parent_on_stage: bool,
+    rename_after_root_list: Option<(usize, &'static str, &'static str, &'static str)>,
 }
 struct Server {
     host: String,
@@ -74,6 +75,27 @@ impl Server {
                         };
                         let mut state = shared.lock().unwrap();
                         state.requests.push((path.clone(), body.clone()));
+                        if let Some((at, parent, old_name, new_name)) = state.rename_after_root_list
+                            && body["parentFileId"] == "/"
+                        {
+                            let seen = state
+                                .requests
+                                .iter()
+                                .filter(|(path, body)| {
+                                    path == "/file/list" && body["parentFileId"] == "/"
+                                })
+                                .count();
+                            if seen == at {
+                                state.rename_after_root_list = None;
+                                if let Some(items) = state.children.get_mut(parent)
+                                    && let Some(item) = items
+                                        .iter_mut()
+                                        .find(|item| item["name"].as_str() == Some(old_name))
+                                {
+                                    item["name"] = json!(new_name);
+                                }
+                            }
+                        }
                         let response = match path.as_str() {
                             "/file/list" => {
                                 if let Some((request, _, _)) = &state.mutate_source_on_list {
@@ -2715,6 +2737,173 @@ fn verified_sync_unchanged_files_only_list_during_the_scan() {
             ("nested-id", "300"),
         ]
     );
+}
+
+#[test]
+fn verified_sync_fails_when_an_ancestor_is_renamed_after_scan() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = source.join("data").join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("new.bin"), b"data").unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    server.set("data-id", vec![folder("target-id", "target")]);
+    server.set("target-id", vec![]);
+    // 扫描只列一次根目录；执行阶段第一次解析同步根时把祖先 data 改名。
+    server.state.lock().unwrap().rename_after_root_list =
+        Some((2, "repo-id", "data", "data-moved"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/backup/archive/repo", "-r", "--verify", "--json"])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 1);
+    assert_eq!(report["uploaded"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("扫描后发生变化")),
+        "{}",
+        report["failures"][0]
+    );
+    assert!(server.mutations().is_empty());
+}
+
+#[test]
+fn verified_sync_upload_confirms_parent_without_resolving_from_root() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let target = source.join("data").join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("new.bin"), b"data").unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    server.set("data-id", vec![folder("target-id", "target")]);
+    server.set("target-id", vec![]);
+    server.state.lock().unwrap().sync_mutations = true;
+
+    let report = sync_report(
+        server
+            .cli(root.path())
+            .arg("sync")
+            .arg(&source)
+            .args(["cloud:/backup/archive/repo", "-r", "--verify", "--json"])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(report["uploaded"], 1);
+
+    let state = server.state.lock().unwrap();
+    let lists: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/file/list")
+        .collect();
+    let count = |parent: &str| {
+        lists
+            .iter()
+            .filter(|(_, body)| body["parentFileId"] == parent)
+            .count()
+    };
+    // 扫描、写前链核对、发布前完整复核各列一次。
+    assert_eq!(count("backup-id"), 3);
+    assert_eq!(count("archive-id"), 3);
+    assert_eq!(count("repo-id"), 3);
+    assert_eq!(count("data-id"), 3);
+    // target 在扫描、祖先链确认、上传前列目录、两次上传后确认、改名后确认时各列一次。
+    assert_eq!(count("target-id"), 5);
+}
+
+#[test]
+fn verified_sync_delete_preflight_only_lists_directories_being_pruned() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    let data = source.join("data");
+    std::fs::create_dir_all(&data).unwrap();
+    server.set("/", vec![folder("backup-id", "backup")]);
+    server.set("backup-id", vec![folder("archive-id", "archive")]);
+    server.set("archive-id", vec![folder("repo-id", "repo")]);
+    server.set("repo-id", vec![folder("data-id", "data")]);
+    let mut cloud_data = Vec::new();
+    for index in 0..12 {
+        let dir_name = format!("keep-{index:02}");
+        let dir_id = format!("{dir_name}-id");
+        std::fs::create_dir_all(data.join(&dir_name)).unwrap();
+        std::fs::write(data.join(&dir_name).join("obj.bin"), b"same").unwrap();
+        server.set(
+            &dir_id,
+            vec![verified_file(
+                &format!("{dir_name}-file"),
+                "obj.bin",
+                b"same",
+                true,
+            )],
+        );
+        cloud_data.push(folder(&dir_id, &dir_name));
+    }
+    std::fs::create_dir_all(data.join("target")).unwrap();
+    std::fs::write(data.join("target").join("keep.bin"), b"same").unwrap();
+    server.set(
+        "target-id",
+        vec![
+            verified_file("target-keep", "keep.bin", b"same", true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    cloud_data.push(folder("target-id", "target"));
+    server.set("data-id", cloud_data);
+
+    let report = sync_report(
+        server
+            .cli(root.path())
+            .arg("sync")
+            .arg(&source)
+            .args([
+                "cloud:/backup/archive/repo",
+                "-r",
+                "--verify",
+                "--json",
+                "--delete",
+            ])
+            .output()
+            .unwrap(),
+        0,
+    );
+    assert_eq!(report["skipped"], 13);
+    assert_eq!(report["deleted"], 1);
+
+    let state = server.state.lock().unwrap();
+    let lists: Vec<_> = state
+        .requests
+        .iter()
+        .filter(|(path, _)| path == "/file/list")
+        .collect();
+    let count = |parent: &str| {
+        lists
+            .iter()
+            .filter(|(_, body)| body["parentFileId"] == parent)
+            .count()
+    };
+    // 12 个保留目录只在扫描时列一次，删除预检不再碰它们。
+    for index in 0..12 {
+        assert_eq!(count(&format!("keep-{index:02}-id")), 1);
+    }
+    // data 只在扫描和待删目录的路径确认时各列一次。
+    assert_eq!(count("data-id"), 2);
+    // target 在扫描、预检、提交删除前各列一次。
+    assert_eq!(count("target-id"), 3);
 }
 
 #[test]

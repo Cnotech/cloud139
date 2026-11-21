@@ -82,14 +82,6 @@ pub(super) async fn upload_sync_to_parent(
         replace_directory_id.is_none() || scan.is_some(),
         "替换目录需要扫描记录"
     );
-    if hash_missing.is_some() {
-        dirs::confirm_directory(
-            &personal.with_listing_retry(SYNC_LIST_RETRY),
-            remote_parent,
-            parent_id,
-        )
-        .await?;
-    }
     let uploaded = transfer_to_parent(
         &personal,
         local_path,
