@@ -44,6 +44,7 @@ struct State {
     replace_extra_after_trash: bool,
     move_parent_on_stage: bool,
     rename_after_root_list: Option<(usize, &'static str, &'static str, &'static str)>,
+    replace_after_list: Option<(usize, &'static str, &'static str, &'static str)>,
 }
 struct Server {
     host: String,
@@ -144,6 +145,29 @@ impl Server {
                                         children.iter_mut().find(|item| item["fileId"] == previous)
                                 {
                                     item["fileId"] = json!(replacement);
+                                }
+                                if let Some((at, target_parent, previous, replacement)) =
+                                    state.replace_after_list
+                                    && parent == target_parent
+                                {
+                                    let seen = state
+                                        .requests
+                                        .iter()
+                                        .filter(|(path, body)| {
+                                            path == "/file/list"
+                                                && body["parentFileId"] == target_parent
+                                        })
+                                        .count();
+                                    if seen == at {
+                                        state.replace_after_list = None;
+                                        if let Some(children) = state.children.get_mut(parent)
+                                            && let Some(item) = children
+                                                .iter_mut()
+                                                .find(|item| item["fileId"] == previous)
+                                        {
+                                            item["fileId"] = json!(replacement);
+                                        }
+                                    }
                                 }
                                 let end = (offset + state.page_size).min(items.len());
                                 let next = if state.cycle {
@@ -3005,6 +3029,88 @@ fn verified_sync_stops_uploading_when_parent_is_renamed_between_uploads() {
         .filter(|(path, _)| path == "/file/create")
         .count();
     assert_eq!(creates, 1);
+}
+
+#[test]
+fn verified_sync_cleanup_ignores_retained_changes_in_unrelated_directories() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    std::fs::create_dir_all(source.join("a")).unwrap();
+    std::fs::create_dir_all(source.join("b")).unwrap();
+    std::fs::write(source.join("a").join("keep.bin"), b"same").unwrap();
+    std::fs::write(source.join("b").join("keep.bin"), b"same").unwrap();
+    server.set("/", vec![folder("a-id", "a"), folder("b-id", "b")]);
+    server.set(
+        "a-id",
+        vec![verified_file("a-keep", "keep.bin", b"same", true)],
+    );
+    server.set(
+        "b-id",
+        vec![
+            verified_file("b-keep", "keep.bin", b"same", true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    server.state.lock().unwrap().sync_mutations = true;
+    // 扫描后无关目录 a 的保留文件 ID 变化；清理只复核待删目录 b，应照常清理。
+    server.state.lock().unwrap().replace_after_list = Some((1, "a-id", "a-keep", "a-changed"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/", "-r", "--verify", "--json", "--delete"])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 0);
+    assert_eq!(report["skipped"], 2);
+    assert_eq!(report["deleted"], 1);
+    assert_eq!(report["failures"], json!([]));
+}
+
+#[test]
+fn verified_sync_stops_cleanup_when_retained_file_in_delete_directory_changes() {
+    let server = Server::new();
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("source");
+    std::fs::create_dir_all(source.join("a")).unwrap();
+    std::fs::create_dir_all(source.join("b")).unwrap();
+    std::fs::write(source.join("a").join("keep.bin"), b"same").unwrap();
+    std::fs::write(source.join("b").join("keep.bin"), b"same").unwrap();
+    server.set("/", vec![folder("a-id", "a"), folder("b-id", "b")]);
+    server.set(
+        "a-id",
+        vec![verified_file("a-keep", "keep.bin", b"same", true)],
+    );
+    server.set(
+        "b-id",
+        vec![
+            verified_file("b-keep", "keep.bin", b"same", true),
+            file("extra", "extra.txt"),
+        ],
+    );
+    server.state.lock().unwrap().sync_mutations = true;
+    // 待删目录 b 里的保留文件在校验后变化：应停止清理，一个都不删。
+    server.state.lock().unwrap().replace_after_list = Some((1, "b-id", "b-keep", "b-changed"));
+
+    let output = server
+        .cli(root.path())
+        .arg("sync")
+        .arg(&source)
+        .args(["cloud:/", "-r", "--verify", "--json", "--delete"])
+        .output()
+        .unwrap();
+    let report = sync_report(output, 1);
+    assert_eq!(report["deleted"], 0);
+    assert!(
+        report["failures"][0]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("删除前复核发现云端文件已变更")),
+        "{}",
+        report["failures"][0]
+    );
+    assert!(server.mutations().is_empty(), "{:?}", server.mutations());
 }
 
 #[test]
