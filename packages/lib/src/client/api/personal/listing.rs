@@ -66,20 +66,31 @@ struct ListedChildren {
     by_name: HashMap<String, PersonalFileItem>,
 }
 
-/// 在一批只读预检中复用已经读取的目录分页。
-pub(crate) struct PathLookup<'a, 'config> {
-    client: &'a PersonalClient<'config>,
+/// 可跨多次调用复用的目录分页缓存。
+#[derive(Default)]
+pub(crate) struct PathLookupCache {
     directories: HashMap<String, ListedChildren>,
 }
 
-impl<'a, 'config> PathLookup<'a, 'config> {
-    pub(crate) fn new(client: &'a PersonalClient<'config>) -> Self {
-        Self {
+impl PathLookupCache {
+    pub(crate) fn lookup<'a, 'config>(
+        &'a mut self,
+        client: &'a PersonalClient<'config>,
+    ) -> PathLookup<'a, 'config> {
+        PathLookup {
             client,
-            directories: HashMap::new(),
+            directories: &mut self.directories,
         }
     }
+}
 
+/// 在一批只读预检中复用已经读取的目录分页。
+pub(crate) struct PathLookup<'a, 'config> {
+    client: &'a PersonalClient<'config>,
+    directories: &'a mut HashMap<String, ListedChildren>,
+}
+
+impl<'a, 'config> PathLookup<'a, 'config> {
     pub(crate) async fn resolve_path(
         &mut self,
         path: &str,

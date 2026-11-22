@@ -83,6 +83,8 @@ pub(super) async fn upload_sync_to_parent(
         "替换目录需要扫描记录"
     );
     if hash_missing.is_some() {
+        // 写临时文件是不可逆操作：紧贴传输做一次 fresh 的绝对路径 → 目录 ID 确认。
+        // 缓存只能证明子项未变，不能证明父目录仍在原路径（包括本轮新建的目录）。
         dirs::confirm_directory(
             &personal.with_listing_retry(SYNC_LIST_RETRY),
             remote_parent,

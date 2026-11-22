@@ -158,7 +158,12 @@ impl VerifiedSync<'_> {
         }
 
         let remote_parent = cloud_child_path(self.cloud_root, parent);
-        let parent_id = self.remote.ensure_directory(&remote_parent).await?;
+        // 写临时文件前的 fresh 全路径确认放在 upload_sync_to_parent 内，
+        // 紧贴传输：这里只取扫描到的目录 ID，新建目录仍由 ensure_directory 创建并解析。
+        let parent_id = match self.cloud.directory_id(parent) {
+            Some(id) => id.to_owned(),
+            None => self.remote.ensure_directory(&remote_parent).await?,
+        };
         upload_sync_to_parent(
             self.config,
             local_abs,
@@ -184,16 +189,17 @@ impl VerifiedSync<'_> {
         deletes: &[&'a str],
         report: &mut SyncReport,
     ) -> std::result::Result<(), (&'a str, anyhow::Error)> {
-        let mut by_parent = BTreeMap::<&str, Vec<(&str, &str)>>::new();
+        let retained_ids: HashSet<_> = retained.values().map(String::as_str).collect();
+        let mut deleted_ids = HashSet::new();
+        let mut delete_ids = Vec::with_capacity(deletes.len());
+        let mut retained_by_parent = BTreeMap::<&str, Vec<(&str, &str)>>::new();
         for (&path, id) in retained {
-            by_parent
+            retained_by_parent
                 .entry(parent_and_name(path).0)
                 .or_default()
                 .push((path, id));
         }
-        let retained_ids: HashSet<_> = retained.values().map(String::as_str).collect();
-        let mut deleted_ids = HashSet::new();
-        let mut delete_ids = Vec::with_capacity(deletes.len());
+        let mut deletes_by_parent = BTreeMap::<&str, Vec<(&str, &str)>>::new();
         for &path in deletes {
             let id = self
                 .cloud
@@ -203,29 +209,29 @@ impl VerifiedSync<'_> {
             if retained_ids.contains(id) || !deleted_ids.insert(id) {
                 return Err((path, anyhow!("计划删除的文件 ID 重复或与保留文件相同")));
             }
-            by_parent
+            deletes_by_parent
                 .entry(parent_and_name(path).0)
                 .or_default()
                 .push((path, id));
             delete_ids.push((path, id));
         }
 
-        // 发送首个回收请求前，重新核对所有父目录及文件。
-        for (parent, files) in by_parent {
-            let path = files[0].0;
+        // 只复核本次真正要删除的目录：发首个回收请求前，把这些目录里的保留项
+        // 和待删项一起核对；无关目录不再重新列举。
+        for (parent, deletes_in_parent) in deletes_by_parent {
+            let path = deletes_in_parent[0].0;
             let remote = cloud_child_path(self.cloud_root, parent);
             let expected_id = self
-                .remote
-                .ensure_directory(&remote)
-                .await
-                .map_err(|error| (path, error))?;
+                .cloud
+                .directory_id(parent)
+                .ok_or_else(|| (path, anyhow!("待删除条目的父目录缺少扫描 ID")))?;
             self.remote
-                .confirm_directory(&remote, &expected_id)
+                .confirm_scanned_directory(&remote, expected_id)
                 .await
                 .map_err(|error| (path, error))?;
             let listing = self.remote.listing().await.map_err(|error| (path, error))?;
             let current = listing
-                .list_files(&expected_id)
+                .list_files(expected_id)
                 .await
                 .map_err(|error| (path, error.into()))?;
             let mut by_name = BTreeMap::new();
@@ -236,6 +242,8 @@ impl VerifiedSync<'_> {
                     return Err((path, anyhow!("删除前复核发现云端目录有重名条目")));
                 }
             }
+            let mut files = retained_by_parent.get(parent).cloned().unwrap_or_default();
+            files.extend(deletes_in_parent);
             for (path, expected_id) in files {
                 let name = parent_and_name(path).1;
                 let scanned_file = self
