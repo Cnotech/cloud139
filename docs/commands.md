@@ -10,7 +10,7 @@ cargo clippy --workspace --all-targets --locked
 cargo test --workspace --locked --no-fail-fast
 ```
 
-`cargo build` 默认构建 CLI 及其依赖的库，加 `--release` 构建发布版本。CI 在 Linux、macOS 和 Windows 的 stable 工具链上运行 Clippy 与工作区测试。Linux 还运行 `python3 scripts/check-rust-file-length.py`，对超过 500 行的 Rust 源文件发出告警，跳过各包的 `src/tests/`。见 [CI 工作流](../.github/workflows/ut.yml)。
+`cargo build` 默认构建 CLI 及其依赖的库，加 `--release` 构建发布版本。CI 在 Linux、macOS 和 Windows 的 stable 工具链上运行 Clippy 与工作区测试。Linux 还运行 `bash scripts/check-rust-file-length.sh`，对超过 500 行的 Rust 源文件发出告警，跳过各包的 `src/tests/`。见 [CI 工作流](../.github/workflows/ut.yml)。
 
 ## 定向验证
 

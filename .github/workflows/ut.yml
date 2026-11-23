@@ -29,7 +29,7 @@ jobs:
 
       - name: Check Rust source file lengths
         if: runner.os == 'Linux'
-        run: python3 scripts/check-rust-file-length.py
+        run: bash scripts/check-rust-file-length.sh
 
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets --locked
