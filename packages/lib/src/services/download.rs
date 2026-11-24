@@ -495,3 +495,6 @@ mod tests {
         error_page.assert_calls(2);
     }
 }
+#[cfg(test)]
+#[path = "../tests/download_hash_test.rs"]
+mod download_hash_test;

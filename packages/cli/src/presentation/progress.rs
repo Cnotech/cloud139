@@ -45,3 +45,35 @@ impl TransferProgress for TerminalProgress {
         self.0.finish_and_clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{TerminalProgress, make_progress, suspend};
+    use cloud139::progress::TransferProgress;
+    use indicatif::{ProgressBar, ProgressDrawTarget};
+
+    #[test]
+    fn transfer_progress_can_reset_after_a_partial_attempt() {
+        let bar = ProgressBar::with_draw_target(Some(10), ProgressDrawTarget::hidden());
+        let progress = TerminalProgress(bar.clone());
+        progress.inc(4);
+        assert_eq!(bar.position(), 4);
+
+        progress.reset();
+        assert_eq!(bar.position(), 0);
+        progress.set_length(5);
+        assert_eq!(bar.length(), Some(5));
+        progress.inc(5);
+        progress.finish();
+        assert!(bar.is_finished());
+    }
+
+    #[test]
+    fn active_progress_allows_status_output() {
+        let progress = make_progress("note.txt", 5).unwrap();
+        let mut calls = 0;
+        suspend(|| calls += 1);
+        progress.finish();
+        assert_eq!(calls, 1);
+    }
+}

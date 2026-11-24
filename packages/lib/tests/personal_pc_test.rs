@@ -133,6 +133,40 @@ async fn rapid_upload_accepts_explicit_confirmation_without_parts() {
 }
 
 #[tokio::test]
+async fn rapid_upload_checks_listed_file_id_when_response_omits_name() {
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"bytes").unwrap();
+    for (id, expected_success) in [("new-id", true), ("unrelated-id", false)] {
+        let server = MockServer::start();
+        let config = Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Config::default()
+        };
+        let listing = server.mock(|when, then| {
+            when.method(POST).path("/file/list");
+            then.json_body(json!({"success": true, "data": {"items": [
+                {"fileId": id, "name": "saved.bin", "type": "file"}
+            ]}}));
+        });
+        let create = server.mock(|when, then| {
+            when.method(POST).path("/file/create");
+            then.json_body(json!({
+                "success": true, "data": {"fileId": "new-id", "rapidUpload": true}
+            }));
+        });
+        let result = upload(&config, local.path(), "/", "sample.bin", 5, false, None).await;
+        if expected_success {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.to_string().contains("无法确认云端文件名称"));
+        }
+        listing.assert_calls(2);
+        create.assert_calls(1);
+    }
+}
+
+#[tokio::test]
 async fn upload_rejects_no_parts_without_rapid_upload_confirmation() {
     let server = MockServer::start();
     let config = Config {

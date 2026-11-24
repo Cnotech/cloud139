@@ -2,10 +2,148 @@ use cloud139::config::Config;
 use cloud139::models::sync_item::{ChangeKind, SyncAction, SyncSummary, SyncTarget};
 use cloud139::services::sync::{
     executor::{SyncExecuteOptions, execute_sync_actions},
-    plan::SyncRequest,
+    plan::{SyncOutcome, SyncRequest},
+    report::FileOperation,
     scan::SyncScanOptions,
 };
 use tempfile::tempdir;
+
+#[tokio::test]
+async fn sync_preview_reports_download_and_pruning_without_touching_files() {
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    let server = MockServer::start();
+    let listing = server.mock(|when, then| {
+        when.method(POST)
+            .path("/file/list")
+            .json_body_includes(r#"{"parentFileId":"/"}"#);
+        then.json_body(json!({"success": true, "data": {"items": [
+            {"fileId":"new","name":"new.txt","type":"file","size":3}
+        ]}}));
+    });
+    let download = server.mock(|when, then| {
+        when.method(POST).path("/file/getDownloadUrl");
+        then.status(500);
+    });
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let local = tempdir().unwrap();
+    let extra = local.path().join("extra.txt");
+    std::fs::write(&extra, "keep").unwrap();
+    let request = SyncRequest::new(
+        "cloud:/",
+        local.path().to_str().unwrap(),
+        SyncScanOptions {
+            recursive: true,
+            exclude: vec![],
+        },
+        SyncExecuteOptions {
+            dry_run: true,
+            jobs: 1,
+            print_actions: false,
+        },
+        true,
+        false,
+    )
+    .unwrap();
+    let plan = request.plan(config, true).await.unwrap();
+    let SyncOutcome::Report(report) = plan.execute().await.unwrap() else {
+        panic!("跟踪路径的预览应返回报告");
+    };
+
+    assert!(report.dry_run);
+    assert_eq!(
+        (report.objects, report.downloaded, report.deleted),
+        (1, 1, 1)
+    );
+    assert!(report.changes.is_empty());
+    assert_eq!(report.plan.len(), 2);
+    assert!(
+        report
+            .plan
+            .iter()
+            .any(|item| item.path == "new.txt" && item.action == FileOperation::Download)
+    );
+    assert!(
+        report
+            .plan
+            .iter()
+            .any(|item| item.path == "extra.txt" && item.action == FileOperation::Delete)
+    );
+    assert_eq!(std::fs::read(&extra).unwrap(), b"keep");
+    assert!(!local.path().join("new.txt").exists());
+    listing.assert_calls(1);
+    download.assert_calls(0);
+}
+
+#[tokio::test]
+async fn explicit_download_action_resolves_path_and_preserves_cloud_mtime() {
+    use httpmock::prelude::*;
+    use serde_json::json;
+
+    let server = MockServer::start();
+    let listing = server.mock(|when, then| {
+        when.method(POST)
+            .path("/file/list")
+            .json_body_includes(r#"{"parentFileId":"/"}"#);
+        then.json_body(json!({"success": true, "data": {"items": [
+            {"fileId":"note","name":"note.txt","type":"file","size":3}
+        ]}}));
+    });
+    let link = server.mock(|when, then| {
+        when.method(POST)
+            .path("/file/getDownloadUrl")
+            .json_body(json!({"fileId":"note"}));
+        then.json_body(json!({"success": true, "data": {"url": server.url("/blob")}}));
+    });
+    let blob = server.mock(|when, then| {
+        when.method(GET).path("/blob");
+        then.body("abc");
+    });
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let local = tempdir().unwrap();
+    let local_abs = local.path().join("note.txt");
+    let mtime = 1_704_067_200;
+    let action = SyncAction::Download {
+        rel_path: "note.txt".into(),
+        remote_abs: "/note.txt".into(),
+        local_abs: local_abs.clone(),
+        size: 3,
+        cloud_mtime: Some(mtime),
+        change: ChangeKind::New,
+    };
+    let summary = execute_sync_actions(
+        &config,
+        vec![action],
+        SyncExecuteOptions {
+            dry_run: false,
+            jobs: 1,
+            print_actions: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (summary.transferred, summary.bytes, summary.failed),
+        (1, 3, 0)
+    );
+    assert_eq!(std::fs::read(&local_abs).unwrap(), b"abc");
+    let metadata = std::fs::metadata(&local_abs).unwrap();
+    assert_eq!(
+        filetime::FileTime::from_last_modification_time(&metadata).unix_seconds(),
+        mtime
+    );
+    listing.assert_calls(1);
+    link.assert_calls(1);
+    blob.assert_calls(1);
+}
 
 #[tokio::test]
 async fn test_execute_sync_actions_dry_run_counts_transfer_delete_and_skip() {

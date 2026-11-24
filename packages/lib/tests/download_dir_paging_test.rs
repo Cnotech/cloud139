@@ -102,7 +102,7 @@ async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
     cloud139::services::download::download(
         &config,
         "/file.txt",
-        target.to_str().unwrap(),
+        dir.path().to_str().unwrap(),
         None,
         false,
     )
@@ -112,6 +112,32 @@ async fn public_link_and_download_fall_back_when_cdn_link_is_empty() {
     listing.assert_calls(1);
     link.assert_calls(2);
     content.assert_calls(1);
+}
+
+#[tokio::test]
+async fn public_download_link_rejects_missing_url_and_missing_data() {
+    use cloud139::client::api::files::get_personal_download_link;
+
+    let server = MockServer::start();
+    let config = config_for(&server);
+    for (id, response, expected) in [
+        (
+            "empty-url",
+            json!({"success": true, "data": {"cdnUrl": "", "url": ""}}),
+            "URL为空",
+        ),
+        ("missing-data", json!({"success": true}), "无数据"),
+    ] {
+        let request = server.mock(|when, then| {
+            when.method(POST)
+                .path("/file/getDownloadUrl")
+                .json_body(json!({"fileId": id}));
+            then.json_body(response);
+        });
+        let error = get_personal_download_link(&config, id).await.unwrap_err();
+        assert!(matches!(error, ClientError::Api(message) if message.contains(expected)));
+        request.assert_calls(1);
+    }
 }
 
 #[tokio::test]

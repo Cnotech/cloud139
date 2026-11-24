@@ -99,6 +99,15 @@ impl HttpClientWrapper {
         &self,
         config: PersonalConfig<&Config>,
     ) -> Result<String, ClientError> {
+        self.resolve_personal_cloud_host_at(config, protocol::ROUTE_POLICY_URL)
+            .await
+    }
+
+    pub(crate) async fn resolve_personal_cloud_host_at(
+        &self,
+        config: PersonalConfig<&Config>,
+        route_url: &str,
+    ) -> Result<String, ClientError> {
         if let Some(ref host) = config.personal_cloud_host {
             debug!("使用缓存的个人云地址");
             return Ok(host.clone());
@@ -106,6 +115,7 @@ impl HttpClientWrapper {
 
         let host = query_route_policy(
             self,
+            route_url,
             &config.account,
             protocol::PERSONAL_ACCOUNT_TYPE,
             &config.authorization,

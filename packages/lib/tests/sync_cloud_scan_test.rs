@@ -4,7 +4,8 @@ use cloud139::models::sync_item::SyncDirection;
 use cloud139::services::sync::paths::normalize_cloud_path;
 use cloud139::services::sync::scan::{SyncScanOptions, personal_item_to_file_entry, scan_cloud};
 use cloud139::utils::remote_path::cloud_child_path;
-use httpmock::MockServer;
+use httpmock::{Method::POST, MockServer};
+use serde_json::json;
 
 #[tokio::test]
 async fn invalid_exclude_is_rejected_before_resolving_cloud_root() {
@@ -31,6 +32,102 @@ async fn invalid_exclude_is_rejected_before_resolving_cloud_root() {
     .expect("无效排除规则不应开始云端扫描");
     assert!(error.to_string().contains("无效 exclude glob"));
     requests.assert_calls(0);
+}
+
+#[tokio::test]
+async fn recursive_scan_rejects_missing_names_ids_and_conflicting_entries() {
+    for (items, expected) in [
+        (json!([{"fileId": "a", "type": "file"}]), "云端条目缺少名称"),
+        (
+            json!([{"name": "docs", "type": "folder"}]),
+            "云端目录缺少有效 ID: docs",
+        ),
+        (
+            json!([
+                {"fileId": "a", "name": "same.txt", "type": "file"},
+                {"fileId": "b", "name": "same.txt", "type": "file"},
+            ]),
+            "云端扫描返回了冲突的路径: same.txt",
+        ),
+        (
+            json!([
+                {"fileId": "same-id", "name": "a.txt", "type": "file"},
+                {"fileId": "same-id", "name": "b.txt", "type": "file"},
+            ]),
+            "云端扫描返回了重复的条目 ID: b.txt",
+        ),
+    ] {
+        let server = MockServer::start();
+        let listing = server.mock(|when, then| {
+            when.method(POST)
+                .path("/file/list")
+                .json_body_includes(r#"{"parentFileId":"/"}"#);
+            then.json_body(json!({"success": true, "data": {"items": items}}));
+        });
+        let config = Config {
+            personal_cloud_host: Some(server.base_url()),
+            ..Config::default()
+        };
+        let error = scan_cloud(
+            &config,
+            "/",
+            &SyncScanOptions {
+                recursive: true,
+                exclude: vec![],
+            },
+            SyncDirection::CloudToLocal,
+        )
+        .await
+        .err()
+        .expect("异常列表应使同步扫描失败");
+
+        assert_eq!(error.to_string(), expected);
+        listing.assert_calls(1);
+    }
+}
+
+#[tokio::test]
+async fn recursive_scan_visits_duplicate_directory_entries_once() {
+    let server = MockServer::start();
+    let root = server.mock(|when, then| {
+        when.method(POST)
+            .path("/file/list")
+            .json_body_includes(r#"{"parentFileId":"/"}"#);
+        let folder = json!({"fileId": "docs-id", "name": "docs", "type": "folder"});
+        then.json_body(json!({"success": true, "data": {"items": [folder, folder]}}));
+    });
+    let nested = server.mock(|when, then| {
+        when.method(POST)
+            .path("/file/list")
+            .json_body_includes(r#"{"parentFileId":"docs-id"}"#);
+        then.json_body(json!({"success": true, "data": {"items": [
+            {"fileId": "note-id", "name": "note.txt", "type": "file"}
+        ]}}));
+    });
+    let config = Config {
+        personal_cloud_host: Some(server.base_url()),
+        ..Config::default()
+    };
+    let scan = scan_cloud(
+        &config,
+        "/",
+        &SyncScanOptions {
+            recursive: true,
+            exclude: vec![],
+        },
+        SyncDirection::CloudToLocal,
+    )
+    .await
+    .unwrap();
+
+    let paths: Vec<_> = scan
+        .items
+        .iter()
+        .map(|item| item.rel_path.as_str())
+        .collect();
+    assert_eq!(paths, ["docs", "docs/note.txt"]);
+    root.assert_calls(1);
+    nested.assert_calls(1);
 }
 
 fn item(

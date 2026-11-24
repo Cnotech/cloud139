@@ -5,6 +5,7 @@ use crate::protocol;
 
 pub(super) async fn query_route_policy(
     client: &HttpClientWrapper,
+    route_url: &str,
     account: &str,
     account_type: i32,
     authorization: &str,
@@ -20,7 +21,7 @@ pub(super) async fn query_route_policy(
     let response: QueryRoutePolicyResp = client
         .signed_post(
             authorization,
-            protocol::ROUTE_POLICY_URL,
+            route_url,
             "/user/route/qryRoutePolicy",
             &body,
             build_route_headers,

@@ -270,7 +270,7 @@ pub async fn get_upload_urls(
 
 #[cfg(test)]
 mod tests {
-    use super::UploadFile;
+    use super::{UploadFile, get_content_type};
     use crate::client::api::headers::PC_CLIENT_INFO;
     use crate::client::api::personal::client::{ListingRetry, PersonalClient};
     use crate::client::http::HttpClientWrapper;
@@ -278,6 +278,65 @@ mod tests {
     use crate::models::upload::UploadLayout;
     use httpmock::prelude::*;
     use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn recognized_upload_extensions_map_to_content_types() {
+        for (name, expected) in [
+            ("page.html", "text/html"),
+            ("page.htm", "text/html"),
+            ("style.css", "text/css"),
+            ("script.js", "application/javascript"),
+            ("data.json", "application/json"),
+            ("data.xml", "application/xml"),
+            ("report.pdf", "application/pdf"),
+            ("archive.zip", "application/zip"),
+            ("archive.tar", "application/x-tar"),
+            ("archive.gz", "application/gzip"),
+            ("image.png", "image/png"),
+            ("image.jpeg", "image/jpeg"),
+            ("image.gif", "image/gif"),
+            ("image.bmp", "image/bmp"),
+            ("image.svg", "image/svg+xml"),
+            ("audio.mp3", "audio/mpeg"),
+            ("video.mp4", "video/mp4"),
+            ("video.avi", "video/x-msvideo"),
+            ("video.mov", "video/quicktime"),
+            ("unknown", "application/octet-stream"),
+        ] {
+            assert_eq!(get_content_type(Path::new(name)), expected, "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_url_request_preserves_service_error() {
+        let server = MockServer::start();
+        let request = server.mock(|when, then| {
+            when.method(POST)
+                .path("/file/getUploadUrl")
+                .json_body_includes(r#"{"fileId":"file","uploadId":"upload"}"#);
+            then.json_body(
+                json!({"success": false, "code": "denied", "message": "无法分配分片地址"}),
+            );
+        });
+        let config = crate::config::Config::default();
+        let client = HttpClientWrapper::new();
+        let personal = PersonalClient::with_host(
+            PersonalConfig::new(&config).unwrap(),
+            server.base_url(),
+            &client,
+            ListingRetry::None,
+        );
+        let error = personal
+            .upload_urls("file", "upload", 0..1, UploadLayout::new(1, 1).unwrap())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "API 错误: 获取分片上传地址失败: 无法分配分片地址（错误码: denied）"
+        );
+        request.assert_calls(1);
+    }
 
     #[tokio::test]
     async fn large_upload_initialization_uses_pc_identity_and_preserves_entitlement_errors() {
