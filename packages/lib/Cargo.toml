@@ -3,7 +3,7 @@ name = "cloud139"
 description = "Rust client for China Mobile Cloud Drive"
 license = "MIT"
 repository = "https://github.com/Cnotech/cloud139"
-version = "3.0.0"
+version.workspace = true
 edition = "2024"
 rust-version = "1.88"
 

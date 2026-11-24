@@ -1,6 +1,6 @@
 ---
 name: bump-version
-description: 更新 cloud139 CLI 版本和锁文件，提交并打标签
+description: 同步更新 cloud139 库和 CLI 的工作区版本及锁文件，提交并打标签
 license: MIT
 compatibility: opencode
 metadata:
@@ -10,18 +10,18 @@ metadata:
 
 ## 功能描述
 
-更新 cloud139 CLI 的版本号，包括：
+同步更新 `cloud139` 库和 `cloud139-cli` 的版本号：
 - 根据用户选择增加 major、minor 或 patch 版本位
-- 更新 `packages/cli/Cargo.toml` 中的版本号
+- 更新根目录 `Cargo.toml` 中的工作区版本和 CLI 对库的版本约束
 - 运行 `cargo update --workspace`，将工作区版本写入 `Cargo.lock`
-- 提交 `packages/cli/Cargo.toml` 和 `Cargo.lock`
+- 提交根目录的 `Cargo.toml` 和 `Cargo.lock`
 - 创建并推送 Git tag
 
 ## 执行流程
 
 ### 1. 读取当前版本
 
-读取 `packages/cli/Cargo.toml` 的 `[package].version`，解析并打印 CLI 当前版本号（格式 `x.y.z`）。
+读取根目录 `Cargo.toml` 的 `[workspace.package].version`，解析并打印当前版本号（格式 `x.y.z`）。库和 CLI 都通过 `version.workspace = true` 继承该值。
 
 ### 2. 询问用户
 
@@ -37,7 +37,7 @@ metadata:
 - 选择 minor: x.y+1.0
 - 选择 patch: x.y.z+1
 
-将新版本号写入 `packages/cli/Cargo.toml` 的 `[package].version`。
+在根目录 `Cargo.toml` 中，将 `[workspace.package].version` 和 `[workspace.dependencies]` 下 `cloud139` 的 `version` 更新为相同的新版本号。依赖的版本约束用于打包 CLI，`path` 用于从工作区构建。
 
 ### 4. 运行 cargo update
 
@@ -50,9 +50,9 @@ cargo update --workspace
 
 ### 5. Git 提交
 
-提交 CLI 的 Cargo.toml 和 workspace 的 Cargo.lock：
+提交根目录的 `Cargo.toml` 和 `Cargo.lock`：
 ```bash
-git add packages/cli/Cargo.toml Cargo.lock
+git add Cargo.toml Cargo.lock
 git commit -m "chore: bump version to v{x.y.z}"
 ```
 

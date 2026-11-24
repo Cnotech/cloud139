@@ -1,11 +1,11 @@
 [package]
 name = "cloud139-cli"
-version = "3.0.2"
+version.workspace = true
 edition = "2024"
 rust-version = "1.88"
 
 [dependencies]
-cloud139 = { path = "../lib", version = "3.0.0" }
+cloud139.workspace = true
 clap = { version = "4.6", features = ["derive"] }
 anstream = "1"
 anyhow = "1"

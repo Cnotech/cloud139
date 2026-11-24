@@ -2,3 +2,9 @@
 members = ["packages/cli", "packages/lib"]
 default-members = ["packages/cli"]
 resolver = "3"
+
+[workspace.package]
+version = "3.0.2"
+
+[workspace.dependencies]
+cloud139 = { path = "packages/lib", version = "3.0.2" }
