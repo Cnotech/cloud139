@@ -2,7 +2,7 @@
 
 139云盘（移动云盘）命令行客户端，支持文件上传、下载、管理等操作。
 
-> 当前仅支持个人云。家庭云、和家亲、群组盘及其他存储类型统一返回“未实现：当前仅支持个人云”。
+> 当前仅支持个人云。家庭云、和家亲、群组盘及其他存储类型会统一返回“未实现：当前仅支持个人云”。
 
 ## 功能特性
 
@@ -77,12 +77,6 @@ cloud139 download /file.txt ./downloads/myfile.txt
 # 删除文件
 cloud139 rm /file.txt -y
 
-# 删除目录
-cloud139 rm -r --yes /folder
-
-# 创建目录
-cloud139 mkdir /parent/newFolder
-
 # 移动单个文件
 cloud139 mv /old.txt /existing-directory/
 
@@ -97,30 +91,46 @@ cloud139 cp /file1.txt /file2.txt /backup/
 
 # 重命名文件
 cloud139 rename /oldname.txt newname.txt
-
-# 本地到云端同步（递归）
-cloud139 sync ./local/path cloud:/remote/path -r
-
-# 云端到本地同步（递归）
-cloud139 sync cloud:/remote/path ./local/path -r
 ```
 
-## 目录操作
+目录也可以直接上传、下载、复制、移动和删除。上传路径末尾的 `/` 决定是否包含源目录名，下载时则根据目标路径决定写入位置。
 
 ```bash
-# 上传目录本身：/backup/photos/<子项>；自动创建缺失目录
+# 上传到 /backup/photos，自动创建缺失的目录
 cloud139 upload ./photos /backup
-# 仅上传内容：/backup/<子项>（注意本地参数末尾 /）
+
+# 将 photos 的内容直接上传到 /backup
 cloud139 upload ./photos/ /backup
-# 目录下载到新的 ./photos；已有目标目录或末尾 / 表示在其中保留源目录名
+
+# 将目录内容下载到尚不存在的 ./photos
 cloud139 download -r /backup/photos ./photos
+
+# 下载到 ./downloads/photos，保留源目录名
 cloud139 download -r /backup/photos ./downloads/
+
+# 递归列出目录并遍历全部分页
 cloud139 ls -R /backup
+
+# 将各目录的列表保存为 JSON
 cloud139 ls -R /backup -o tree.json
+
+# 创建目录及缺失的父目录
 cloud139 mkdir -p /a/b/empty
+
+# 复制目录到已有目录
 cloud139 cp /backup/photos /existing-destination/
+
+# 移动目录到已有目录
 cloud139 mv /backup/photos /existing-destination/
+
+# 将目录及其内容移到回收站
 cloud139 rm -r --yes /a
+
+# 将本地目录递归同步到云端
+cloud139 sync ./local/path cloud:/remote/path -r
+
+# 将云端目录递归同步到本地
+cloud139 sync cloud:/remote/path ./local/path -r
 ```
 
 目录上传会逐个处理文件，包括与云端同名且同大小的文件。已有同名文件默认报错。`--force` 允许云端为新文件分配名称。
@@ -403,70 +413,40 @@ cloud139 rename /folder/old newname
 
 ### sync
 
-同步本地目录和云端目录。
-
-同步到云盘时，先上传并确认新文件，再替换云端的同名文件或目录。即使启用了 `--delete`，待替换目录及其中的内容也会保留到替换成功。更新期间，云盘需要同时容纳新旧两份内容。替换失败时，报错会列出保留的临时副本或备份。
-
-单个文件传输失败后，同步会继续处理其他文件。执行计划时如有操作失败，退出码为 1。
-
-用文件替换云端同名目录需要 `-r`，且该目录及其后代都须纳入本轮同步范围。替换前会复核该目录的内容。本地目标出现文件与目录类型冲突，或本地目录与云端同名文件冲突时，同步会保留原条目并报告错误。云端到本地同步还会在传输前检查大小写及 Unicode 名称冲突。`sync --delete` 会保留 `.cloud139-upload-` 和 `.cloud139-backup-` 开头的恢复条目，以及包含这些条目的目录。替换失败后可按报错提示核对并手动恢复这些副本。
-
-普通 `--delete` 在建目录和传输全部成功后才开始清理。清理逐项复核扫描时的对象，先处理子项，再处理确认已空的目录。发现变更或删除失败会停止后续清理。单文件可上传同步到云端目录，使用目录作为源才能启用 `--delete`。
-
-`--verify` 仅支持本地到云端，固定串行。它用 SHA-256 识别大小相同但内容不同的文件。跳过判定以初始扫描为准。远端未提供可比的 SHA-256 时，同步按扫描得到的文件 ID 读取内容计算哈希。这可能增加下载流量和耗时。上传前复核目标，替换前校验新上传的临时副本。
-
-`--verify --delete` 要求同步范围内至少有一个源文件，只清理初始扫描中目标端多余的文件。所有校验和更新通过后，同步会对待删除文件所在的目录复核保留文件和待删除文件的 ID，以及沿用初始扫描的文件元数据，再开始清理；其他目录的保留文件变化不再阻止清理。回收安全性由每个待删项提交前的全路径确认、重新列目录和逐项核对 ID、名称保证，与无关目录的保留文件无关。发现目标变更或删除失败时，已完成的删除保留，剩余删除停止。
-
-`--json` 在执行或预览结束后向标准输出写一行同步报告，日志写到标准错误。普通同步和 `--verify` 都支持这个选项。
-
-- `source` 和 `destination` 是命令中的源路径和目标路径。`changes` 列出目标端已确认的文件变更，包含相对路径 `path` 和操作 `action`（`upload`、`download` 或 `delete`）。用文件替换云端同名目录时，原目录下移出目标路径的文件也计入删除。
-- `-n` 将 `dryRun` 设为 `true`，预览操作写在 `plan` 中，`changes` 为空。待内容校验的文件用 `verify` 标记，上传、下载和删除的计数表示计划中的文件数。
-- `objects` 是源文件数，`uploaded`、`downloaded`、`deleted` 和 `skipped` 按文件计数。`hashMissing` 记录因缺少可比哈希而需要读取云端内容的文件数，`seconds` 是执行或预览用时。
-- `failures` 每项包含 `path`、`error` 和 `retries`。执行中有失败时仍会报告已确认的变更，并返回退出码 1。参数、配置或初始扫描报错时，通过标准错误和退出码查看原因。
+在本地和云端之间单向同步目录，也可将本地单个文件同步到云端目录。云端路径使用 `cloud:` 前缀，例如 `cloud:/backup`，云端同步根目录须已存在。
 
 ```bash
 cloud139 sync <源路径> <目标路径> [选项]
 ```
 
-**同步方向：**
-
-> 云端路径需使用 `cloud:` 前缀标识。
-
-- **本地 → 云端**：`cloud139 sync <本地路径> cloud:/<远程路径>`
-- **云端 → 本地**：`cloud139 sync cloud:/<远程路径> <本地路径>`
-
 **参数说明：**
 
 | 参数 | 简写 | 必填 | 说明 |
 |------|------|------|------|
-| 源路径 | - | 是 | 本地路径或云端路径（cloud:/path） |
+| 源路径 | - | 是 | 本地路径或云端目录 |
 | 目标路径 | - | 是 | 本地路径或云端路径 |
 | --recursive | -r | 否 | 递归同步子目录，空目录也会同步 |
-| --dry-run | -n | 否 | 预览同步计划，成功时退出码为 0。扫描前仍可能按需续期凭据 |
-| --delete | - | 否 | 清理目标中多余的文件和空目录。校验模式只清理文件 |
+| --dry-run | -n | 否 | 预览同步计划。扫描前仍可能按需续期凭据 |
+| --delete | - | 否 | 源须为目录。同步成功后清理目标中多余的文件和空目录。与 `--verify` 同用时，要求同步范围内至少有一个源文件且只清理文件 |
 | --exclude | - | 否 | 排除匹配的路径（glob 模式），可多次指定 |
 | --jobs | -j | 否 | 同时传输的文件数，范围 1 到 32。默认 4，校验模式固定为 1 |
-| --verify | - | 否 | 仅在本地到云端同步时校验内容并修复不一致的文件 |
-| --json | - | 否 | 以 JSON 报告本次同步的文件变更 |
+| --verify | - | 否 | 仅支持本地到云端，使用 SHA-256 校验内容并修复不一致的文件 |
+| --json | - | 否 | 向标准输出写一行 JSON 报告，日志写到标准错误 |
 
 **示例：**
 
 ```bash
-# 本地到云端同步（递归、删除目标多余文件、8并发）
-cloud139 sync ./backup cloud:/backup -r --delete -j 8
-
-# 校验备份内容，确认全部更新成功后清理多余文件
-cloud139 sync ./backup cloud:/backup -r --verify --delete
-
-# 同步并保存文件变更报告
-cloud139 sync ./backup cloud:/backup -r --json > sync-report.json
+# 递归同步到云端
+cloud139 sync ./backup cloud:/backup -r
 
 # 预览云端到本地的同步计划
 cloud139 sync cloud:/photos ./photos -r -n
 
-# 排除特定文件或目录
-cloud139 sync . cloud:/project -r -n --exclude '.git/**' --exclude 'target/**'
+# 校验备份内容，更新成功后清理多余文件并保存报告
+cloud139 sync ./backup cloud:/backup -r --verify --delete --json > sync-report.json
 ```
+
+替换与清理规则、退出码和 JSON 报告字段见 [同步与清理](docs/directory-operations.md#同步与清理)。
 
 ## 配置文件
 
@@ -500,47 +480,36 @@ token_expire_time = 1775454807088
 | `refresh_token` | String | 刷新Token，用于自动续期 |
 | `token_expire_time` | Number | Token过期时间（毫秒时间戳） |
 
-## Rust 库
+## 以 crate 形式使用
 
-在其他 Rust 项目的 `Cargo.toml` 中加入依赖，路径指向检出的库目录。
+在 Rust 项目的 `Cargo.toml` 中加入 `cloud139` 库依赖，`path` 指向本地检出的 `packages/lib` 目录。异步接口在 Tokio 运行时中调用。
 
 ```toml
 [dependencies]
 cloud139 = { path = "../cloud139/packages/lib" }
+tokio = { version = "1", features = ["macros", "rt"] }
 ```
 
+以下示例读取 `cloud139 login` 生成的配置，并列出云盘目录的第一页。
+
 ```rust,no_run
-use cloud139::{
-    config::Config,
-    services::list::{ListOptions, ListResult, list},
-};
+use cloud139::config::Config;
+use cloud139::services::list::{ListOptions, list};
 use std::path::Path;
 
-async fn list_backup() -> Result<ListResult, Box<dyn std::error::Error>> {
-    let config = Config::load_from_path(Path::new("backup-account.toml"))?;
-    Ok(list(&config, ListOptions { path: "/backup", page: 1, page_size: 100 }).await?)
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::load_from_path(Path::new("cloud139rc.toml"))?;
+    let options = ListOptions {
+        path: "/",
+        page: 1,
+        page_size: 100,
+    };
+    for item in list(&config, options).await?.items {
+        println!("{}", item.name);
+    }
+    Ok(())
 }
 ```
 
-每次读取、保存或发起操作都可以指定自己的配置。库的登录和续期接口返回 `Config`，由调用方决定何时保存。异步云盘操作运行在 Tokio 上。库通过 `log` 发出日志，宿主可选择如何接收。多个进程需要对同一份文件执行读改写时，由宿主负责跨进程协调。CLI 使用配置锁串行执行续期和写回。
-
-## 项目结构
-
-| Package | 位置 | 职责 |
-|---------|------|------|
-| `cloud139-cli` | `packages/cli` | CLI、配置路径选择和跨进程锁、终端和 JSON 输出 |
-| `cloud139` | `packages/lib` | 认证、配置读写、云盘请求和文件操作 |
-
-## 技术栈
-
-- [Rust](https://www.rust-lang.org/) - 编程语言
-- [clap](https://docs.rs/clap/) - CLI 参数解析
-- [reqwest](https://docs.rs/reqwest/) - HTTP 客户端
-- [tokio](https://tokio.rs/) - 异步运行时
-- [serde](https://serde.rs/) - 序列化/反序列化
-- [chrono](https://chrono.rs/) - 日期时间处理
-- [directories](https://docs.rs/directories/) - 目录路径处理
-
-## 许可证
-
-MIT License - see [LICENSE](LICENSE) 文件
+`services::login::login` 也可直接用 Token 获取配置。登录和续期接口返回 `Config`，由调用方通过 `Config::save_to` 保存到指定路径。库通过 `log` 发出日志，多个进程读改写同一份配置文件时由调用方协调。
